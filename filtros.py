@@ -34,55 +34,75 @@ def construir_menu_semanas(datas_unicas):
             semana_count += 1
     return dicionario_semanas
 
-def renderizar(df_nuvem):
-    if df_nuvem.empty:
-        return None
-
-    # Busca a memória eterna do Banco de Dados
+def obter_filtros_atuais():
     cfg = banco.obter_configuracoes()
+    return {
+        'sem': cfg.get('f_sem', '[ Todas ]'),
+        'de': cfg.get('f_de', '[ Todas ]'),
+        'ate': cfg.get('f_ate', '[ Todas ]'),
+        'setor': cfg.get('f_setor', '[ Todos ]'),
+        'maquina': cfg.get('f_maq', '[ Todas ]'),
+        'tipo': cfg.get('f_tipo', 'Parado')
+    }
 
+def salvar_filtros_global():
+    try:
+        supa = banco.conectar()
+        dados = {
+            "f_sem": st.session_state.get('g_sem', '[ Todas ]'),
+            "f_de": st.session_state.get('g_de', '[ Todas ]'),
+            "f_ate": st.session_state.get('g_ate', '[ Todas ]'),
+            "f_setor": st.session_state.get('g_setor', '[ Todos ]'),
+            "f_maq": st.session_state.get('g_maq', '[ Todas ]'),
+            "f_tipo": st.session_state.get('g_tipo', 'Parado')
+        }
+        supa.table("configuracoes").update(dados).eq("id", 1).execute()
+    except: pass
+
+# ---> NOVA FUNÇÃO: Renderiza apenas o Setor para colocar fora das abas
+def renderizar_filtro_setor(df_nuvem):
+    if df_nuvem.empty: return
+    cfg = banco.obter_configuracoes()
+    if 'g_setor' not in st.session_state: st.session_state.g_setor = cfg.get('f_setor', '[ Todos ]')
+    
+    list_setores = ["[ Todos ]"] + sorted(df_nuvem['setor'].unique().tolist())
+    if st.session_state.g_setor not in list_setores: st.session_state.g_setor = "[ Todos ]"
+    
+    st.selectbox("🏭 Setor Analisado:", list_setores, key='g_setor', on_change=salvar_filtros_global)
+
+def renderizar_ui(df_nuvem):
+    if df_nuvem.empty:
+        st.info("Importe dados de produção para visualizar os filtros.")
+        return
+
+    cfg = banco.obter_configuracoes()
     df_nuvem['data_registro_fmt'] = pd.to_datetime(df_nuvem['data_registro']).dt.strftime('%Y-%m-%d')
     datas_lista = sorted(df_nuvem['data_registro_fmt'].unique().tolist())
     ultima_data = datas_lista[-1] if datas_lista else "[ Todas ]"
     
-    # INICIALIZA A MEMÓRIA BASEADA NO BANCO DE DADOS
     if 'g_sem' not in st.session_state: st.session_state.g_sem = cfg.get('f_sem', '[ Todas ]')
     if 'g_de' not in st.session_state: st.session_state.g_de = cfg.get('f_de', '[ Todas ]')
     if 'g_ate' not in st.session_state: st.session_state.g_ate = cfg.get('f_ate', '[ Todas ]')
-    if 'g_setor' not in st.session_state: st.session_state.g_setor = cfg.get('f_setor', '[ Todos ]')
     if 'g_maq' not in st.session_state: st.session_state.g_maq = cfg.get('f_maq', '[ Todas ]')
     if 'g_tipo' not in st.session_state: st.session_state.g_tipo = cfg.get('f_tipo', 'Parado')
 
     dict_semanas = construir_menu_semanas(datas_lista)
 
-    # FUNÇÃO QUE SALVA NO BANCO SEMPRE QUE UM FILTRO É MEXIDO
-    def salvar_filtros():
-        try:
-            supa = banco.conectar()
-            dados = {
-                "f_sem": st.session_state.g_sem,
-                "f_de": st.session_state.g_de,
-                "f_ate": st.session_state.g_ate,
-                "f_setor": st.session_state.g_setor,
-                "f_maq": st.session_state.g_maq,
-                "f_tipo": st.session_state.g_tipo
-            }
-            supa.table("configuracoes").update(dados).eq("id", 1).execute()
-        except:
-            pass
-
     def set_ultimo_dia():
         st.session_state.g_de = ultima_data
         st.session_state.g_ate = ultima_data
         st.session_state.g_sem = "[ Todas ]"
-        salvar_filtros()
+        salvar_filtros_global()
 
-    col_espaco, col_btn = st.columns([8, 1.5])
-    with col_btn:
-        st.button("📅 Último Dia", on_click=set_ultimo_dia, use_container_width=True)
+    st.markdown("### 🔍 Filtros de Visualização")
+    st.markdown("As configurações selecionadas aqui serão aplicadas a todas as abas.")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 1, 1.2, 1.2, 1.2])
-    
+    col_btn1, col_btn2, col_btn3 = st.columns([3, 3, 2])
+    with col_btn3:
+        st.button("📅 Selecionar Último Dia", on_click=set_ultimo_dia, use_container_width=True)
+
+    c1, c2, c3 = st.columns(3)
     def callback_semana():
         esc = st.session_state.g_sem
         if esc != "[ Todas ]" and "---" not in esc:
@@ -90,43 +110,71 @@ def renderizar(df_nuvem):
             fim = dict_semanas[esc]['fim']
             st.session_state.g_de = inicio if inicio in datas_lista else datas_lista[0] 
             st.session_state.g_ate = fim if fim in datas_lista else datas_lista[-1] 
-        salvar_filtros()
+        salvar_filtros_global()
             
     with c1: 
         if st.session_state.g_sem not in list(dict_semanas.keys()): st.session_state.g_sem = "[ Todas ]"
-        st.selectbox("Semana:", list(dict_semanas.keys()), key='g_sem', on_change=callback_semana)
-    
+        st.selectbox("Período da Semana:", list(dict_semanas.keys()), key='g_sem', on_change=callback_semana)
     with c2: 
         if st.session_state.g_de not in ["[ Todas ]"] + datas_lista: st.session_state.g_de = "[ Todas ]"
-        st.selectbox("De:", ["[ Todas ]"] + datas_lista, key='g_de', on_change=salvar_filtros)
-        
+        st.selectbox("Data Inicial (De):", ["[ Todas ]"] + datas_lista, key='g_de', on_change=salvar_filtros_global)
     with c3: 
         if st.session_state.g_ate not in ["[ Todas ]"] + datas_lista: st.session_state.g_ate = "[ Todas ]"
-        st.selectbox("Até:", ["[ Todas ]"] + datas_lista, key='g_ate', on_change=salvar_filtros)
+        st.selectbox("Data Final (Até):", ["[ Todas ]"] + datas_lista, key='g_ate', on_change=salvar_filtros_global)
         
-    with c4: 
-        list_setores = ["[ Todos ]"] + sorted(df_nuvem['setor'].unique().tolist())
-        if st.session_state.g_setor not in list_setores: st.session_state.g_setor = "[ Todos ]"
-        st.selectbox("Setor:", list_setores, key='g_setor', on_change=salvar_filtros)
-        
-    with c5:
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # REMOVIDO O SETOR DAQUI, AGORA SÃO APENAS 2 COLUNAS
+    c4, c5 = st.columns(2)
+    with c4:
         maq_base = df_nuvem['maquina'] if st.session_state.g_setor == "[ Todos ]" else df_nuvem[df_nuvem['setor'] == st.session_state.g_setor]['maquina']
         list_maq = ["[ Todas ]"] + sorted(maq_base.unique().tolist())
-        # Proteção: se mudar de setor e a máquina não existir, volta pra Todas
         if st.session_state.g_maq not in list_maq: st.session_state.g_maq = "[ Todas ]"
-        st.selectbox("Máquina:", list_maq, key='g_maq', on_change=salvar_filtros)
-        
-    with c6: 
+        st.selectbox("Filtro por Máquina:", list_maq, key='g_maq', on_change=salvar_filtros_global)
+    with c5: 
         list_tipos = ["[ Todos ]", "Parado", "Trabalhando"]
         if st.session_state.g_tipo not in list_tipos: st.session_state.g_tipo = "Parado"
-        st.selectbox("Tipo:", list_tipos, key='g_tipo', on_change=salvar_filtros)
+        st.selectbox("Visualização (Tipo):", list_tipos, key='g_tipo', on_change=salvar_filtros_global)
+        # ... (mantenha todo o código existente do filtros.py acima) ...
 
-    st.markdown("---")
+def renderizar_cabecalho_global(titulo_modulo):
+    """Função reutilizável para gerar os títulos e períodos em qualquer aba"""
+    cfg = banco.obter_configuracoes()
+    setor = st.session_state.get('g_setor', cfg.get('f_setor', '[ Todos ]'))
+    maquina = st.session_state.get('g_maq', cfg.get('f_maq', '[ Todas ]'))
+    semana = st.session_state.get('g_sem', cfg.get('f_sem', '[ Todas ]'))
+    de = st.session_state.get('g_de', cfg.get('f_de', '[ Todas ]'))
+    ate = st.session_state.get('g_ate', cfg.get('f_ate', '[ Todas ]'))
 
-    return {
-        'de': st.session_state.g_de,
-        'ate': st.session_state.g_ate,
-        'setor': st.session_state.g_setor,
-        'maquina': st.session_state.g_maq,
-        'tipo': st.session_state.g_tipo
-    }
+    # Lógica do Título Principal
+    if maquina != "[ Todas ]":
+        local = maquina
+    elif setor != "[ Todos ]":
+        local = f"Setor {setor}"
+    else:
+        local = "Fábrica Geral"
+
+    titulo_final = f"{titulo_modulo} — {local}"
+
+    # Lógica do Subtítulo (Período)
+    if semana != "[ Todas ]" and "---" not in semana:
+        periodo_str = semana
+    else:
+        if de == ate and de != "[ Todas ]":
+            d_fmt = pd.to_datetime(de).strftime('%d/%m/%Y')
+            periodo_str = f"Dia: {d_fmt}"
+        elif de != "[ Todas ]" and ate != "[ Todas ]":
+            d_fmt = pd.to_datetime(de).strftime('%d/%m/%Y')
+            a_fmt = pd.to_datetime(ate).strftime('%d/%m/%Y')
+            periodo_str = f"Período: {d_fmt} a {a_fmt}"
+        else:
+            periodo_str = "Todo o Período"
+
+    # Renderiza em HTML centralizado (Tema Claro)
+    html = f"""
+    <div style="text-align: center; margin-bottom: 30px; margin-top: 10px;">
+        <h2 style="color: #2c3e50; margin-bottom: 5px; font-weight: bold;">{titulo_final}</h2>
+        <h5 style="color: #e67e22; margin-top: 0;">📅 {periodo_str}</h5>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
