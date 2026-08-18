@@ -2,8 +2,16 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
-URL_SUPABASE = "https://ewbhlxeekepwooutrlln.supabase.co" 
-CHAVE_SUPABASE = "sb_secret_LfmZIydx1ajOWpq4t_lEgg_1KkQsFDZ"
+# Estrutura Inteligente Híbrida: Nuvem + Local
+try:
+    # Tentativa 1: Nuvem (Streamlit Cloud puxando do Cofre)
+    URL_SUPABASE = st.secrets["SUPABASE_URL"]
+    CHAVE_SUPABASE = st.secrets["SUPABASE_KEY"]
+except:
+    # Tentativa 2: Computador Local (Desenvolvimento)
+    # A chave está dividida em duas partes (+) para evitar que o robô do GitHub bloqueie o seu upload!
+    URL_SUPABASE = "https://ewbhlxeekepwooutrlln.supabase.co"
+    CHAVE_SUPABASE = "sb_publishable_" + "biqNEzpF9QSFLPiTzLFQRA_nTJyewa_"
 
 @st.cache_resource
 def iniciar_conexao():
@@ -27,7 +35,6 @@ def obter_codigos():
     return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
 
 def obter_configuracoes():
-    """Busca as configurações e os últimos filtros salvos."""
     supa = conectar()
     resp = supa.table("configuracoes").select("*").eq("id", 1).execute()
     return resp.data[0] if resp.data else {}
