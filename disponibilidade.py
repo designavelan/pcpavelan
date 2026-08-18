@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import banco
-import filtros # Importando o módulo global que contém a função do cabeçalho
+import filtros
 
 def classificar_status(row):
     cod = str(row['cod_ocorrencia']).strip().lower()
@@ -13,20 +13,19 @@ def classificar_status(row):
     if tipo == 'PARADO': return 'Parado'
     return 'Trabalhando'
 
-def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666"):
+# === ALTERAÇÃO: Função agora aceita 'cor_titulo' separada da 'cor_secundaria' ===
+def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666", cor_titulo="#777777"):
     html = f"""
     <div style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 100%;">
-        <p style="margin: 0 0 5px 0; color: #777777; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">{titulo}</p>
+        <p style="margin: 0 0 5px 0; color: {cor_titulo}; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">{titulo}</p>
         <h2 style="margin: 0; color: #222222; font-size: 38px; font-weight: 800;">{valor_principal}</h2>
         <p style="margin: 5px 0 0 0; color: {cor_secundaria}; font-size: 16px; font-weight: bold;">{valor_secundario}</p>
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
 
-# O parâmetro de filtros foi renomeado para filtros_selecionados para não dar conflito com o "import filtros"
 def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, meta_disp):
     
-    # CHAMA O CABEÇALHO GLOBAL NO TOPO DA ABA
     filtros.renderizar_cabecalho_global("Disponibilidade")
 
     df_nuvem['data_registro'] = pd.to_datetime(df_nuvem['data_registro']).dt.strftime('%Y-%m-%d')
@@ -54,12 +53,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
         st.warning("⚠️ Nenhum dado encontrado para esta combinação de filtros.")
         return
 
-    # ==========================================
-    # DICIONÁRIO MESTRE DE CORES (Sincronizador)
+    # O "dicionário" (mapa) que guarda a cor oficial de cada máquina
     lista_alfabetica_maq = sorted(df_filt['maquina'].unique())
     paleta_cores = px.colors.qualitative.Plotly * 10
     mapa_cores_mestre = {maq: paleta_cores[i] for i, maq in enumerate(lista_alfabetica_maq)}
-    # ==========================================
 
     dias_reais = df_filt['data_registro'].nunique()
     if dias_reais == 0: dias_reais = 1
@@ -100,17 +97,30 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
     tot_view_kpi = df_maq['Parado_View'].sum() if sel_tipo == "Parado" else (df_maq['Trabalhando_View'].sum() if sel_tipo == "Trabalhando" else df_maq['Parado'].sum())
     titulo_kpi = "Total Horas Perdidas" if sel_tipo != "Trabalhando" else "Total Horas Trabalhadas"
 
+    # === ALTERAÇÃO: Inteligência das Cores ===
+    # Busca a cor exata da máquina no dicionário (ou usa cinza #555 se der algo errado)
+    cor_melhor_maq = mapa_cores_mestre.get(melhor_maq, "#555")
+    cor_pior_maq = mapa_cores_mestre.get(pior_maq, "#555")
+
     k1, k2, k3, k4 = st.columns(4)
-    with k1: criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555")
-    with k2: criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", "#2ecc71")
-    with k3: criar_cartao("Menor Disponibilidade", f"{pior_val:.1f}%", f"⚠️ {pior_maq}", "#e74c3c")
-    with k4: criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), "No Período", "#555")
+    # Passamos os dois parâmetros de cor: (..., cor_secundaria, cor_titulo)
+    with k1: criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555", "#777777")
+    
+    # Título Verde (#2ecc71) / Nome da Máquina com a cor dela (cor_melhor_maq)
+    with k2: criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", cor_melhor_maq, "#2ecc71")
+    
+    # Título Vermelho (#e74c3c) / Nome da Máquina com a cor dela (cor_pior_maq)
+    with k3: criar_cartao("Menor Disponibilidade", f"{pior_val:.1f}%", f"⚠️ {pior_maq}", cor_pior_maq, "#e74c3c")
+    
+    with k4: criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), "No Período", "#555", "#777777")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     g1, g2 = st.columns(2)
     with g1:
-        st.markdown("#### Ranking de Disponibilidade por Máquina")
+        texto_dias = f"{dias_reais} Dia{'s' if dias_reais > 1 else ''}"
+        st.markdown(f"#### Ranking de Disponibilidade por Máquina — {texto_dias}")
+        
         fig_bar = go.Figure()
         
         fig_bar.add_trace(go.Bar(

@@ -54,15 +54,11 @@ def renderizar():
             st.markdown(f'<img src="data:image/png;base64,{logo_atual}" style="max-height: 60px; margin-bottom: 10px; border-radius: 5px;">', unsafe_allow_html=True)
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
-        # =======================================================
-        # INICIALIZAÇÃO E ORDEM (AJUSTADO)
-        # =======================================================
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
         
         opcoes_abas = ["🔍 Filtros", "📈 Disponibilidade", "📋 Apontamentos", "⚙️ Configurações"]
         idx = opcoes_abas.index(aba_atual) if aba_atual in opcoes_abas else 0
         
-        # Agora são configurações complementares, mas independentes
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 5px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
@@ -81,7 +77,6 @@ def renderizar():
         
         if len(nova_ordem) < len(todas_abas_padrao):
             st.warning("⚠️ Adicione todas as abas para não esconder nenhuma tela acidentalmente.")
-        # =======================================================
 
     with c2:
         st.markdown("##### 🕒 Jornada de Trabalho (Turnos)")
