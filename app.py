@@ -34,6 +34,9 @@ except AttributeError:
         filtros.salvar_memoria()
         st.experimental_set_query_params()
 
+# ===============================================
+# CSS GLOBAL (Incluindo a correção para Mobile/Swipe)
+# ===============================================
 st.markdown("""
     <style>
     header[data-testid="stHeader"] { display: none !important; }
@@ -41,6 +44,22 @@ st.markdown("""
     .cabecalho-responsivo { display: flex; align-items: center; gap: 20px; margin-bottom: 15px; justify-content: flex-start; }
     .logo-responsiva { max-height: 60px; object-fit: contain; }
     .titulo-responsivo { margin: 0; padding: 0; font-size: 2.5rem; }
+    
+    /* === MENU RESPONSIVO DE ARRASTAR (SWIPE NO CELULAR) === */
+    ul.nav-pills {
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch !important; /* Rolagem suave no celular */
+        scrollbar-width: none !important; /* Firefox */
+    }
+    ul.nav-pills::-webkit-scrollbar {
+        display: none !important; /* Esconde a barra de rolagem visualmente no Chrome/Safari */
+    }
+    li.nav-item {
+        white-space: nowrap !important; /* Impede que o texto dos botões quebre para baixo */
+    }
+    
     @media (max-width: 768px) {
         .cabecalho-responsivo { flex-direction: column; justify-content: center; text-align: center; gap: 10px; margin-top: 10px; }
         .logo-responsiva { max-height: 80px; }
@@ -102,7 +121,7 @@ if st.session_state.aba_atual not in todas_abas:
     st.session_state.aba_atual = todas_abas[0]
 # ===============================================
 
-# Renderiza os filtros globais (A tela do Filtro)
+# Renderiza os filtros globais
 filtros.renderizar_barra_superior(df_nuvem)
 filtros_selecionados = filtros.obter_filtros_atuais()
 
@@ -110,21 +129,41 @@ st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>",
 
 idx_atual = todas_abas.index(st.session_state.aba_atual)
 
+# ===============================================
+# MENU OPCIONAL - COM CÓDIGO LIMPO E RESPONSIVO
+# ===============================================
 escolha = option_menu(
     menu_title=None,
     options=todas_abas,
     default_index=idx_atual,
     orientation="horizontal",
+    icons=[''] * len(todas_abas), # Isso "anula" os ícones padrões para não conflitar com nossos emojis
     styles={
-        "container": {"padding": "0!important", "background-color": "#f8f9fa", "border-radius": "5px", "margin-bottom": "25px"},
-        "nav-link": {"font-size": "15px", "text-align": "center", "margin": "0px", "--hover-color": "#eee"},
-        "nav-link-selected": {"background-color": "#2980b9"},
+        "container": {
+            "padding": "0!important", 
+            "background-color": "#f8f9fa", 
+            "border-radius": "5px", 
+            "margin-bottom": "25px"
+        },
+        "icon": {
+            "display": "none" # Remove qualquer rastro do ícone intruso (>)
+        },
+        "nav-link": {
+            "font-size": "15px", 
+            "text-align": "center", 
+            "margin": "0px 5px", 
+            "white-space": "nowrap", # Mantém texto na mesma linha
+            "--hover-color": "#eee"
+        },
+        "nav-link-selected": {
+            "background-color": "#2980b9"
+        },
     }
 )
 
 if escolha != st.session_state.aba_atual:
     st.session_state.aba_atual = escolha
-    filtros.salvar_memoria() # Grava a escolha no mesmo instante
+    filtros.salvar_memoria() 
     st.rerun()
 
 # Roteamento das telas

@@ -104,7 +104,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
         fundo = "#f9f9f9" if i % 2 != 0 else "#ffffff"
         
-        # === A NOVA ENGENHARIA DA LUPA (100% Nativo Web, Sem Erros) ===
         icone_lupa = f"""
         <a href="?codigo_alvo={cod}" target="_parent" style="text-decoration: none;">
             <div style="cursor: pointer; background-color: #ecf0f1; border-radius: 5px; padding: 6px; font-size: 16px; text-align: center; transition: 0.2s; color: #2c3e50;" 
@@ -179,15 +178,18 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     ))
 
     fig.update_layout(
-        title=dict(text="Pareto de Ocorrências (Top 10 Códigos)", font=dict(size=16, color='#2c3e50')),
-        xaxis=dict(type='category', title="", tickfont=dict(size=13)),
+        title=dict(text="Principais Causadores de Paradas (Top 10)", font=dict(size=16, color='#2c3e50')),
+        
+        # AQUI ESTÃO OS CADEADOS (fixedrange=True) que impedem a tela do celular de bagunçar a escala
+        xaxis=dict(type='category', title="", tickfont=dict(size=13), fixedrange=True),
         yaxis=dict(
             title="Tempo Perdido (Horas)", 
             showgrid=True, 
             gridcolor='#ecf0f1', 
             tickfont=dict(size=13),
             tickvals=tickvals_y1,
-            ticktext=ticktext_y1
+            ticktext=ticktext_y1,
+            fixedrange=True
         ),
         yaxis2=dict(
             title="Impacto Acumulado (%)", 
@@ -196,7 +198,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             range=[0, 110], 
             showgrid=False, 
             tickfont=dict(size=13),
-            ticksuffix="%"
+            ticksuffix="%",
+            fixedrange=True
         ),
         showlegend=False,
         plot_bgcolor='rgba(0,0,0,0)',

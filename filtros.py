@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import json
 import os
+import banco  # <-- Importado para buscar os dados na hora de contar os dias
 
 ARQUIVO_MEMORIA = "filtros_cache.json"
 
@@ -32,7 +33,7 @@ def salvar_memoria():
         "maquina_global": st.session_state.get("maquina_global", ""),
         "tipo_global": st.session_state.get("tipo_global", ""),
         "ocorrencia_selecionada": st.session_state.get("ocorrencia_selecionada", ""),
-        "aba_atual": st.session_state.get("aba_atual", "")  # <-- GRAVAÇÃO DA TELA PARA MEMÓRIA
+        "aba_atual": st.session_state.get("aba_atual", "") 
     }
     try:
         with open(ARQUIVO_MEMORIA, "w") as f:
@@ -185,11 +186,6 @@ def renderizar_barra_superior(df_nuvem):
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%y')
     texto_data_curto = f"{d1}" if d1 == d2 else f"{d1} a {d2}"
 
-    # ===============================================
-    # SINCRONIZAÇÃO FORÇADA DE INTERFACE (UI)
-    # Garante que as caixas de seleção mostrem a mesma coisa 
-    # que a memória global, mesmo se a memória foi mudada de fora (ex: gráfico)
-    # ===============================================
     st.session_state['seletor_periodo'] = st.session_state.periodo_tipo
     st.session_state['seletor_setor'] = st.session_state.setor_global
     st.session_state['seletor_maquina'] = st.session_state.maquina_global
@@ -232,15 +228,41 @@ def renderizar_cabecalho_global(nome_aba):
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%Y') if st.session_state.data_ate else ""
     tipo_per = st.session_state.periodo_tipo
     
-    if d1 == d2: texto_data = f"Período: {d1} · {tipo_per}"
-    else: texto_data = f"Período: {d1} a {d2} · {tipo_per}"
+    # --- LÓGICA DE CONTAGEM DE DIAS COM DADOS ---
+    df_nuvem = banco.obter_dados_nuvem()
+    qtd_dias = 0
+    if not df_nuvem.empty and st.session_state.data_de and st.session_state.data_ate:
+        df_temp = df_nuvem.copy()
+        df_temp['data_registro'] = pd.to_datetime(df_temp['data_registro']).dt.strftime('%Y-%m-%d')
+        
+        # Aplica os filtros de data globais
+        df_temp = df_temp[(df_temp['data_registro'] >= st.session_state.data_de) & (df_temp['data_registro'] <= st.session_state.data_ate)]
+        
+        # Aplica os filtros de setor e máquina globais
+        if st.session_state.setor_global != "[ Todos ]":
+            df_temp = df_temp[df_temp['setor'] == st.session_state.setor_global]
+            
+        if st.session_state.maquina_global != "[ Todas ]":
+            df_temp = df_temp[df_temp['maquina'] == st.session_state.maquina_global]
+            
+        qtd_dias = df_temp['data_registro'].nunique()
+        
+    if qtd_dias == 0:
+        texto_dias = ""
+    elif qtd_dias == 1:
+        texto_dias = f" - 1 Dia"
+    else:
+        texto_dias = f" - {qtd_dias} Dias"
+    # ---------------------------------------------
+    
+    if d1 == d2: texto_data = f"Período: {d1} · {tipo_per}{texto_dias}"
+    else: texto_data = f"Período: {d1} a {d2} · {tipo_per}{texto_dias}"
     
     # Montagem Dinâmica do Título
     titulo = nome_aba
     if st.session_state.setor_global != "[ Todos ]": 
         titulo += f" — Setor {st.session_state.setor_global}"
     
-    # Adiciona a máquina no título apenas se uma específica estiver selecionada
     if st.session_state.maquina_global != "[ Todas ]": 
         titulo += f" — Máquina {st.session_state.maquina_global}"
         
