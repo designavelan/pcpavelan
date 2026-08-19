@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import banco
 import filtros
+import streamlit.components.v1 as components 
 
 def classificar_status(row):
     cod = str(row['cod_ocorrencia']).strip().lower()
@@ -13,13 +14,11 @@ def classificar_status(row):
     return 'Trabalhando'
 
 def renderizar(df_nuvem, df_codigos, filtros_selecionados):
-    filtros.renderizar_cabecalho_global("Ocorrências")
+    filtros.renderizar_cabecalho_global("Apontamentos")
 
-    # === LÊ AS CONFIGURAÇÕES DE EXIBIÇÃO DA ABA ===
     cfg = banco.obter_configuracoes()
     mostrar_cronico = cfg.get('mostrar_cronico', True)
     mostrar_especifico = cfg.get('mostrar_especifico', True)
-    # ===============================================
 
     if df_nuvem.empty or df_codigos.empty:
         st.warning("Sem dados suficientes para análise.")
@@ -53,7 +52,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     total_minutos_geral = df['minutos'].sum()
 
-    # MOTOR DE REGRAS INTACTO
     dias_por_codigo = df.groupby('cod_ocorrencia')['data_registro'].nunique().to_dict()
 
     maquina_especifica = {}
@@ -106,9 +104,19 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
         fundo = "#f9f9f9" if i % 2 != 0 else "#ffffff"
         
+        # === A NOVA ENGENHARIA DA LUPA (100% Nativo Web, Sem Erros) ===
+        icone_lupa = f"""
+        <a href="?codigo_alvo={cod}" target="_parent" style="text-decoration: none;">
+            <div style="cursor: pointer; background-color: #ecf0f1; border-radius: 5px; padding: 6px; font-size: 16px; text-align: center; transition: 0.2s; color: #2c3e50;" 
+                 onmouseover="this.style.backgroundColor='#bdc3c7'" 
+                 onmouseout="this.style.backgroundColor='#ecf0f1'" 
+                 title="Analisar Ocorrência em Detalhes">🔎</div>
+        </a>
+        """
+        
         linhas_html += f"<tr style='background-color: {fundo}; {estilo_linha}'>"
-        linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>{cod}</td>"
-        linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee;'>{desc}{tags}</td>"
+        linhas_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee; text-align: center; width: 45px;'>{icone_lupa}</td>"
+        linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee;'>{desc} <b>({cod})</b>{tags}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>{row['Ocor']}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>{banco.minutos_para_string(row['Tempo'])}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;'>{row['Perc']:.0f}%</td>"
@@ -116,13 +124,13 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     tabela_html = f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px;'>"
     tabela_html += f"<thead><tr style='background-color: #2980b9; color: white; text-align: left;'>"
-    tabela_html += f"<th style='padding: 12px; text-align: center;'>Cod</th>"
-    tabela_html += f"<th style='padding: 12px;'>Descrição</th>"
+    tabela_html += f"<th style='padding: 12px; text-align: center; width: 45px;'>Ação</th>"
+    tabela_html += f"<th style='padding: 12px;'>Descrição do Problema</th>"
     tabela_html += f"<th style='padding: 12px; text-align: center;'>Ocor.</th>"
     tabela_html += f"<th style='padding: 12px; text-align: center;'>Tempo</th>"
     tabela_html += f"<th style='padding: 12px; text-align: center;'>%</th>"
     tabela_html += f"</tr></thead><tbody>{linhas_html}</tbody></table>"
-    
+
     legenda_html = "<div style='margin-top: 15px; font-size: 12px; color: #7f8c8d;'>"
     if mostrar_cronico and mostrar_especifico:
         legenda_html += "<span style='color: #d35400;'>⚠️ [CRÔNICO]:</span> Falhas recorrentes em múltiplos dias | <span style='color: #8e44ad;'>⚠️ [ESPECÍFICO]:</span> Falhas com alta ocorrência (3+), concentradas em uma máquina (80%+)."
@@ -134,25 +142,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     
     tabela_html += legenda_html
 
-    # --- LÓGICA DE ESCALA H:MM AUTOMÁTICA ---
     df_top10 = df_agrupado.head(10).copy()
     max_minutos = df_top10['Tempo'].max() if not df_top10.empty else 0
     
-    # Define o "degrau" do eixo baseado no volume de horas para não poluir
-    if max_minutos > 1200: step = 240       # De 4 em 4 horas
-    elif max_minutos > 600: step = 120      # De 2 em 2 horas
-    elif max_minutos > 300: step = 60       # De 1 em 1 hora
-    elif max_minutos > 120: step = 30       # De 30 em 30 min
-    elif max_minutos > 60: step = 15        # De 15 em 15 min
-    else: step = 10                         # De 10 em 10 min
+    if max_minutos > 1200: step = 240       
+    elif max_minutos > 600: step = 120      
+    elif max_minutos > 300: step = 60       
+    elif max_minutos > 120: step = 30       
+    elif max_minutos > 60: step = 15        
+    else: step = 10                         
 
     tickvals_y1 = list(range(0, int(max_minutos) + step, step))
     ticktext_y1 = [f"{int(v // 60)}:{int(v % 60):02d}" for v in tickvals_y1]
-    # ----------------------------------------
     
     fig = go.Figure()
-    
-    # ESCURECI A BARRA PARA MELHORAR O CONTRASTE (#2c3e50 - Azul Petróleo Escuro)
     fig.add_trace(go.Bar(
         x=df_top10['cod_ocorrencia'],
         y=df_top10['Tempo'],
@@ -178,8 +181,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     fig.update_layout(
         title=dict(text="Pareto de Ocorrências (Top 10 Códigos)", font=dict(size=16, color='#2c3e50')),
         xaxis=dict(type='category', title="", tickfont=dict(size=13)),
-        
-        # APLICA A ESCALA DE HORAS PERSONALIZADA NO EIXO ESQUERDO
         yaxis=dict(
             title="Tempo Perdido (Horas)", 
             showgrid=True, 
@@ -188,8 +189,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             tickvals=tickvals_y1,
             ticktext=ticktext_y1
         ),
-        
-        # APLICA O SÍMBOLO DE % NO EIXO DIREITO
         yaxis2=dict(
             title="Impacto Acumulado (%)", 
             overlaying='y', 

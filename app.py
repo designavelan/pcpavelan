@@ -4,15 +4,35 @@ import banco
 import configuracoes
 import filtros
 import disponibilidade
-import analise 
+import ocorrencias 
 import importacao
 import apontamentos
 import backups 
+import plano_acao 
+from streamlit_option_menu import option_menu
 
 cfg = banco.obter_configuracoes()
 titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
 
 st.set_page_config(page_title=titulo_app, page_icon="🏭", layout="wide")
+
+# ===============================================
+# A MÁGICA DA LUPA: Teletransporte Perfeito
+# ===============================================
+try:
+    params = st.query_params
+    if 'codigo_alvo' in params:
+        st.session_state['codigo_alvo'] = params['codigo_alvo']
+        st.session_state['aba_atual'] = "🔎 Ocorrências"
+        filtros.salvar_memoria() 
+        st.query_params.clear()
+except AttributeError:
+    params = st.experimental_get_query_params()
+    if 'codigo_alvo' in params:
+        st.session_state['codigo_alvo'] = params['codigo_alvo'][0]
+        st.session_state['aba_atual'] = "🔎 Ocorrências"
+        filtros.salvar_memoria()
+        st.experimental_set_query_params()
 
 st.markdown("""
     <style>
@@ -49,13 +69,8 @@ else:
     """, unsafe_allow_html=True)
 
 st.markdown("<hr style='margin-top: 0px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
-filtros.renderizar_barra_superior(df_nuvem)
-st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
 
-filtros_selecionados = filtros.obter_filtros_atuais()
-
-# === ABA DE FILTROS REMOVIDA ===
-todas_abas_padrao = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
+todas_abas_padrao = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
 ordem_str = cfg.get('ordem_abas', None)
 
 if ordem_str:
@@ -66,61 +81,88 @@ if ordem_str:
 else:
     todas_abas = todas_abas_padrao.copy()
 
-aba_padrao_salva = cfg.get('aba_padrao', '📈 Disponibilidade')
+aba_padrao_salva = cfg.get('aba_padrao', '💡 Plano de Ação')
+lembrar_aba_ligado = cfg.get('lembrar_aba', True)
 
-abas_nativas = st.tabs(todas_abas)
+# ===============================================
+# O JUIZ: DEFINIÇÃO DE QUAL TELA ABRIR
+# ===============================================
+if 'aba_atual' not in st.session_state:
+    if lembrar_aba_ligado:
+        memoria = filtros.carregar_memoria()
+        aba_cache = memoria.get("aba_atual", "")
+        if aba_cache in todas_abas:
+            st.session_state.aba_atual = aba_cache
+        else:
+            st.session_state.aba_atual = aba_padrao_salva
+    else:
+        st.session_state.aba_atual = aba_padrao_salva
 
-for i, nome_aba in enumerate(todas_abas):
-    with abas_nativas[i]:
-        if nome_aba == "📈 Disponibilidade":
-            if not df_nuvem.empty:
-                disponibilidade.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada, meta)
-            else:
-                st.info("O banco de dados está vazio no momento.")
-                
-        elif nome_aba == "🔎 Análise por Ocorrência":
-            if not df_nuvem.empty:
-                analise.renderizar(df_nuvem, df_codigos, filtros_selecionados)
-            else:
-                st.info("O banco de dados está vazio no momento.")
-                
-        elif nome_aba == "📋 Apontamentos":
-            if not df_nuvem.empty:
-                apontamentos.renderizar(df_nuvem, df_codigos, filtros_selecionados)
-            else:
-                st.info("O banco de dados está vazio no momento.")
-                
-        elif nome_aba == "⚙️ Configurações":
-            aba_interna, aba_config_abas, aba_importacoes, aba_backup = st.tabs([
-                "⚙️ Ajustes Gerais do Sistema", 
-                "📑 Configurações de Abas", 
-                "📥 Importação de Dados",
-                "💾 Backup"
-            ])
-            with aba_interna: configuracoes.renderizar()
-            with aba_config_abas: configuracoes.renderizar_config_abas()
-            with aba_importacoes:
-                importacao.renderizar_producao()
-                st.markdown("<br>", unsafe_allow_html=True)
-                importacao.renderizar_codigos()
-            with aba_backup: backups.renderizar()
+if st.session_state.aba_atual not in todas_abas:
+    st.session_state.aba_atual = todas_abas[0]
+# ===============================================
 
-if 'iniciou_aba' not in st.session_state:
-    st.session_state['iniciou_aba'] = True
-    if aba_padrao_salva in todas_abas:
-        idx = todas_abas.index(aba_padrao_salva)
-        if idx != 0:
-            js = f"""
-            <script>
-                const checkInterval = setInterval(function() {{
-                    const parentDoc = window.parent.document;
-                    const tabs = parentDoc.querySelectorAll('button[data-baseweb="tab"]');
-                    if (tabs && tabs.length >= {len(todas_abas)}) {{
-                        tabs[{idx}].click();
-                        clearInterval(checkInterval);
-                    }}
-                }}, 50);
-                setTimeout(() => clearInterval(checkInterval), 3000);
-            </script>
-            """
-            components.html(js, height=0)
+# Renderiza os filtros globais (A tela do Filtro)
+filtros.renderizar_barra_superior(df_nuvem)
+filtros_selecionados = filtros.obter_filtros_atuais()
+
+st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
+
+idx_atual = todas_abas.index(st.session_state.aba_atual)
+
+escolha = option_menu(
+    menu_title=None,
+    options=todas_abas,
+    default_index=idx_atual,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "0!important", "background-color": "#f8f9fa", "border-radius": "5px", "margin-bottom": "25px"},
+        "nav-link": {"font-size": "15px", "text-align": "center", "margin": "0px", "--hover-color": "#eee"},
+        "nav-link-selected": {"background-color": "#2980b9"},
+    }
+)
+
+if escolha != st.session_state.aba_atual:
+    st.session_state.aba_atual = escolha
+    filtros.salvar_memoria() # Grava a escolha no mesmo instante
+    st.rerun()
+
+# Roteamento das telas
+if st.session_state.aba_atual == "💡 Plano de Ação":
+    if not df_nuvem.empty:
+        plano_acao.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada)
+    else:
+        st.info("O banco de dados está vazio no momento.")
+        
+elif st.session_state.aba_atual == "📈 Disponibilidade":
+    if not df_nuvem.empty:
+        disponibilidade.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada, meta)
+    else:
+        st.info("O banco de dados está vazio no momento.")
+        
+elif st.session_state.aba_atual == "🔎 Ocorrências":
+    if not df_nuvem.empty:
+        ocorrencias.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else:
+        st.info("O banco de dados está vazio no momento.")
+        
+elif st.session_state.aba_atual == "📋 Apontamentos":
+    if not df_nuvem.empty:
+        apontamentos.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else:
+        st.info("O banco de dados está vazio no momento.")
+        
+elif st.session_state.aba_atual == "⚙️ Configurações":
+    aba_interna, aba_config_abas, aba_importacoes, aba_backup = st.tabs([
+        "⚙️ Ajustes Gerais do Sistema", 
+        "📑 Configurações de Abas", 
+        "📥 Importação de Dados",
+        "💾 Backup"
+    ])
+    with aba_interna: configuracoes.renderizar()
+    with aba_config_abas: configuracoes.renderizar_config_abas()
+    with aba_importacoes:
+        importacao.renderizar_producao()
+        st.markdown("<br>", unsafe_allow_html=True)
+        importacao.renderizar_codigos()
+    with aba_backup: backups.renderizar()

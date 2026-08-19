@@ -48,7 +48,8 @@ def calcular_diferenca(inicio, fim):
 def renderizar():
     cfg = banco.obter_configuracoes()
     titulo_atual = cfg.get('titulo_programa', 'PCP Avelan')
-    aba_padrao_salva = cfg.get('aba_padrao', '📈 Disponibilidade')
+    aba_padrao_salva = cfg.get('aba_padrao', '💡 Plano de Ação')
+    lembrar_aba_salva = cfg.get('lembrar_aba', True)
     m_das = cfg.get('manha_das', '07:00')
     m_as = cfg.get('manha_as', '12:00')
     t_das = cfg.get('tarde_das', '13:00')
@@ -67,14 +68,17 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        # === ABA FILTROS REMOVIDA DAQUI ===
-        opcoes_abas = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
+        opcoes_abas = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 0
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
         
-        st.markdown("<p style='font-size: 13px; color: #666; margin-top: 5px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
+        # === A CHAVINHA DE MEMÓRIA ===
+        novo_lembrar = st.checkbox("Lembrar última aba utilizada", value=lembrar_aba_salva)
+        st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
+        
+        st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
+        todas_abas_padrao = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -133,6 +137,7 @@ def renderizar():
             dados = {
                 "titulo_programa": novo_titulo,
                 "aba_padrao": nova_aba,
+                "lembrar_aba": novo_lembrar,
                 "manha_das": n_mdas,
                 "manha_as": n_mas,
                 "tarde_das": n_tdas,
@@ -152,21 +157,39 @@ def renderizar_config_abas():
     m_cronico = cfg.get('mostrar_cronico', True)
     m_especifico = cfg.get('mostrar_especifico', True)
     meta_atual = float(cfg.get('meta_disponibilidade', 85.0))
+    
+    top_g = int(cfg.get('top_gerais', 3))
+    top_i = int(cfg.get('top_individuais', 3))
+    perc_i = float(cfg.get('perc_individual', 70.0))
 
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    with st.expander("💡 Aba: Plano de Ação", expanded=True):
+        st.markdown("Defina os limites e critérios matemáticos para a geração automática do relatório de ação:")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            novo_top_g = st.number_input("Qtd. Problemas Gerais (Top X)", value=top_g, step=1, min_value=1)
+            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>Quantas falhas distribuídas mostrar.</p>", unsafe_allow_html=True)
+        with c2: 
+            novo_top_i = st.number_input("Qtd. Problemas Individuais (Top X)", value=top_i, step=1, min_value=1)
+            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>Quantas falhas focadas mostrar.</p>", unsafe_allow_html=True)
+        with c3: 
+            novo_perc_i = st.number_input("Concentração P/ Individual (%)", value=perc_i, step=1.0, min_value=1.0, max_value=100.0)
+            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>A partir de qual % o problema é de uma máquina só.</p>", unsafe_allow_html=True)
 
-    with st.expander("📈 Aba: Disponibilidade", expanded=True):
+    with st.expander("📈 Aba: Disponibilidade"):
         st.markdown("Defina a meta diária de disponibilidade (linha vermelha) para ser exibida nos gráficos:")
         nova_meta = st.number_input("Valor da Meta (%)", value=meta_atual, step=1.0)
 
-    with st.expander("📋 Aba: Apontamentos", expanded=True):
+    with st.expander("📋 Aba: Apontamentos"):
         st.markdown("Controle de exibição dos alertas de inteligência na tabela de ocorrências:")
         novo_cronico = st.checkbox("Ativar marcação CRÔNICO", value=m_cronico)
         novo_especifico = st.checkbox("Ativar marcação ESPECÍFICO", value=m_especifico)
 
-    with st.expander("📱 Telas e Responsividade (Layout Inteligente)", expanded=True):
-        st.markdown("Configure em qual largura de tela (em pixels) o layout do sistema deve se adaptar.")
+    with st.expander("📱 Ajustes de Layout (Celular, Tablet e PC)"):
+        st.markdown("Defina os limites de largura (em pixels) para que o sistema organize os gráficos automaticamente.")
         bp = ler_breakpoints()
         
         cel_atual = bp.get("bp_celular", 768)
@@ -175,7 +198,8 @@ def renderizar_config_abas():
         c1, c2 = st.columns(2)
         with c1: novo_cel = st.number_input("Largura Máxima do Celular (px)", value=cel_atual, step=10)
         with c2: novo_tab = st.number_input("Largura Máxima do Tablet (px)", value=tab_atual, step=10)
-        st.markdown("<p style='font-size: 13px; color: #666;'>Telas com largura acima do limite do Tablet serão consideradas 'Computador'.</p>", unsafe_allow_html=True)
+        
+        st.info(f"💡 **Regra de Layout:**\n- **Celular** (Até {novo_cel}px): Gráficos e Cartões empilhados (Vertical).\n- **Tablet** (De {novo_cel + 1} a {novo_tab}px): Gráficos empilhados, Cartões divididos (2x2).\n- **PC** (Acima de {novo_tab}px): Gráficos e Cartões lado a lado (Horizontal).")
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Salvar Configurações de Abas e Telas", type="primary"):
@@ -184,10 +208,13 @@ def renderizar_config_abas():
             dados = {
                 "meta_disponibilidade": nova_meta, 
                 "mostrar_cronico": novo_cronico,
-                "mostrar_especifico": novo_especifico
+                "mostrar_especifico": novo_especifico,
+                "top_gerais": novo_top_g,
+                "top_individuais": novo_top_i,
+                "perc_individual": novo_perc_i
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
             salvar_breakpoints(novo_cel, novo_tab)
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
-            st.error(f"Erro ao salvar: {e}")
+            st.error(f"Erro ao salvar: {e} - Verifique se você criou as colunas novas no Supabase!")

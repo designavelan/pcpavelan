@@ -5,7 +5,8 @@ import streamlit.components.v1 as components
 import json
 import os
 
-# --- LÊ A CONFIGURAÇÃO DE TELAS ---
+ARQUIVO_MEMORIA = "filtros_cache.json"
+
 def ler_breakpoints():
     if os.path.exists("layout_config.json"):
         try:
@@ -13,9 +14,6 @@ def ler_breakpoints():
                 return json.load(f)
         except: pass
     return {"bp_celular": 768, "bp_tablet": 1024}
-
-# --- MEMÓRIA DOS FILTROS (A "CAIXA PRETA") ---
-ARQUIVO_MEMORIA = "filtros_cache.json"
 
 def carregar_memoria():
     if os.path.exists(ARQUIVO_MEMORIA):
@@ -27,28 +25,31 @@ def carregar_memoria():
 
 def salvar_memoria():
     dados = {
-        "periodo_tipo": st.session_state.periodo_tipo,
-        "data_de": st.session_state.data_de,
-        "data_ate": st.session_state.data_ate,
-        "setor_global": st.session_state.setor_global,
-        "maquina_global": st.session_state.maquina_global,
-        "tipo_global": st.session_state.tipo_global
+        "periodo_tipo": st.session_state.get("periodo_tipo", ""),
+        "data_de": st.session_state.get("data_de", ""),
+        "data_ate": st.session_state.get("data_ate", ""),
+        "setor_global": st.session_state.get("setor_global", ""),
+        "maquina_global": st.session_state.get("maquina_global", ""),
+        "tipo_global": st.session_state.get("tipo_global", ""),
+        "ocorrencia_selecionada": st.session_state.get("ocorrencia_selecionada", ""),
+        "aba_atual": st.session_state.get("aba_atual", "")  # <-- GRAVAÇÃO DA TELA PARA MEMÓRIA
     }
     try:
         with open(ARQUIVO_MEMORIA, "w") as f:
             json.dump(dados, f)
     except: pass
 
-# --- SETUP INICIAL DE ESTADOS GLOBAIS ---
 def iniciar_estados():
-    mem = carregar_memoria() # Puxa a lembrança da última sessão
-    
+    mem = carregar_memoria() 
     if 'periodo_tipo' not in st.session_state: st.session_state.periodo_tipo = mem.get("periodo_tipo", "Último dia com dados")
     if 'data_de' not in st.session_state: st.session_state.data_de = mem.get("data_de", None)
     if 'data_ate' not in st.session_state: st.session_state.data_ate = mem.get("data_ate", None)
     if 'setor_global' not in st.session_state: st.session_state.setor_global = mem.get("setor_global", "[ Todos ]")
     if 'maquina_global' not in st.session_state: st.session_state.maquina_global = mem.get("maquina_global", "[ Todas ]")
     if 'tipo_global' not in st.session_state: st.session_state.tipo_global = mem.get("tipo_global", "Parado") 
+    
+    if 'ocorrencia_selecionada' not in st.session_state: 
+        st.session_state.ocorrencia_selecionada = mem.get("ocorrencia_selecionada", "")
     
     if 'periodo_custom_de' not in st.session_state:
         try: st.session_state.periodo_custom_de = datetime.strptime(st.session_state.data_de, '%Y-%m-%d').date()
@@ -58,7 +59,6 @@ def iniciar_estados():
         try: st.session_state.periodo_custom_ate = datetime.strptime(st.session_state.data_ate, '%Y-%m-%d').date()
         except: st.session_state.periodo_custom_ate = datetime.now().date()
 
-# --- INTELIGÊNCIA DO CALENDÁRIO ---
 def obter_datas_validas(df_nuvem):
     if df_nuvem.empty or 'data_registro' not in df_nuvem.columns: return []
     datas = pd.to_datetime(df_nuvem['data_registro']).dt.strftime('%Y-%m-%d').dropna().unique().tolist()
@@ -76,7 +76,6 @@ def calcular_opcoes(datas_validas):
 
     opcoes = []
     mapa = {}
-
     if datas_validas:
         ultimo = datas_validas[-1]
         opcoes.append("Último dia com dados")
@@ -111,23 +110,18 @@ def calcular_opcoes(datas_validas):
     opcoes.append("Período personalizado")
     return opcoes, mapa
 
-# --- RENDERIZADOR GLOBAL ---
 def renderizar_barra_superior(df_nuvem):
     iniciar_estados()
     datas_validas = obter_datas_validas(df_nuvem)
-    
     if not datas_validas:
         st.warning("O banco de dados de apontamentos está vazio.")
         return
 
     opcoes_per, mapa_per = calcular_opcoes(datas_validas)
-
-    # 1. Fallback caso seja a primeira vez de todas rodando o app
     if st.session_state.data_de is None:
         st.session_state.data_de = mapa_per.get("Último dia com dados", (datas_validas[-1], datas_validas[-1]))[0]
         st.session_state.data_ate = mapa_per.get("Último dia com dados", (datas_validas[-1], datas_validas[-1]))[1]
 
-    # 2. Atualiza datas dinâmicas silenciosamente (Para os casos de virada de semana/mês)
     tipo_salvo = st.session_state.periodo_tipo
     if tipo_salvo in mapa_per:
         st.session_state.data_de = mapa_per[tipo_salvo][0]
@@ -137,7 +131,6 @@ def renderizar_barra_superior(df_nuvem):
         st.session_state.data_de = mapa_per.get("Último dia com dados", (datas_validas[-1], datas_validas[-1]))[0]
         st.session_state.data_ate = mapa_per.get("Último dia com dados", (datas_validas[-1], datas_validas[-1]))[1]
 
-    # Callbacks de sincronização e regras de UX
     def on_change_periodo():
         val = st.session_state.seletor_periodo
         st.session_state.periodo_tipo = val
@@ -161,12 +154,11 @@ def renderizar_barra_superior(df_nuvem):
 
     def sync_setor(): 
         st.session_state.setor_global = st.session_state.seletor_setor
-        st.session_state.maquina_global = "[ Todas ]" # Melhora UX: evita manter máquina de outro setor
+        st.session_state.maquina_global = "[ Todas ]" 
         
     def sync_maq(): 
         st.session_state.maquina_global = st.session_state.seletor_maquina
 
-    # Preparação dos índices para exibir o que está na memória
     try: idx_per = opcoes_per.index(st.session_state.periodo_tipo)
     except: idx_per = 0
 
@@ -193,25 +185,15 @@ def renderizar_barra_superior(df_nuvem):
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%y')
     texto_data_curto = f"{d1}" if d1 == d2 else f"{d1} a {d2}"
 
-    # ANTI-TECLADO JS (Obrigatório para a UX no celular)
-    components.html("""
-    <script>
-        setInterval(() => {
-            const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
-            inputs.forEach(input => {
-                if(!input.hasAttribute('readonly')) {
-                    input.setAttribute('readonly', 'true');
-                    input.style.caretColor = 'transparent';
-                    input.style.cursor = 'pointer';
-                }
-            });
-        }, 300);
-    </script>
-    """, height=0)
+    # ===============================================
+    # SINCRONIZAÇÃO FORÇADA DE INTERFACE (UI)
+    # Garante que as caixas de seleção mostrem a mesma coisa 
+    # que a memória global, mesmo se a memória foi mudada de fora (ex: gráfico)
+    # ===============================================
+    st.session_state['seletor_periodo'] = st.session_state.periodo_tipo
+    st.session_state['seletor_setor'] = st.session_state.setor_global
+    st.session_state['seletor_maquina'] = st.session_state.maquina_global
 
-    # =========================================================
-    # A GAVETA DE FILTROS DEFINITIVA
-    # =========================================================
     with st.expander(f"⚙️ Filtros | 📅 {texto_data_curto} | 🏢 {st.session_state.setor_global}"):
         st.selectbox("📅 Período", opcoes_per, index=idx_per, key='seletor_periodo', on_change=on_change_periodo)
         
@@ -230,11 +212,6 @@ def renderizar_barra_superior(df_nuvem):
         with cs1: st.selectbox("🏢 Setor", lista_setores, index=idx_setor, key='seletor_setor', on_change=sync_setor)
         with cs2: st.selectbox("⚙️ Máquina", maq, index=idx_m, key='seletor_maquina', on_change=sync_maq)
 
-# --- ABA ANTIGA (Removida, mantemos a função vazia para não dar erro no app.py caso precise) ---
-def renderizar_ui(df_nuvem):
-    pass
-
-# --- EXPORTADOR ---
 def obter_filtros_atuais():
     iniciar_estados()
     filtros = {
@@ -244,21 +221,28 @@ def obter_filtros_atuais():
         'maquina': st.session_state.maquina_global,
         'tipo': st.session_state.tipo_global
     }
-    salvar_memoria() # <-- SALVA TUDO AUTOMATICAMENTE AQUI!
+    salvar_memoria()
     return filtros
 
-# --- TÍTULOS ---
+# ===============================================
+# CONSTRUTOR DO TÍTULO GLOBAL INTELIGENTE
+# ===============================================
 def renderizar_cabecalho_global(nome_aba):
     d1 = pd.to_datetime(st.session_state.data_de).strftime('%d/%m/%Y') if st.session_state.data_de else ""
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%Y') if st.session_state.data_ate else ""
-    
     tipo_per = st.session_state.periodo_tipo
     
     if d1 == d2: texto_data = f"Período: {d1} · {tipo_per}"
     else: texto_data = f"Período: {d1} a {d2} · {tipo_per}"
     
-    if st.session_state.setor_global != "[ Todos ]": titulo = f"{nome_aba} — Setor {st.session_state.setor_global}"
-    else: titulo = nome_aba
+    # Montagem Dinâmica do Título
+    titulo = nome_aba
+    if st.session_state.setor_global != "[ Todos ]": 
+        titulo += f" — Setor {st.session_state.setor_global}"
+    
+    # Adiciona a máquina no título apenas se uma específica estiver selecionada
+    if st.session_state.maquina_global != "[ Todas ]": 
+        titulo += f" — Máquina {st.session_state.maquina_global}"
         
     html = f"""
     <div style="text-align: center; margin-bottom: 20px;">
@@ -269,3 +253,62 @@ def renderizar_cabecalho_global(nome_aba):
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
+    
+    bp = ler_breakpoints()
+    bp_cel = bp.get("bp_celular", 768)
+    bp_tab = bp.get("bp_tablet", 1024)
+    
+    css = f"""
+    <style>
+    @media (max-width: {bp_tab}px) {{
+        .stack-charts {{ flex-wrap: wrap !important; }}
+        .stack-charts > div[data-testid="column"] {{
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            margin-bottom: 20px !important;
+        }}
+        .stack-kpis {{ flex-wrap: wrap !important; }}
+        .stack-kpis > div[data-testid="column"] {{
+            min-width: 48% !important;
+            width: 48% !important;
+            flex: 1 1 48% !important;
+            margin-bottom: 15px !important;
+        }}
+    }}
+    @media (max-width: {bp_cel}px) {{
+        .stack-kpis > div[data-testid="column"] {{
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }}
+    }}
+    </style>
+    <script>
+        setInterval(() => {{
+            const chartMarkers = window.parent.document.querySelectorAll('.graficos-container');
+            chartMarkers.forEach(m => {{
+                const col = m.closest('div[data-testid="column"]');
+                if(col && col.parentElement && !col.parentElement.classList.contains('stack-charts')) {{
+                    col.parentElement.classList.add('stack-charts');
+                }}
+            }});
+            const kpiMarkers = window.parent.document.querySelectorAll('.kpis-container');
+            kpiMarkers.forEach(m => {{
+                const col = m.closest('div[data-testid="column"]');
+                if(col && col.parentElement && !col.parentElement.classList.contains('stack-kpis')) {{
+                    col.parentElement.classList.add('stack-kpis');
+                }}
+            }});
+            const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
+            inputs.forEach(input => {{
+                if(!input.hasAttribute('readonly')) {{
+                    input.setAttribute('readonly', 'true');
+                    input.style.caretColor = 'transparent';
+                    input.style.cursor = 'pointer';
+                }}
+            }});
+        }}, 500);
+    </script>
+    """
+    components.html(css, height=0)

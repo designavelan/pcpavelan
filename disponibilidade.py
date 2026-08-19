@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import banco
 import filtros
+import streamlit.components.v1 as components 
 
 def classificar_status(row):
     cod = str(row['cod_ocorrencia']).strip().lower()
@@ -14,11 +15,15 @@ def classificar_status(row):
     return 'Trabalhando'
 
 def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666", cor_titulo="#777777"):
+    # Garante que a linha secundária exista fisicamente mesmo vazia, para manter o eixo vertical intacto
+    val_sec = valor_secundario if valor_secundario else "&nbsp;"
+    
+    # Fundimos a classe 'kpis-container' diretamente na div do cartão! Zero elementos extras na coluna.
     html = f"""
-    <div style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 100%;">
-        <p style="margin: 0 0 5px 0; color: {cor_titulo}; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">{titulo}</p>
-        <h2 style="margin: 0; color: #222222; font-size: 38px; font-weight: 800;">{valor_principal}</h2>
-        <p style="margin: 5px 0 0 0; color: {cor_secundaria}; font-size: 16px; font-weight: bold;">{valor_secundario}</p>
+    <div class="cartao-kpi-disp kpis-container" style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: center; height: 100%;">
+        <p style="margin: 0 0 5px 0; color: {cor_titulo}; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; line-height: 1.2;">{titulo}</p>
+        <h2 style="margin: 0; color: #222222; font-size: 38px; font-weight: 800; line-height: 1.2;">{valor_principal}</h2>
+        <p style="margin: 5px 0 0 0; color: {cor_secundaria}; font-size: 16px; font-weight: bold; line-height: 1.2;">{val_sec}</p>
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
@@ -101,15 +106,49 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
     texto_dias_rodape = f"No Período de {dias_reais} Dia{'s' if dias_reais > 1 else ''}"
 
     k1, k2, k3, k4 = st.columns(4)
-    with k1: criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555", "#777777")
-    with k2: criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", cor_melhor_maq, "#2ecc71")
-    with k3: criar_cartao("Menor Disponibilidade", f"{pior_val:.1f}%", f"⚠️ {pior_maq}", cor_pior_maq, "#e74c3c")
-    with k4: criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), texto_dias_rodape, "#555", "#777777")
+    with k1: 
+        # A tag solta foi removida daqui! O cartão agora se alinha perfeitamente.
+        criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555", "#777777")
+    with k2: 
+        criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", cor_melhor_maq, "#2ecc71")
+    with k3: 
+        criar_cartao("Menor Disponibilidade", f"{pior_val:.1f}%", f"⚠️ {pior_maq}", cor_pior_maq, "#e74c3c")
+    with k4: 
+        criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), texto_dias_rodape, "#555", "#777777")
+
+    # ===============================================
+    # O EQUALIZADOR DE ALTURAS (A Mágica do Alinhamento)
+    # ===============================================
+    js_equalizer = """
+    <script>
+        setInterval(() => {
+            const cards = window.parent.document.querySelectorAll('.cartao-kpi-disp');
+            if(cards.length > 0) {
+                let maxH = 0;
+                // Reseta a altura para permitir recalcular quando a tela muda de tamanho
+                cards.forEach(c => c.style.minHeight = 'auto');
+                
+                // Encontra qual é o cartão mais alto do grupo
+                cards.forEach(c => {
+                    if(c.offsetHeight > maxH) maxH = c.offsetHeight;
+                });
+                
+                // Força todos a terem exatamente a mesma altura do maior
+                cards.forEach(c => {
+                    c.style.minHeight = maxH + 'px';
+                });
+            }
+        }, 500);
+    </script>
+    """
+    components.html(js_equalizer, height=0)
+    # ===============================================
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     g1, g2 = st.columns(2)
     with g1:
+        st.markdown("<div class='graficos-container'></div>", unsafe_allow_html=True)
         texto_dias = f"{dias_reais} Dia{'s' if dias_reais > 1 else ''}"
         st.markdown(f"#### Ranking de Disponibilidade por Máquina — {texto_dias}")
         
@@ -120,7 +159,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
             marker_color=[mapa_cores_mestre[m] for m in df_maq['maquina']],
             text=df_maq['Disponibilidade'].apply(lambda x: f"<b>{x:.1f}%</b>"),
             textposition='outside', textfont=dict(size=18, color='black'), cliponaxis=False,
-            hoverinfo='none' # <--- Comando adicionado aqui para ocultar o balão!
+            hoverinfo='none'
         ))
         
         for i, row in df_maq.iterrows():
@@ -143,7 +182,29 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
             yaxis=dict(fixedrange=True), 
             margin=dict(l=0, r=0, t=10, b=0), height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+        
+        try:
+            evento = st.plotly_chart(
+                fig_bar, 
+                use_container_width=True, 
+                config={'displayModeBar': False}, 
+                on_select="rerun", 
+                selection_mode="points"
+            )
+            
+            st.markdown("<p style='text-align: center; font-size: 13px; color: #7f8c8d; margin-top: -15px;'><i>(👆 Clique em uma barra para ver os apontamentos detalhados)</i></p>", unsafe_allow_html=True)
+            
+            if evento and hasattr(evento, 'selection') and evento.selection.points:
+                maquina_clicada = str(evento.selection.points[0]["y"])
+                
+                if st.session_state.get('maquina_global') != maquina_clicada or st.session_state.get('aba_atual') != "📋 Apontamentos":
+                    st.session_state['maquina_global'] = maquina_clicada
+                    st.session_state['aba_atual'] = "📋 Apontamentos"
+                    st.rerun()
+                    
+        except TypeError:
+            st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+            st.markdown("<p style='text-align: center; font-size: 13px; color: #7f8c8d; margin-top: -15px;'><i>(Atualize a versão do Streamlit para ativar cliques nas barras)</i></p>", unsafe_allow_html=True)
 
     with g2:
         st.markdown("#### Evolução Diária da Disponibilidade")
