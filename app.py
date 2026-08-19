@@ -4,11 +4,11 @@ import banco
 import configuracoes
 import filtros
 import disponibilidade
+import analise 
 import importacao
 import apontamentos
 import backups 
 
-# 1. Puxa as configurações do banco ANTES da página carregar
 cfg = banco.obter_configuracoes()
 titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
 
@@ -16,17 +16,11 @@ st.set_page_config(page_title=titulo_app, page_icon="🏭", layout="wide")
 
 st.markdown("""
     <style>
-    /* OCULTA A BARRA SUPERIOR INÚTIL */
     header[data-testid="stHeader"] { display: none !important; }
-    
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
-
-    .cabecalho-responsivo {
-        display: flex; align-items: center; gap: 20px; margin-bottom: 15px; justify-content: flex-start;
-    }
+    .cabecalho-responsivo { display: flex; align-items: center; gap: 20px; margin-bottom: 15px; justify-content: flex-start; }
     .logo-responsiva { max-height: 60px; object-fit: contain; }
     .titulo-responsivo { margin: 0; padding: 0; font-size: 2.5rem; }
-
     @media (max-width: 768px) {
         .cabecalho-responsivo { flex-direction: column; justify-content: center; text-align: center; gap: 10px; margin-top: 10px; }
         .logo-responsiva { max-height: 80px; }
@@ -35,13 +29,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
-# 2. Carrega os dados básicos
 df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-# ========================================================
 logo_b64 = cfg.get('logo_base64', None)
 if logo_b64:
     st.markdown(f"""
@@ -56,19 +47,15 @@ else:
             <h1 class="titulo-responsivo">🏭 {titulo_app}</h1>
         </div>
     """, unsafe_allow_html=True)
-# ========================================================
 
-# FILTRO GLOBAL DE SETOR FIXO NA TELA
-col_setor, _ = st.columns([4, 6]) 
-with col_setor:
-    filtros.renderizar_filtro_setor(df_nuvem)
-st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("<hr style='margin-top: 0px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
+filtros.renderizar_barra_superior(df_nuvem)
+st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
 
 filtros_selecionados = filtros.obter_filtros_atuais()
 
-# ========================================================
-# LÓGICA DE ORDENAÇÃO
-todas_abas_padrao = ["🔍 Filtros", "📈 Disponibilidade", "📋 Apontamentos", "⚙️ Configurações"]
+# === ABA DE FILTROS REMOVIDA ===
+todas_abas_padrao = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
 ordem_str = cfg.get('ordem_abas', None)
 
 if ordem_str:
@@ -79,19 +66,21 @@ if ordem_str:
 else:
     todas_abas = todas_abas_padrao.copy()
 
-aba_padrao_salva = cfg.get('aba_padrao', '🔍 Filtros')
-# ========================================================
+aba_padrao_salva = cfg.get('aba_padrao', '📈 Disponibilidade')
 
 abas_nativas = st.tabs(todas_abas)
 
 for i, nome_aba in enumerate(todas_abas):
     with abas_nativas[i]:
-        if nome_aba == "🔍 Filtros":
-            filtros.renderizar_ui(df_nuvem)
-            
-        elif nome_aba == "📈 Disponibilidade":
+        if nome_aba == "📈 Disponibilidade":
             if not df_nuvem.empty:
                 disponibilidade.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada, meta)
+            else:
+                st.info("O banco de dados está vazio no momento.")
+                
+        elif nome_aba == "🔎 Análise por Ocorrência":
+            if not df_nuvem.empty:
+                analise.renderizar(df_nuvem, df_codigos, filtros_selecionados)
             else:
                 st.info("O banco de dados está vazio no momento.")
                 
@@ -108,36 +97,24 @@ for i, nome_aba in enumerate(todas_abas):
                 "📥 Importação de Dados",
                 "💾 Backup"
             ])
-            
-            with aba_interna:
-                configuracoes.renderizar()
-                
-            with aba_config_abas:
-                configuracoes.renderizar_config_abas()
-                
+            with aba_interna: configuracoes.renderizar()
+            with aba_config_abas: configuracoes.renderizar_config_abas()
             with aba_importacoes:
                 importacao.renderizar_producao()
                 st.markdown("<br>", unsafe_allow_html=True)
                 importacao.renderizar_codigos()
-                    
-            with aba_backup:
-                backups.renderizar()
+            with aba_backup: backups.renderizar()
 
-# ========================================================
-# TRUQUE JS: Auto-Click na aba Padrão
 if 'iniciou_aba' not in st.session_state:
     st.session_state['iniciou_aba'] = True
-    
     if aba_padrao_salva in todas_abas:
         idx = todas_abas.index(aba_padrao_salva)
-        
         if idx != 0:
             js = f"""
             <script>
                 const checkInterval = setInterval(function() {{
                     const parentDoc = window.parent.document;
                     const tabs = parentDoc.querySelectorAll('button[data-baseweb="tab"]');
-                    
                     if (tabs && tabs.length >= {len(todas_abas)}) {{
                         tabs[{idx}].click();
                         clearInterval(checkInterval);

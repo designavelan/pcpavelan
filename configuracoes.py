@@ -2,6 +2,20 @@ import streamlit as st
 import banco
 from datetime import datetime
 import base64
+import json
+import os
+
+def ler_breakpoints():
+    if os.path.exists("layout_config.json"):
+        try:
+            with open("layout_config.json", "r") as f:
+                return json.load(f)
+        except: pass
+    return {"bp_celular": 768, "bp_tablet": 1024}
+
+def salvar_breakpoints(cel, tab):
+    with open("layout_config.json", "w") as f:
+        json.dump({"bp_celular": cel, "bp_tablet": tab}, f)
 
 def obter_parametros():
     cfg = banco.obter_configuracoes()
@@ -34,9 +48,7 @@ def calcular_diferenca(inicio, fim):
 def renderizar():
     cfg = banco.obter_configuracoes()
     titulo_atual = cfg.get('titulo_programa', 'PCP Avelan')
-    
-    aba_atual = cfg.get('aba_padrao', '🔍 Filtros')
-    
+    aba_padrao_salva = cfg.get('aba_padrao', '📈 Disponibilidade')
     m_das = cfg.get('manha_das', '07:00')
     m_as = cfg.get('manha_as', '12:00')
     t_das = cfg.get('tarde_das', '13:00')
@@ -55,15 +67,14 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        
-        opcoes_abas = ["🔍 Filtros", "📈 Disponibilidade", "📋 Apontamentos", "⚙️ Configurações"]
-        idx = opcoes_abas.index(aba_atual) if aba_atual in opcoes_abas else 0
+        # === ABA FILTROS REMOVIDA DAQUI ===
+        opcoes_abas = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
+        idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 0
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 5px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        
-        todas_abas_padrao = ["🔍 Filtros", "📈 Disponibilidade", "📋 Apontamentos", "⚙️ Configurações"]
+        todas_abas_padrao = ["📈 Disponibilidade", "🔎 Análise por Ocorrência", "📋 Apontamentos", "⚙️ Configurações"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -74,7 +85,6 @@ def renderizar():
             ordem_atual = todas_abas_padrao.copy()
                 
         nova_ordem = st.multiselect("Organizador Visual (Arraste ou clique no X):", options=todas_abas_padrao, default=ordem_atual)
-        
         if len(nova_ordem) < len(todas_abas_padrao):
             st.warning("⚠️ Adicione todas as abas para não esconder nenhuma tela acidentalmente.")
 
@@ -95,9 +105,7 @@ def renderizar():
         st.markdown(f"<div style='text-align: right; color: #666; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Tarde: <b>{str_t}</b></i></div>", unsafe_allow_html=True)
 
         total_min = min_m + min_t
-        tot_h = int(total_min // 60)
-        tot_m = int(total_min % 60)
-        str_tot = f"{tot_h:02d}:{tot_m:02d}h"
+        str_tot = f"{int(total_min // 60):02d}:{int(total_min % 60):02d}h"
         
         st.markdown(f"""
         <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; text-align: center; margin-top: 10px;">
@@ -105,6 +113,14 @@ def renderizar():
             <span style="color: #2c3e50; font-size: 24px; font-weight: bold;">{str_tot}</span>
         </div>
         """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("##### 🔎 Status Padrão de Análise")
+        tipos = ["Parado", "Trabalhando", "Todos"]
+        if 'tipo_global' not in st.session_state: st.session_state.tipo_global = "Parado"
+        try: idx_t = tipos.index(st.session_state.tipo_global)
+        except: idx_t = 0
+        st.selectbox("Status da Operação", tipos, index=idx_t, key='tipo_global')
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Salvar Ajustes Gerais", type="primary"):
@@ -138,7 +154,6 @@ def renderizar_config_abas():
     meta_atual = float(cfg.get('meta_disponibilidade', 85.0))
 
     st.markdown("### 📑 Configurações Específicas por Aba")
-    st.markdown("Utilize esta seção para ajustar parâmetros e recursos visuais exclusivos de cada tela do sistema.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.expander("📈 Aba: Disponibilidade", expanded=True):
@@ -150,8 +165,20 @@ def renderizar_config_abas():
         novo_cronico = st.checkbox("Ativar marcação CRÔNICO", value=m_cronico)
         novo_especifico = st.checkbox("Ativar marcação ESPECÍFICO", value=m_especifico)
 
+    with st.expander("📱 Telas e Responsividade (Layout Inteligente)", expanded=True):
+        st.markdown("Configure em qual largura de tela (em pixels) o layout do sistema deve se adaptar.")
+        bp = ler_breakpoints()
+        
+        cel_atual = bp.get("bp_celular", 768)
+        tab_atual = bp.get("bp_tablet", 1024)
+        
+        c1, c2 = st.columns(2)
+        with c1: novo_cel = st.number_input("Largura Máxima do Celular (px)", value=cel_atual, step=10)
+        with c2: novo_tab = st.number_input("Largura Máxima do Tablet (px)", value=tab_atual, step=10)
+        st.markdown("<p style='font-size: 13px; color: #666;'>Telas com largura acima do limite do Tablet serão consideradas 'Computador'.</p>", unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 Salvar Configurações de Abas", type="primary"):
+    if st.button("💾 Salvar Configurações de Abas e Telas", type="primary"):
         try:
             supa = banco.conectar()
             dados = {
@@ -160,6 +187,7 @@ def renderizar_config_abas():
                 "mostrar_especifico": novo_especifico
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
+            salvar_breakpoints(novo_cel, novo_tab)
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")

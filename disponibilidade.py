@@ -13,7 +13,6 @@ def classificar_status(row):
     if tipo == 'PARADO': return 'Parado'
     return 'Trabalhando'
 
-# === ALTERAÇÃO: Função agora aceita 'cor_titulo' separada da 'cor_secundaria' ===
 def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666", cor_titulo="#777777"):
     html = f"""
     <div style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 100%;">
@@ -53,7 +52,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
         st.warning("⚠️ Nenhum dado encontrado para esta combinação de filtros.")
         return
 
-    # O "dicionário" (mapa) que guarda a cor oficial de cada máquina
     lista_alfabetica_maq = sorted(df_filt['maquina'].unique())
     paleta_cores = px.colors.qualitative.Plotly * 10
     mapa_cores_mestre = {maq: paleta_cores[i] for i, maq in enumerate(lista_alfabetica_maq)}
@@ -97,22 +95,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
     tot_view_kpi = df_maq['Parado_View'].sum() if sel_tipo == "Parado" else (df_maq['Trabalhando_View'].sum() if sel_tipo == "Trabalhando" else df_maq['Parado'].sum())
     titulo_kpi = "Total Horas Perdidas" if sel_tipo != "Trabalhando" else "Total Horas Trabalhadas"
 
-    # === ALTERAÇÃO: Inteligência das Cores ===
-    # Busca a cor exata da máquina no dicionário (ou usa cinza #555 se der algo errado)
     cor_melhor_maq = mapa_cores_mestre.get(melhor_maq, "#555")
     cor_pior_maq = mapa_cores_mestre.get(pior_maq, "#555")
+    
+    texto_dias_rodape = f"No Período de {dias_reais} Dia{'s' if dias_reais > 1 else ''}"
 
     k1, k2, k3, k4 = st.columns(4)
-    # Passamos os dois parâmetros de cor: (..., cor_secundaria, cor_titulo)
     with k1: criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555", "#777777")
-    
-    # Título Verde (#2ecc71) / Nome da Máquina com a cor dela (cor_melhor_maq)
     with k2: criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", cor_melhor_maq, "#2ecc71")
-    
-    # Título Vermelho (#e74c3c) / Nome da Máquina com a cor dela (cor_pior_maq)
     with k3: criar_cartao("Menor Disponibilidade", f"{pior_val:.1f}%", f"⚠️ {pior_maq}", cor_pior_maq, "#e74c3c")
-    
-    with k4: criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), "No Período", "#555", "#777777")
+    with k4: criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), texto_dias_rodape, "#555", "#777777")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -127,11 +119,19 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
             x=df_maq['Disponibilidade'], y=df_maq['maquina'], orientation='h',
             marker_color=[mapa_cores_mestre[m] for m in df_maq['maquina']],
             text=df_maq['Disponibilidade'].apply(lambda x: f"<b>{x:.1f}%</b>"),
-            textposition='outside', textfont=dict(size=18, color='black'), cliponaxis=False
+            textposition='outside', textfont=dict(size=18, color='black'), cliponaxis=False,
+            hoverinfo='none' # <--- Comando adicionado aqui para ocultar o balão!
         ))
         
         for i, row in df_maq.iterrows():
-            texto_interno = f"Trab: {banco.minutos_para_string(row['Trabalhando'])}<br>Parado: {banco.minutos_para_string(row['Parado'])}"
+            perc_trab = row['Disponibilidade']
+            perc_parado = 100.0 - perc_trab
+            
+            str_trab = f"Trab: {banco.minutos_para_string(row['Trabalhando'])} ({perc_trab:.1f}%)"
+            str_parado = f"Parado: {banco.minutos_para_string(row['Parado'])} ({perc_parado:.1f}%)"
+            
+            texto_interno = f"{str_trab}<br>{str_parado}"
+            
             fig_bar.add_annotation(
                 x=2, y=row['maquina'], text=f"<b>{texto_interno}</b>",
                 showarrow=False, font=dict(color="white", size=14), xanchor="left", yanchor="middle"
