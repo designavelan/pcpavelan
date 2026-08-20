@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 import banco
 import filtros
 import streamlit.components.v1 as components 
@@ -14,11 +15,12 @@ def classificar_status(row):
     if tipo == 'PARADO': return 'Parado'
     return 'Trabalhando'
 
+def calcular_minutos_str(hora_str):
+    try: return int(hora_str.split(':')[0]) * 60 + int(hora_str.split(':')[1])
+    except: return 0
+
 def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666", cor_titulo="#777777"):
-    # Garante que a linha secundária exista fisicamente mesmo vazia, para manter o eixo vertical intacto
     val_sec = valor_secundario if valor_secundario else "&nbsp;"
-    
-    # Fundimos a classe 'kpis-container' diretamente na div do cartão! Zero elementos extras na coluna.
     html = f"""
     <div class="cartao-kpi-disp kpis-container" style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: center; height: 100%;">
         <p style="margin: 0 0 5px 0; color: {cor_titulo}; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; line-height: 1.2;">{titulo}</p>
@@ -107,7 +109,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
 
     k1, k2, k3, k4 = st.columns(4)
     with k1: 
-        # A tag solta foi removida daqui! O cartão agora se alinha perfeitamente.
         criar_cartao("Média do Setor", f"{media_setor:.1f}%", "Geral", "#555", "#777777")
     with k2: 
         criar_cartao("Maior Disponibilidade", f"{melhor_val:.1f}%", f"🏆 {melhor_maq}", cor_melhor_maq, "#2ecc71")
@@ -116,24 +117,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
     with k4: 
         criar_cartao(titulo_kpi, banco.minutos_para_string(tot_view_kpi), texto_dias_rodape, "#555", "#777777")
 
-    # ===============================================
-    # O EQUALIZADOR DE ALTURAS (A Mágica do Alinhamento)
-    # ===============================================
     js_equalizer = """
     <script>
         setInterval(() => {
             const cards = window.parent.document.querySelectorAll('.cartao-kpi-disp');
             if(cards.length > 0) {
                 let maxH = 0;
-                // Reseta a altura para permitir recalcular quando a tela muda de tamanho
                 cards.forEach(c => c.style.minHeight = 'auto');
-                
-                // Encontra qual é o cartão mais alto do grupo
                 cards.forEach(c => {
                     if(c.offsetHeight > maxH) maxH = c.offsetHeight;
                 });
-                
-                // Força todos a terem exatamente a mesma altura do maior
                 cards.forEach(c => {
                     c.style.minHeight = maxH + 'px';
                 });
@@ -142,7 +135,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
     </script>
     """
     components.html(js_equalizer, height=0)
-    # ===============================================
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -251,3 +243,132 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada_max_minutos, 
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
         st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+
+    # ==========================================
+    # 6. ADIÇÃO DA NOVA FUNÇÃO: ELETROCARDIOGRAMA DIÁRIO AUTOMATIZADO
+    # ==========================================
+    st.markdown("<hr style='opacity: 0.2; margin: 40px 0 30px 0;'>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 5px;'>📊 Eletrocardiograma Diário</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #7f8c8d; margin-bottom: 25px;'>Linha do tempo detalhada das máquinas conforme o período filtrado.</p>", unsafe_allow_html=True)
+    
+    # Extrai todas as datas presentes nos filtros globais
+    datas_disponiveis = sorted(df_filt['data_registro'].dropna().unique().tolist(), reverse=True)
+    
+    if not datas_disponiveis:
+        st.info("Nenhuma data disponível no filtro selecionado para exibir o Eletrocardiograma.")
+        return
+        
+    cfg = banco.obter_configuracoes()
+    m_das = cfg.get('manha_das', '07:30')
+    m_as = cfg.get('manha_as', '11:50')
+    t_das = cfg.get('tarde_das', '13:30')
+    t_as = cfg.get('tarde_as', '17:30')
+
+    m_das_min = calcular_minutos_str(m_das)
+    m_as_min = calcular_minutos_str(m_as)
+    t_das_min = calcular_minutos_str(t_das)
+    t_as_min = calcular_minutos_str(t_as)
+    
+    total_timeline_min = t_as_min - m_das_min
+    if total_timeline_min <= 0: total_timeline_min = 600 
+
+    pct_as_m = ((m_as_min - m_das_min) / total_timeline_min) * 100
+    pct_das_t = ((t_das_min - m_das_min) / total_timeline_min) * 100
+
+    agora = datetime.utcnow() - timedelta(hours=3)
+    hoje_str = agora.strftime("%Y-%m-%d")
+    
+    setores_dict = {}
+    mapa_setores = df_nuvem[['maquina', 'setor']].dropna().drop_duplicates().set_index('maquina')['setor'].to_dict()
+    
+    todas_maquinas_cadastradas = sorted(df_filt['maquina'].unique())
+    for maq in todas_maquinas_cadastradas:
+        setor = mapa_setores.get(maq, "Sem Setor")
+        if setor not in setores_dict:
+            setores_dict[setor] = []
+        setores_dict[setor].append(maq)
+
+    html_timelines = "<div style='max-width: 1200px; margin: 0 auto; margin-top: 20px;'>"
+    color_map = {0: "#95a5a6", 1: "#27ae60", 2: "#e74c3c", 3: "#ecf0f1"}
+
+    teve_hoje = False
+
+    # LAÇO DE REPETIÇÃO: Renderiza um bloco inteiro para CADA dia filtrado
+    for data_fita in datas_disponiveis:
+        is_hoje = (data_fita == hoje_str)
+        if is_hoje: teve_hoje = True
+        agora_min = agora.hour * 60 + agora.minute if is_hoje else 24 * 60
+
+        df_fita = df_filt[df_filt['data_registro'] == data_fita]
+        
+        # Cabeçalho da Data atual
+        data_formatada = pd.to_datetime(data_fita).strftime('%d/%m/%Y')
+        html_timelines += f"<h3 style='text-align: center; color: #2980b9; margin-top: 30px; margin-bottom: 20px; font-weight: bold;'>📅 Referência: {data_formatada}</h3>"
+
+        for setor in sorted(setores_dict.keys()):
+            html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
+            html_timelines += f"<h4 style='color: #7f8c8d; text-transform: uppercase; font-weight: 900; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px;'>🏭 {setor}</h4>"
+            
+            html_timelines += "<div style='position: relative; height: 20px; font-size: 13px; color: #7f8c8d; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #eee;'>"
+            html_timelines += f"<div style='position: absolute; left: 0%; transform: translateX(0%);'>{m_das}</div>"
+            html_timelines += f"<div style='position: absolute; left: {pct_as_m}%; transform: translateX(-50%);'>{m_as}</div>"
+            html_timelines += f"<div style='position: absolute; left: {pct_das_t}%; transform: translateX(-50%);'>{t_das}</div>"
+            html_timelines += f"<div style='position: absolute; left: 100%; transform: translateX(-100%);'>{t_as}</div>"
+            html_timelines += "</div>"
+            
+            for maq in sorted(setores_dict[setor]):
+                timeline = [0] * total_timeline_min
+                
+                for i in range(total_timeline_min):
+                    curr = m_das_min + i
+                    if (curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min):
+                        if curr <= agora_min: timeline[i] = 1 
+                        else: timeline[i] = 3 
+                    else:
+                        timeline[i] = 0 
+                        
+                maq_stops = df_fita[(df_fita['maquina'] == maq) & (df_fita['status_real'] == 'Parado')]
+                for _, row in maq_stops.iterrows():
+                    if pd.notna(row['das']) and pd.notna(row['as_hora']):
+                        inicio = calcular_minutos_str(row['das'])
+                        fim = calcular_minutos_str(row['as_hora'])
+                        for m in range(inicio, fim):
+                            idx = m - m_das_min
+                            if 0 <= idx < total_timeline_min:
+                                timeline[idx] = 2 
+                                
+                segments = []
+                if total_timeline_min > 0:
+                    curr_type = timeline[0]
+                    curr_len = 1
+                    for i in range(1, total_timeline_min):
+                        if timeline[i] == curr_type: curr_len += 1
+                        else:
+                            segments.append((curr_type, curr_len))
+                            curr_type = timeline[i]
+                            curr_len = 1
+                    segments.append((curr_type, curr_len))
+                    
+                html_timelines += "<div style='margin-bottom: 12px; display: flex; flex-direction: column;'>"
+                html_timelines += f"<div style='font-size: 14px; font-weight: bold; color: #34495e; margin-bottom: 4px; text-transform: uppercase;'>{maq}</div>"
+                html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);'>"
+                
+                for stype, slen in segments:
+                    pct = (slen / total_timeline_min) * 100
+                    color = color_map.get(stype, "#000")
+                    html_timelines += f"<div style='width: {pct}%; background-color: {color};'></div>"
+                
+                html_timelines += "</div></div>"
+                
+            html_timelines += "</div>" # Fecha a box do Setor
+
+    # Legenda Global de Cores
+    html_timelines += "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: 10px; font-size: 13px; font-weight: bold; color: #555;'>"
+    html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#27ae60; border-radius:3px;'></div> Trabalhando</div>"
+    html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#e74c3c; border-radius:3px;'></div> Parada Registrada</div>"
+    html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#95a5a6; border-radius:3px;'></div> Intervalo / Almoço</div>"
+    if teve_hoje:
+        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#ecf0f1; border-radius:3px; border: 1px solid #ccc;'></div> A Realizar</div>"
+    html_timelines += "</div></div>"
+
+    st.markdown(html_timelines, unsafe_allow_html=True)
