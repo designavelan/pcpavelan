@@ -68,17 +68,16 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
-        idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 0
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
+        idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
         
-        # === A CHAVINHA DE MEMÓRIA ===
         novo_lembrar = st.checkbox("Lembrar última aba utilizada", value=lembrar_aba_salva)
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -161,23 +160,35 @@ def renderizar_config_abas():
     top_g = int(cfg.get('top_gerais', 3))
     top_i = int(cfg.get('top_individuais', 3))
     perc_i = float(cfg.get('perc_individual', 70.0))
+    
+    ao_vivo_ref = int(cfg.get('ao_vivo_refresh', 60))
+    ao_vivo_crit = int(cfg.get('ao_vivo_critico', 15))
+    vel_atual = int(cfg.get('ao_vivo_vel_barra', 8))
 
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("💡 Aba: Plano de Ação", expanded=True):
+    with st.expander("🔴 Aba: Ao Vivo", expanded=True):
+        st.markdown("Controle o comportamento do painel de monitoramento da fábrica em tempo real (Sistema Andon):")
+        
+        cv1, cv2, cv3 = st.columns(3)
+        with cv1:
+            novo_ref = st.number_input("Taxa de Atualização Automática (Segundos)", value=ao_vivo_ref, step=5, min_value=5)
+        with cv2:
+            novo_crit = st.number_input("Limite para Alerta Crítico (Minutos)", value=ao_vivo_crit, step=1, min_value=1)
+        with cv3:
+            mapa_vel = {"Lenta": 4, "Normal": 8, "Rápida": 12}
+            idx_vel = list(mapa_vel.values()).index(vel_atual) if vel_atual in mapa_vel.values() else 1
+            escolha_vel = st.selectbox("Velocidade da Barra de Informações", list(mapa_vel.keys()), index=idx_vel)
+            novo_vel = mapa_vel[escolha_vel]
+
+    with st.expander("💡 Aba: Plano de Ação"):
         st.markdown("Defina os limites e critérios matemáticos para a geração automática do relatório de ação:")
         
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            novo_top_g = st.number_input("Qtd. Problemas Gerais (Top X)", value=top_g, step=1, min_value=1)
-            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>Quantas falhas distribuídas mostrar.</p>", unsafe_allow_html=True)
-        with c2: 
-            novo_top_i = st.number_input("Qtd. Problemas Individuais (Top X)", value=top_i, step=1, min_value=1)
-            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>Quantas falhas focadas mostrar.</p>", unsafe_allow_html=True)
-        with c3: 
-            novo_perc_i = st.number_input("Concentração P/ Individual (%)", value=perc_i, step=1.0, min_value=1.0, max_value=100.0)
-            st.markdown("<p style='font-size: 12px; color: #666; margin-top: -10px;'>A partir de qual % o problema é de uma máquina só.</p>", unsafe_allow_html=True)
+        with c1: novo_top_g = st.number_input("Qtd. Problemas Gerais (Top X)", value=top_g, step=1, min_value=1)
+        with c2: novo_top_i = st.number_input("Qtd. Problemas Individuais (Top X)", value=top_i, step=1, min_value=1)
+        with c3: novo_perc_i = st.number_input("Concentração P/ Individual (%)", value=perc_i, step=1.0, min_value=1.0, max_value=100.0)
 
     with st.expander("📈 Aba: Disponibilidade"):
         st.markdown("Defina a meta diária de disponibilidade (linha vermelha) para ser exibida nos gráficos:")
@@ -191,7 +202,6 @@ def renderizar_config_abas():
     with st.expander("📱 Ajustes de Layout (Celular, Tablet e PC)"):
         st.markdown("Defina os limites de largura (em pixels) para que o sistema organize os gráficos automaticamente.")
         bp = ler_breakpoints()
-        
         cel_atual = bp.get("bp_celular", 768)
         tab_atual = bp.get("bp_tablet", 1024)
         
@@ -199,8 +209,6 @@ def renderizar_config_abas():
         with c1: novo_cel = st.number_input("Largura Máxima do Celular (px)", value=cel_atual, step=10)
         with c2: novo_tab = st.number_input("Largura Máxima do Tablet (px)", value=tab_atual, step=10)
         
-        st.info(f"💡 **Regra de Layout:**\n- **Celular** (Até {novo_cel}px): Gráficos e Cartões empilhados (Vertical).\n- **Tablet** (De {novo_cel + 1} a {novo_tab}px): Gráficos empilhados, Cartões divididos (2x2).\n- **PC** (Acima de {novo_tab}px): Gráficos e Cartões lado a lado (Horizontal).")
-
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Salvar Configurações de Abas e Telas", type="primary"):
         try:
@@ -211,10 +219,13 @@ def renderizar_config_abas():
                 "mostrar_especifico": novo_especifico,
                 "top_gerais": novo_top_g,
                 "top_individuais": novo_top_i,
-                "perc_individual": novo_perc_i
+                "perc_individual": novo_perc_i,
+                "ao_vivo_refresh": novo_ref,
+                "ao_vivo_critico": novo_crit,
+                "ao_vivo_vel_barra": novo_vel
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
             salvar_breakpoints(novo_cel, novo_tab)
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
-            st.error(f"Erro ao salvar: {e} - Verifique se você criou as colunas novas no Supabase!")
+            st.error(f"Erro ao salvar: {e}")

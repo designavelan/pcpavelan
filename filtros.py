@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import json
 import os
-import banco  # <-- Importado para buscar os dados na hora de contar os dias
+import banco 
 
 ARQUIVO_MEMORIA = "filtros_cache.json"
 
@@ -54,11 +54,11 @@ def iniciar_estados():
     
     if 'periodo_custom_de' not in st.session_state:
         try: st.session_state.periodo_custom_de = datetime.strptime(st.session_state.data_de, '%Y-%m-%d').date()
-        except: st.session_state.periodo_custom_de = datetime.now().date()
+        except: st.session_state.periodo_custom_de = (datetime.utcnow() - timedelta(hours=3)).date()
         
     if 'periodo_custom_ate' not in st.session_state:
         try: st.session_state.periodo_custom_ate = datetime.strptime(st.session_state.data_ate, '%Y-%m-%d').date()
-        except: st.session_state.periodo_custom_ate = datetime.now().date()
+        except: st.session_state.periodo_custom_ate = (datetime.utcnow() - timedelta(hours=3)).date()
 
 def obter_datas_validas(df_nuvem):
     if df_nuvem.empty or 'data_registro' not in df_nuvem.columns: return []
@@ -66,7 +66,8 @@ def obter_datas_validas(df_nuvem):
     return sorted(datas)
 
 def calcular_opcoes(datas_validas):
-    hoje = datetime.now().date()
+    # Relógio travado no Fuso Horário correto para não virar o dia antes da hora
+    hoje = (datetime.utcnow() - timedelta(hours=3)).date()
     ontem = hoje - timedelta(days=1)
     anteontem = hoje - timedelta(days=2)
     inicio_semana = hoje - timedelta(days=hoje.weekday())
@@ -77,11 +78,19 @@ def calcular_opcoes(datas_validas):
 
     opcoes = []
     mapa = {}
+    
     if datas_validas:
         ultimo = datas_validas[-1]
         opcoes.append("Último dia com dados")
         mapa["Último dia com dados"] = (ultimo, ultimo)
 
+    # --- NOVA OPÇÃO: HOJE ---
+    # Fica disponível para permitir o monitoramento das máquinas em tempo real
+    str_hoje = hoje.strftime('%Y-%m-%d')
+    opcoes.append("Hoje")
+    mapa["Hoje"] = (str_hoje, str_hoje)
+
+    if datas_validas:
         str_ontem = ontem.strftime('%Y-%m-%d')
         if str_ontem in datas_validas:
             opcoes.append("Ontem")
@@ -228,17 +237,14 @@ def renderizar_cabecalho_global(nome_aba):
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%Y') if st.session_state.data_ate else ""
     tipo_per = st.session_state.periodo_tipo
     
-    # --- LÓGICA DE CONTAGEM DE DIAS COM DADOS ---
     df_nuvem = banco.obter_dados_nuvem()
     qtd_dias = 0
     if not df_nuvem.empty and st.session_state.data_de and st.session_state.data_ate:
         df_temp = df_nuvem.copy()
         df_temp['data_registro'] = pd.to_datetime(df_temp['data_registro']).dt.strftime('%Y-%m-%d')
         
-        # Aplica os filtros de data globais
         df_temp = df_temp[(df_temp['data_registro'] >= st.session_state.data_de) & (df_temp['data_registro'] <= st.session_state.data_ate)]
         
-        # Aplica os filtros de setor e máquina globais
         if st.session_state.setor_global != "[ Todos ]":
             df_temp = df_temp[df_temp['setor'] == st.session_state.setor_global]
             
@@ -253,12 +259,10 @@ def renderizar_cabecalho_global(nome_aba):
         texto_dias = f" - 1 Dia"
     else:
         texto_dias = f" - {qtd_dias} Dias"
-    # ---------------------------------------------
     
     if d1 == d2: texto_data = f"Período: {d1} · {tipo_per}{texto_dias}"
     else: texto_data = f"Período: {d1} a {d2} · {tipo_per}{texto_dias}"
     
-    # Montagem Dinâmica do Título
     titulo = nome_aba
     if st.session_state.setor_global != "[ Todos ]": 
         titulo += f" — Setor {st.session_state.setor_global}"

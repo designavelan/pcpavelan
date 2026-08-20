@@ -8,19 +8,16 @@ def limpar_hora(valor):
     if pd.isna(valor) or str(valor).strip().lower() in ['nan', 'none', '']:
         return ''
         
-    # Se o Pandas leu como um objeto de tempo nativo
     if isinstance(valor, (datetime.time, datetime.datetime)):
         return valor.strftime('%H:%M')
         
     s = str(valor).strip()
     
-    # Resolve o truque do Excel: se for só número (ex: "1438" ou "930.0")
     s_numerico = s.replace('.0', '')
     if s_numerico.isdigit():
-        s_numerico = s_numerico.zfill(4) # Garante que "930" vire "0930"
+        s_numerico = s_numerico.zfill(4) 
         return f"{s_numerico[:2]}:{s_numerico[2:4]}"
         
-    # Corta os segundos se vier no padrão "14:30:00"
     if len(s) >= 5 and s[2] == ':':
         return s[:5]
         
@@ -69,11 +66,9 @@ def renderizar_producao():
             }
             df_novo = df_novo.rename(columns=mapa_colunas)
             
-            # --- FILTRO CORTA-CAMINHO (Remove colunas excedentes como "Cod Peça" e "Quantidade") ---
             colunas_permitidas = ['data_registro', 'setor', 'maquina', 'cod_ocorrencia', 'das', 'as_hora', 'tipo']
             colunas_finais = [c for c in df_novo.columns if c in colunas_permitidas]
             df_novo = df_novo[colunas_finais]
-            # -------------------------------------------------------------------------------------
 
             colunas_necessarias = ['data_registro', 'maquina', 'das', 'as_hora']
             for col in colunas_necessarias:
@@ -122,8 +117,15 @@ def renderizar_producao():
                 return
             
             registros = df_inserir.to_dict(orient='records')
-            registros_limpos = [{k: blindar_dados(v) for k, v in reg.items()} for reg in registros]
             
+            # --- ATUALIZAÇÃO: Carimbo de Origem ---
+            registros_limpos = []
+            for reg in registros:
+                reg_limpo = {k: blindar_dados(v) for k, v in reg.items()}
+                reg_limpo['origem'] = 'Importação' # CARIMBO AUTOMÁTICO
+                registros_limpos.append(reg_limpo)
+            # --------------------------------------
+
             with st.spinner(f"🚀 Enviando {len(registros_limpos)} novos registros para a nuvem..."):
                 tamanho_lote = 500
                 for i in range(0, len(registros_limpos), tamanho_lote):

@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import banco
 import filtros
 import streamlit.components.v1 as components 
@@ -52,6 +53,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     total_minutos_geral = df['minutos'].sum()
 
+    lista_alfabetica_maq = sorted(df['maquina'].unique())
+    paleta_cores = px.colors.qualitative.Plotly * 10
+    mapa_cores_mestre = {maq: paleta_cores[i] for i, maq in enumerate(lista_alfabetica_maq)}
+
     dias_por_codigo = df.groupby('cod_ocorrencia')['data_registro'].nunique().to_dict()
 
     maquina_especifica = {}
@@ -79,8 +84,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     linhas_html = ""
     for i, row in df_agrupado.iterrows():
+        # LÓGICA DO RANKING EXPLÍCITO (1º, 2º, 3º...)
+        rank_posicao = i + 1
         cod = row['cod_ocorrencia']
-        desc = str(row['descricao'])
+        desc_original = str(row['descricao'])
+        desc_com_rank = f"{rank_posicao}º — {desc_original}" # Junta a posição com o texto
+        
         status_cronico = str(row['cronico']).strip().lower()
         
         qtd_dias = dias_por_codigo.get(cod, 0)
@@ -115,20 +124,33 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         linhas_html += f"<tr style='background-color: {fundo}; {estilo_linha}'>"
         linhas_html += f"<td style='padding: 8px; border-bottom: 1px solid #eee; text-align: center; width: 45px;'>{icone_lupa}</td>"
-        linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee;'>{desc} <b>({cod})</b>{tags}</td>"
+        linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee;'>{desc_com_rank} <b>({cod})</b>{tags}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>{row['Ocor']}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center;'>{banco.minutos_para_string(row['Tempo'])}</td>"
         linhas_html += f"<td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;'>{row['Perc']:.0f}%</td>"
         linhas_html += "</tr>"
 
-    tabela_html = f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px;'>"
-    tabela_html += f"<thead><tr style='background-color: #2980b9; color: white; text-align: left;'>"
-    tabela_html += f"<th style='padding: 12px; text-align: center; width: 45px;'>Ação</th>"
-    tabela_html += f"<th style='padding: 12px;'>Descrição do Problema</th>"
-    tabela_html += f"<th style='padding: 12px; text-align: center;'>Ocor.</th>"
-    tabela_html += f"<th style='padding: 12px; text-align: center;'>Tempo</th>"
-    tabela_html += f"<th style='padding: 12px; text-align: center;'>%</th>"
+    # ===============================================
+    # CÁLCULO MATEMÁTICO DA ALTURA (GRÁFICO X TABELA)
+    # ===============================================
+    qtd_linhas_tabela = len(df_agrupado)
+    # Altura base: 50px de Cabeçalho + (qtd linhas * 48px alt da linha) + 50px de Legenda
+    altura_calculada = 50 + (qtd_linhas_tabela * 48) + 50
+    # Impõe um mínimo de 420px e um teto (máximo) de 650px.
+    altura_final = max(420, min(altura_calculada, 650))
+    # ===============================================
+
+    # Aplica exatamente a mesma altura ao contêiner da tabela
+    tabela_html = f"<div style='max-height: {altura_final}px; overflow-y: auto; padding-right: 5px;'>"
+    tabela_html += f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px;'>"
+    tabela_html += f"<thead><tr style='color: white; text-align: left;'>"
+    tabela_html += f"<th style='padding: 12px; text-align: center; width: 45px; position: sticky; top: 0; background-color: #2980b9; z-index: 1;'>Ação</th>"
+    tabela_html += f"<th style='padding: 12px; position: sticky; top: 0; background-color: #2980b9; z-index: 1;'>Descrição do Problema</th>"
+    tabela_html += f"<th style='padding: 12px; text-align: center; position: sticky; top: 0; background-color: #2980b9; z-index: 1;'>Ocor.</th>"
+    tabela_html += f"<th style='padding: 12px; text-align: center; position: sticky; top: 0; background-color: #2980b9; z-index: 1;'>Tempo</th>"
+    tabela_html += f"<th style='padding: 12px; text-align: center; position: sticky; top: 0; background-color: #2980b9; z-index: 1;'>%</th>"
     tabela_html += f"</tr></thead><tbody>{linhas_html}</tbody></table>"
+    tabela_html += f"</div>"
 
     legenda_html = "<div style='margin-top: 15px; font-size: 12px; color: #7f8c8d;'>"
     if mostrar_cronico and mostrar_especifico:
@@ -155,13 +177,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     ticktext_y1 = [f"{int(v // 60)}:{int(v % 60):02d}" for v in tickvals_y1]
     
     fig = go.Figure()
+    
+    # O tooltip do gráfico também mostra o ranking "1º — ..." para ficar padronizado
+    custom_data_pareto = list(zip(
+        [f"{i+1}º — {desc}" for i, desc in enumerate(df_top10['descricao'])], 
+        [banco.minutos_para_string(m) for m in df_top10['Tempo']]
+    ))
+
     fig.add_trace(go.Bar(
         x=df_top10['cod_ocorrencia'],
         y=df_top10['Tempo'],
         name='Tempo Perdido',
         marker_color='#2c3e50', 
-        hovertemplate="Código: %{x}<br>Tempo: %{customdata}<extra></extra>",
-        customdata=[banco.minutos_para_string(m) for m in df_top10['Tempo']]
+        customdata=custom_data_pareto,
+        hovertemplate="<b>Descrição:</b> %{customdata[0]}<br><b>Código:</b> %{x}<br><b>Tempo:</b> %{customdata[1]}<extra></extra>"
     ))
 
     fig.add_trace(go.Scatter(
@@ -174,38 +203,24 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         text=[f"<b>{x:.0f}%</b>" for x in df_top10['Acumulado']],
         textposition="top center",
         textfont=dict(color='#d35400', size=13),
-        yaxis='y2'
+        yaxis='y2',
+        hovertemplate="<b>Acumulado:</b> %{text}<extra></extra>"
     ))
 
     fig.update_layout(
         title=dict(text="Principais Causadores de Paradas (Top 10)", font=dict(size=16, color='#2c3e50')),
-        
-        # AQUI ESTÃO OS CADEADOS (fixedrange=True) que impedem a tela do celular de bagunçar a escala
         xaxis=dict(type='category', title="", tickfont=dict(size=13), fixedrange=True),
         yaxis=dict(
-            title="Tempo Perdido (Horas)", 
-            showgrid=True, 
-            gridcolor='#ecf0f1', 
-            tickfont=dict(size=13),
-            tickvals=tickvals_y1,
-            ticktext=ticktext_y1,
-            fixedrange=True
+            title="Tempo Perdido (Horas)", showgrid=True, gridcolor='#ecf0f1', 
+            tickfont=dict(size=13), tickvals=tickvals_y1, ticktext=ticktext_y1, fixedrange=True
         ),
         yaxis2=dict(
-            title="Impacto Acumulado (%)", 
-            overlaying='y', 
-            side='right', 
-            range=[0, 110], 
-            showgrid=False, 
-            tickfont=dict(size=13),
-            ticksuffix="%",
-            fixedrange=True
+            title="Impacto Acumulado (%)", overlaying='y', side='right', 
+            range=[0, 110], showgrid=False, tickfont=dict(size=13), ticksuffix="%", fixedrange=True
         ),
-        showlegend=False,
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=0, r=0, t=40, b=0),
-        height=500,
+        showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=0, r=0, t=40, b=0), 
+        height=altura_final,  # GRÁFICO SINCRONIZADO EXATAMENTE COM A ALTURA DA TABELA
         dragmode=False
     )
 
@@ -215,3 +230,57 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         st.markdown(tabela_html, unsafe_allow_html=True)
     with col2:
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    # ===============================================
+    # GRÁFICO: ESTRATIFICAÇÃO POR MÁQUINA
+    # ===============================================
+    st.markdown("<hr style='opacity: 0.2; margin-top: 30px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    
+    top_codigos = df_top10['cod_ocorrencia'].tolist()
+    
+    df_maq_cod = df[df['cod_ocorrencia'].isin(top_codigos)].groupby(['cod_ocorrencia', 'descricao', 'maquina'])['minutos'].sum().reset_index()
+
+    if not df_maq_cod.empty:
+        fig_maq = px.bar(
+            df_maq_cod,
+            x='cod_ocorrencia',
+            y='minutos',
+            color='maquina',
+            barmode='group', 
+            category_orders={'cod_ocorrencia': top_codigos}, 
+            color_discrete_map=mapa_cores_mestre,
+            text=df_maq_cod['minutos'].apply(banco.minutos_para_string),
+            custom_data=['descricao'] 
+        )
+
+        fig_maq.update_traces(
+            textposition='outside', 
+            textfont=dict(size=11), 
+            cliponaxis=False, 
+            hovertemplate="<b>Descrição:</b> %{customdata[0]}<br><b>Código:</b> %{x}<br><b>Tempo:</b> %{text}<extra></extra>"
+        )
+
+        fig_maq.update_layout(
+            title=dict(text="Detalhamento das Ocorrências por Máquina (Top 10)", font=dict(size=16, color='#2c3e50')),
+            xaxis_title="",
+            yaxis_title="Tempo Perdido (Horas)",
+            yaxis=dict(showgrid=True, gridcolor='#ecf0f1', tickvals=tickvals_y1, ticktext=ticktext_y1, fixedrange=True),
+            xaxis=dict(fixedrange=True, type='category'),
+            
+            legend=dict(
+                title="", 
+                orientation="h",  
+                yanchor="top", y=-0.15,          
+                xanchor="center", x=0.5,            
+                bgcolor="rgba(0,0,0,0)", 
+                font=dict(size=13)
+            ),
+            
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=0, r=0, t=40, b=80),
+            height=500,
+            dragmode=False
+        )
+
+        st.plotly_chart(fig_maq, use_container_width=True, config={'displayModeBar': False})

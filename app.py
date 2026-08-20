@@ -9,6 +9,9 @@ import importacao
 import apontamentos
 import backups 
 import plano_acao 
+import chao_de_fabrica
+import ao_vivo 
+import gerenciador # NOVO MÓDULO IMPORTADO AQUI
 from streamlit_option_menu import option_menu
 
 cfg = banco.obter_configuracoes()
@@ -16,9 +19,6 @@ titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
 
 st.set_page_config(page_title=titulo_app, page_icon="🏭", layout="wide")
 
-# ===============================================
-# A MÁGICA DA LUPA: Teletransporte Perfeito
-# ===============================================
 try:
     params = st.query_params
     if 'codigo_alvo' in params:
@@ -34,9 +34,6 @@ except AttributeError:
         filtros.salvar_memoria()
         st.experimental_set_query_params()
 
-# ===============================================
-# CSS GLOBAL (Incluindo a correção para Mobile/Swipe)
-# ===============================================
 st.markdown("""
     <style>
     header[data-testid="stHeader"] { display: none !important; }
@@ -45,19 +42,18 @@ st.markdown("""
     .logo-responsiva { max-height: 60px; object-fit: contain; }
     .titulo-responsivo { margin: 0; padding: 0; font-size: 2.5rem; }
     
-    /* === MENU RESPONSIVO DE ARRASTAR (SWIPE NO CELULAR) === */
     ul.nav-pills {
         flex-wrap: nowrap !important;
         overflow-x: auto !important;
         overflow-y: hidden !important;
-        -webkit-overflow-scrolling: touch !important; /* Rolagem suave no celular */
-        scrollbar-width: none !important; /* Firefox */
+        -webkit-overflow-scrolling: touch !important; 
+        scrollbar-width: none !important; 
     }
     ul.nav-pills::-webkit-scrollbar {
-        display: none !important; /* Esconde a barra de rolagem visualmente no Chrome/Safari */
+        display: none !important; 
     }
     li.nav-item {
-        white-space: nowrap !important; /* Impede que o texto dos botões quebre para baixo */
+        white-space: nowrap !important; 
     }
     
     @media (max-width: 768px) {
@@ -89,7 +85,7 @@ else:
 
 st.markdown("<hr style='margin-top: 0px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
 
-todas_abas_padrao = ["💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
 ordem_str = cfg.get('ordem_abas', None)
 
 if ordem_str:
@@ -103,9 +99,6 @@ else:
 aba_padrao_salva = cfg.get('aba_padrao', '💡 Plano de Ação')
 lembrar_aba_ligado = cfg.get('lembrar_aba', True)
 
-# ===============================================
-# O JUIZ: DEFINIÇÃO DE QUAL TELA ABRIR
-# ===============================================
 if 'aba_atual' not in st.session_state:
     if lembrar_aba_ligado:
         memoria = filtros.carregar_memoria()
@@ -119,25 +112,25 @@ if 'aba_atual' not in st.session_state:
 
 if st.session_state.aba_atual not in todas_abas:
     st.session_state.aba_atual = todas_abas[0]
-# ===============================================
 
-# Renderiza os filtros globais
-filtros.renderizar_barra_superior(df_nuvem)
-filtros_selecionados = filtros.obter_filtros_atuais()
-
-st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
+# --- LÓGICA DE EXIBIÇÃO DO FILTRO ---
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo"]:
+    filtros.renderizar_barra_superior(df_nuvem)
+    filtros_selecionados = filtros.obter_filtros_atuais()
+    st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
+else:
+    filtros_selecionados = filtros.obter_filtros_atuais()
+    if st.session_state.aba_atual == "🔴 Ao Vivo":
+        st.markdown(f"<div style='text-align:right; margin-bottom:15px;'><span style='background:#f1f1f1; padding:5px 15px; border-radius:5px;'>Filtro Atual: <b>{filtros_selecionados['setor']}</b></span></div>", unsafe_allow_html=True)
 
 idx_atual = todas_abas.index(st.session_state.aba_atual)
 
-# ===============================================
-# MENU OPCIONAL - COM CÓDIGO LIMPO E RESPONSIVO
-# ===============================================
 escolha = option_menu(
     menu_title=None,
     options=todas_abas,
     default_index=idx_atual,
     orientation="horizontal",
-    icons=[''] * len(todas_abas), # Isso "anula" os ícones padrões para não conflitar com nossos emojis
+    icons=[''] * len(todas_abas), 
     styles={
         "container": {
             "padding": "0!important", 
@@ -146,13 +139,13 @@ escolha = option_menu(
             "margin-bottom": "25px"
         },
         "icon": {
-            "display": "none" # Remove qualquer rastro do ícone intruso (>)
+            "display": "none" 
         },
         "nav-link": {
             "font-size": "15px", 
             "text-align": "center", 
             "margin": "0px 5px", 
-            "white-space": "nowrap", # Mantém texto na mesma linha
+            "white-space": "nowrap", 
             "--hover-color": "#eee"
         },
         "nav-link-selected": {
@@ -166,37 +159,37 @@ if escolha != st.session_state.aba_atual:
     filtros.salvar_memoria() 
     st.rerun()
 
-# Roteamento das telas
-if st.session_state.aba_atual == "💡 Plano de Ação":
-    if not df_nuvem.empty:
-        plano_acao.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada)
-    else:
-        st.info("O banco de dados está vazio no momento.")
+# Roteamento
+if st.session_state.aba_atual == "📱 Chão de Fábrica":
+    chao_de_fabrica.renderizar(df_nuvem, df_codigos)
+    
+elif st.session_state.aba_atual == "🔴 Ao Vivo":
+    ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    
+elif st.session_state.aba_atual == "💡 Plano de Ação":
+    if not df_nuvem.empty: plano_acao.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada)
+    else: st.info("O banco de dados está vazio.")
         
 elif st.session_state.aba_atual == "📈 Disponibilidade":
-    if not df_nuvem.empty:
-        disponibilidade.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada, meta)
-    else:
-        st.info("O banco de dados está vazio no momento.")
+    if not df_nuvem.empty: disponibilidade.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada, meta)
+    else: st.info("O banco de dados está vazio.")
         
 elif st.session_state.aba_atual == "🔎 Ocorrências":
-    if not df_nuvem.empty:
-        ocorrencias.renderizar(df_nuvem, df_codigos, filtros_selecionados)
-    else:
-        st.info("O banco de dados está vazio no momento.")
+    if not df_nuvem.empty: ocorrencias.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else: st.info("O banco de dados está vazio.")
         
 elif st.session_state.aba_atual == "📋 Apontamentos":
-    if not df_nuvem.empty:
-        apontamentos.renderizar(df_nuvem, df_codigos, filtros_selecionados)
-    else:
-        st.info("O banco de dados está vazio no momento.")
+    if not df_nuvem.empty: apontamentos.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else: st.info("O banco de dados está vazio.")
         
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_importacoes, aba_backup = st.tabs([
-        "⚙️ Ajustes Gerais do Sistema", 
-        "📑 Configurações de Abas", 
-        "📥 Importação de Dados",
-        "💾 Backup"
+    # --- ROTEAMENTO ATUALIZADO COM A ABA GERENCIADOR ---
+    aba_interna, aba_config_abas, aba_importacoes, aba_backup, aba_gerenciador = st.tabs([
+        "⚙️ Ajustes Gerais", 
+        "📑 Config. de Abas", 
+        "📥 Importação", 
+        "💾 Backup",
+        "🛠️ Gerenciador de Dados"
     ])
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
@@ -205,3 +198,4 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
         st.markdown("<br>", unsafe_allow_html=True)
         importacao.renderizar_codigos()
     with aba_backup: backups.renderizar()
+    with aba_gerenciador: gerenciador.renderizar(df_nuvem)
