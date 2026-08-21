@@ -37,20 +37,20 @@ def renderizar(df_nuvem, df_codigos):
         return
 
     # ==========================================
-    # 1. IDENTIFICAÇÃO DO EQUIPAMENTO (POKA-YOKE)
+    # 1. IDENTIFICAÇÃO DO EQUIPAMENTO E USUÁRIO
     # ==========================================
     usuario = st.session_state.get('usuario_logado', {})
     user_setor = usuario.get('setor', '[ Todos ]')
     user_maq = usuario.get('maquina', '[ Todas ]')
 
-    # Verifica se o usuário está travado em uma máquina e setor específicos
+    # Verifica se o usuário está travado em uma máquina e setor específicos (Visão Operador)
     is_travado = (user_setor != "[ Todos ]" and user_maq != "[ Todas ]" and user_setor != "" and user_maq != "")
 
     if is_travado:
         setor_selecionado = user_setor
         maquina_selecionada = user_maq
         
-        # Cabeçalho Fixo e Seguro (Sem Menus)
+        # Cabeçalho Fixo e Seguro (Sem Menus e Sem Banner Adicional)
         st.markdown(f"""
         <div style="display: flex; justify-content: center; gap: 20px; margin-top: 15px; margin-bottom: 20px; flex-wrap: wrap;">
             <div style="background-color: #f8f9fa; border-left: 5px solid #2980b9; border-radius: 8px; padding: 12px 25px; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex: 1; min-width: 200px; max-width: 300px;">
@@ -66,7 +66,7 @@ def renderizar(df_nuvem, df_codigos):
         st.markdown("<hr style='opacity: 0.2; margin-top: 5px;'>", unsafe_allow_html=True)
         
     else:
-        # Se for um gestor/admin (que vê tudo), os menus aparecem para ele poder navegar
+        # Visão Gestor/Admin (Menus de Seleção + Identificação do Operador)
         lista_setores_nuvem = sorted(df_nuvem['setor'].dropna().unique().tolist())
         st.markdown("<p style='text-align: center; color: #7f8c8d; font-size: 16px; margin-top: 10px;'>Selecione o equipamento manualmente</p>", unsafe_allow_html=True)
 
@@ -78,6 +78,28 @@ def renderizar(df_nuvem, df_codigos):
         
         with c2:
             maquina_selecionada = st.selectbox("⚙️ Selecione a Máquina", lista_maquinas_nuvem, key="cf_maquina")
+
+        # BUSCA O OPERADOR ASSOCIADO À MÁQUINA SELECIONADA
+        usuarios_cadastrados = banco.obter_usuarios_completo()
+        operadores_vinculados = [
+            u['nome'] for u in usuarios_cadastrados 
+            if str(u.get('setor')) == str(setor_selecionado) and str(u.get('maquina')) == str(maquina_selecionada) and u.get('ativo') == True
+        ]
+        
+        if operadores_vinculados:
+            nomes_operadores = " / ".join(operadores_vinculados)
+            st.markdown(f"""
+            <div style="background-color: #f1f8ff; border: 1px solid #c8e1ff; border-radius: 6px; padding: 10px; margin-top: 5px; text-align: center;">
+                <span style="color: #555; font-size: 14px;">👷 <b>Operador Vinculado:</b></span> 
+                <span style="color: #0366d6; font-size: 15px; font-weight: 700; margin-left: 5px;">{nomes_operadores}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background-color: #fff8f2; border: 1px solid #ffd8b5; border-radius: 6px; padding: 10px; margin-top: 5px; text-align: center;">
+                <span style="color: #d35400; font-size: 14px;">⚠️ <b>Nenhum operador vinculado a esta máquina no momento.</b></span>
+            </div>
+            """, unsafe_allow_html=True)
 
         st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
 
