@@ -1,4 +1,7 @@
 import streamlit as st
+# 🔒 REGRA DE SEGURANÇA: Configuração da página DEVE ser a primeira linha do Streamlit!
+st.set_page_config(page_title="PCP Avelan", page_icon="🏭", layout="wide")
+
 import streamlit.components.v1 as components
 import banco
 import configuracoes
@@ -16,10 +19,13 @@ import usuarios
 from streamlit_option_menu import option_menu
 import base64
 
-cfg = banco.obter_configuracoes()
-titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
-
-st.set_page_config(page_title=titulo_app, page_icon="🏭", layout="wide")
+# Carrega configurações visuais
+try:
+    cfg = banco.obter_configuracoes()
+    titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
+except:
+    cfg = {}
+    titulo_app = 'PCP Avelan'
 
 # ==========================================
 # 1. SISTEMA DE LOGIN COM PERSISTÊNCIA (F5)
@@ -71,7 +77,6 @@ if st.session_state['usuario_logado'] is None:
                 user_valido = banco.autenticar_usuario(login, senha)
                 if user_valido:
                     st.session_state['usuario_logado'] = user_valido
-                    # Cria o token secreto na URL para sobreviver ao F5
                     encoded_user = base64.b64encode(user_valido['username'].encode('utf-8')).decode('utf-8')
                     try: st.query_params['session'] = encoded_user
                     except: st.experimental_set_query_params(session=encoded_user)
@@ -223,9 +228,10 @@ elif st.session_state.aba_atual == "📋 Apontamentos":
 elif st.session_state.aba_atual == "👥 Controle de Acessos":
     usuarios.renderizar(df_nuvem)
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
+    with aba_estrutura: configuracoes.renderizar_estrutura()
     with aba_importacoes:
         importacao.renderizar_producao()
         st.markdown("<br>", unsafe_allow_html=True)

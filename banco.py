@@ -115,3 +115,30 @@ def atualizar_perfil(id_perfil, dados):
 def atualizar_usuario(id_usuario, dados):
     supa = conectar()
     supa.table("usuarios").update(dados).eq("id", id_usuario).execute()
+
+# ==========================================
+# FUNÇÕES DE ESTRUTURA DA FÁBRICA (CASCATA)
+# ==========================================
+
+def obter_estrutura():
+    supa = conectar()
+    resp = supa.table("estrutura_fabrica").select("*").order("setor").order("maquina").execute()
+    return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+
+def adicionar_estrutura(setor, maquina):
+    supa = conectar()
+    supa.table("estrutura_fabrica").insert({"setor": setor, "maquina": maquina, "ativo": True}).execute()
+
+def atualizar_estrutura_cascata(id_est, setor_antigo, maquina_antiga, setor_novo, maquina_novo):
+    supa = conectar()
+    # 1. Atualiza na estrutura
+    supa.table("estrutura_fabrica").update({"setor": setor_novo, "maquina": maquina_novo}).eq("id", id_est).execute()
+    
+    # 2. Efeito Cascata: Histórico de Produção
+    supa.table("producao_diaria").update({"setor": setor_novo, "maquina": maquina_novo}).eq("setor", setor_antigo).eq("maquina", maquina_antiga).execute()
+    
+    # 3. Efeito Cascata: Usuários vinculados
+    supa.table("usuarios").update({"setor": setor_novo, "maquina": maquina_novo}).eq("setor", setor_antigo).eq("maquina", maquina_antiga).execute()
+    
+    # 4. Efeito Cascata: Status Ao Vivo
+    supa.table("status_maquinas").update({"setor": setor_novo, "maquina": maquina_novo}).eq("setor", setor_antigo).eq("maquina", maquina_antiga).execute()

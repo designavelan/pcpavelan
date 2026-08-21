@@ -273,3 +273,64 @@ def renderizar_config_abas():
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
+
+def renderizar_estrutura():
+    import streamlit as st
+    import banco
+    
+    st.markdown("### 🏭 Estrutura da Fábrica")
+    st.markdown("Cadastre novos setores e máquinas, ou edite os nomes atuais. As alterações feitas aqui serão atualizadas **automaticamente em todo o histórico e nos usuários vinculados**.")
+    st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    
+    df_est = banco.obter_estrutura()
+    
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.markdown("#### ➕ Cadastrar Novo")
+        n_setor = st.text_input("Nome do Setor", placeholder="Ex: Montagem")
+        n_maq = st.text_input("Nome da Máquina", placeholder="Ex: Esteira 1")
+        
+        if st.button("💾 Cadastrar Estrutura", type="primary"):
+            if n_setor and n_maq:
+                try:
+                    banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
+                    st.success("✅ Máquina cadastrada com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error("Erro: Esta máquina já está cadastrada neste setor.")
+            else:
+                st.warning("Preencha o Setor e a Máquina.")
+                
+    with c2:
+        st.markdown("#### ✏️ Editar Existente (Cascata)")
+        if not df_est.empty:
+            df_est['nome_exibicao'] = df_est['setor'] + " ➔ " + df_est['maquina']
+            opcoes = df_est['nome_exibicao'].tolist()
+            
+            selecionada = st.selectbox("Selecione para alterar:", opcoes)
+            
+            linha = df_est[df_est['nome_exibicao'] == selecionada].iloc[0]
+            setor_ant = linha['setor']
+            maq_ant = linha['maquina']
+            id_est = int(linha['id'])
+            
+            e_setor = st.text_input("Renomear Setor", value=setor_ant)
+            e_maq = st.text_input("Renomear Máquina", value=maq_ant)
+            
+            if st.button("🔄 Salvar e Aplicar Cascata", type="primary"):
+                if e_setor and e_maq:
+                    if e_setor.strip() != setor_ant or e_maq.strip() != maq_ant:
+                        with st.spinner("Atualizando todo o sistema (Isso pode levar alguns segundos)..."):
+                            try:
+                                banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
+                                st.success("✅ Histórico, usuários e cadastros atualizados com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro na atualização: {e}")
+                    else:
+                        st.info("Nenhuma alteração no nome foi feita.")
+                else:
+                    st.warning("Os campos não podem ficar vazios.")
+        else:
+            st.info("Nenhuma estrutura cadastrada ainda.")
