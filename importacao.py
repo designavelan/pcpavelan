@@ -139,6 +139,16 @@ def renderizar_producao():
 
 def renderizar_codigos():
     st.markdown("#### 📋 Importar Planilha de Códigos")
+    
+    st.info("""
+    **💡 Como usar a coluna "Exibir na Lista" do Excel:**  
+    Essa coluna controla exatamente onde cada botão de apontamento vai aparecer no tablet do Chão de Fábrica.
+    * Deixe a célula **vazia** se não quiser que o botão apareça para ninguém.
+    * Digite **TODOS** para o botão aparecer em qualquer setor (Ex: *Intervalo, Falta de Energia*).
+    * Digite o **nome do setor** para o botão aparecer apenas lá (Ex: *CORTE*).
+    * Para múltiplos setores, **separe por vírgula** (Ex: *CORTE, PINTURA, COLADEIRA*).
+    """)
+    
     arquivo = st.file_uploader("Selecione a planilha de Códigos (Excel)", type=["xlsx", "xls"])
     
     if arquivo and st.button("🚀 Atualizar Códigos", type="primary"):
@@ -146,13 +156,17 @@ def renderizar_codigos():
             with st.spinner("Lendo planilha..."):
                 df_novo = pd.read_excel(arquivo)
             
+            # Padroniza os cabeçalhos para letras minúsculas
             df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
             
+            # Mapeamento atualizado para incluir a nova coluna
             mapa = {
                 'cod': 'codigo', 'código': 'codigo', 
                 'descrição': 'descricao', 'descricao': 'descricao',
                 'tipo': 'tipo',
-                'cronico': 'cronico', 'crônico': 'cronico'
+                'cronico': 'cronico', 'crônico': 'cronico',
+                'exibir na lista': 'exibir_na_lista',
+                'exibir_na_lista': 'exibir_na_lista'
             }
             df_novo = df_novo.rename(columns=mapa)
             

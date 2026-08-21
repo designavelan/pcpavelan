@@ -24,18 +24,32 @@ def obter_parametros():
     m_as = cfg.get('manha_as', '12:00')
     t_das = cfg.get('tarde_das', '13:00')
     t_as = cfg.get('tarde_as', '16:20')
+    
+    lm_das = cfg.get('lanche_m_das', '')
+    lm_as = cfg.get('lanche_m_as', '')
+    lt_das = cfg.get('lanche_t_das', '')
+    lt_as = cfg.get('lanche_t_as', '')
 
     fmt = '%H:%M'
     try:
+        # Calcula os turnos brutos
         m_min = (datetime.strptime(m_as, fmt) - datetime.strptime(m_das, fmt)).total_seconds() / 60
         t_min = (datetime.strptime(t_as, fmt) - datetime.strptime(t_das, fmt)).total_seconds() / 60
-        jornada = m_min + t_min
+        
+        # Calcula os intervalos programados (Lanches)
+        lm_min = (datetime.strptime(lm_as, fmt) - datetime.strptime(lm_das, fmt)).total_seconds() / 60 if lm_as and lm_das else 0
+        lt_min = (datetime.strptime(lt_as, fmt) - datetime.strptime(lt_das, fmt)).total_seconds() / 60 if lt_as and lt_das else 0
+        
+        # A Jornada que alimenta o sistema todo passa a ser EXCLUSIVAMENTE o Tempo Útil!
+        jornada = max(0, m_min - max(0, lm_min)) + max(0, t_min - max(0, lt_min))
     except:
         jornada = 520
+        
     return meta, jornada, m_das, m_as, t_das, t_as
 
 def calcular_diferenca(inicio, fim):
     try:
+        if not inicio or not fim: return 0, "00:00h"
         fmt = '%H:%M'
         minutos = (datetime.strptime(fim, fmt) - datetime.strptime(inicio, fmt)).total_seconds() / 60
         if minutos < 0: minutos += 24 * 60 
@@ -50,10 +64,16 @@ def renderizar():
     titulo_atual = cfg.get('titulo_programa', 'PCP Avelan')
     aba_padrao_salva = cfg.get('aba_padrao', '💡 Plano de Ação')
     lembrar_aba_salva = cfg.get('lembrar_aba', True)
+    
     m_das = cfg.get('manha_das', '07:00')
     m_as = cfg.get('manha_as', '12:00')
     t_das = cfg.get('tarde_das', '13:00')
     t_as = cfg.get('tarde_as', '16:20')
+    
+    lm_das = cfg.get('lanche_m_das', '')
+    lm_as = cfg.get('lanche_m_as', '')
+    lt_das = cfg.get('lanche_t_das', '')
+    lt_as = cfg.get('lanche_t_as', '')
 
     st.markdown("### ⚙️ Preferências do Sistema")
 
@@ -93,27 +113,47 @@ def renderizar():
 
     with c2:
         st.markdown("##### 🕒 Jornada de Trabalho (Turnos)")
+        
+        # --- TURNO DA MANHÃ ---
         t1, t2 = st.columns(2)
         with t1: n_mdas = st.text_input("Manhã - Início", value=m_das)
         with t2: n_mas = st.text_input("Manhã - Fim", value=m_as)
         
-        min_m, str_m = calcular_diferenca(n_mdas, n_mas)
-        st.markdown(f"<div style='text-align: right; color: #666; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Manhã: <b>{str_m}</b></i></div>", unsafe_allow_html=True)
+        lm1, lm2 = st.columns(2)
+        with lm1: n_lmdas = st.text_input("Lanche da Manhã - Início (Opcional)", value=lm_das, placeholder="Ex: 09:30")
+        with lm2: n_lmas = st.text_input("Lanche da Manhã - Fim (Opcional)", value=lm_as, placeholder="Ex: 09:40")
+        
+        min_m_bruto, _ = calcular_diferenca(n_mdas, n_mas)
+        min_lm, _ = calcular_diferenca(n_lmdas, n_lmas)
+        min_m_util = max(0, min_m_bruto - min_lm)
+        str_m_util = f"{int(min_m_util // 60):02d}:{int(min_m_util % 60):02d}h"
+        
+        st.markdown(f"<div style='text-align: right; color: #27ae60; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Manhã (Útil): <b>{str_m_util}</b></i></div>", unsafe_allow_html=True)
 
+        # --- TURNO DA TARDE ---
         t3, t4 = st.columns(2)
         with t3: n_tdas = st.text_input("Tarde - Início", value=t_das)
         with t4: n_tas = st.text_input("Tarde - Fim", value=t_as)
+        
+        lt1, lt2 = st.columns(2)
+        with lt1: n_ltdas = st.text_input("Lanche da Tarde - Início (Opcional)", value=lt_das, placeholder="Ex: 15:30")
+        with lt2: n_ltas = st.text_input("Lanche da Tarde - Fim (Opcional)", value=lt_as, placeholder="Ex: 15:40")
 
-        min_t, str_t = calcular_diferenca(n_tdas, n_tas)
-        st.markdown(f"<div style='text-align: right; color: #666; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Tarde: <b>{str_t}</b></i></div>", unsafe_allow_html=True)
+        min_t_bruto, _ = calcular_diferenca(n_tdas, n_tas)
+        min_lt, _ = calcular_diferenca(n_ltdas, n_ltas)
+        min_t_util = max(0, min_t_bruto - min_lt)
+        str_t_util = f"{int(min_t_util // 60):02d}:{int(min_t_util % 60):02d}h"
+        
+        st.markdown(f"<div style='text-align: right; color: #27ae60; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Tarde (Útil): <b>{str_t_util}</b></i></div>", unsafe_allow_html=True)
 
-        total_min = min_m + min_t
-        str_tot = f"{int(total_min // 60):02d}:{int(total_min % 60):02d}h"
+        # --- JORNADA GERAL ---
+        total_min_util = min_m_util + min_t_util
+        str_tot_util = f"{int(total_min_util // 60):02d}:{int(total_min_util % 60):02d}h"
         
         st.markdown(f"""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; text-align: center; margin-top: 10px;">
-            <span style="color: #777; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Jornada Total Diária</span><br>
-            <span style="color: #2c3e50; font-size: 24px; font-weight: bold;">{str_tot}</span>
+        <div style="background-color: #e8f8f5; padding: 15px; border-radius: 8px; border: 1px solid #27ae60; text-align: center; margin-top: 10px;">
+            <span style="color: #27ae60; font-size: 13px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Jornada Total Diária (Útil)</span><br>
+            <span style="color: #2c3e50; font-size: 28px; font-weight: 900;">{str_tot_util}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -141,15 +181,19 @@ def renderizar():
                 "manha_as": n_mas,
                 "tarde_das": n_tdas,
                 "tarde_as": n_tas,
+                "lanche_m_das": n_lmdas,
+                "lanche_m_as": n_lmas,
+                "lanche_t_das": n_ltdas,
+                "lanche_t_as": n_ltas,
                 "ordem_abas": ",".join(ordem_final) 
             }
             if up_logo is not None:
                 dados["logo_base64"] = base64.b64encode(up_logo.getvalue()).decode()
                 
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
-            st.success("✅ Ajustes gerais salvos! Recarregue a página (F5) para aplicar.")
+            st.success("✅ Ajustes gerais salvos! Recarregue a página (F5) para aplicar em todo o sistema.")
         except Exception as e:
-            st.error(f"Erro ao salvar: {e}")
+            st.error(f"Erro ao salvar no banco de dados: {e}")
 
 def renderizar_config_abas():
     cfg = banco.obter_configuracoes()

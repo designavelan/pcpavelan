@@ -1,15 +1,12 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+import hashlib
 
-# Estrutura Inteligente Híbrida: Nuvem + Local
 try:
-    # Tentativa 1: Nuvem (Streamlit Cloud puxando do Cofre)
     URL_SUPABASE = st.secrets["SUPABASE_URL"]
     CHAVE_SUPABASE = st.secrets["SUPABASE_KEY"]
 except:
-    # Tentativa 2: Computador Local (Desenvolvimento)
-    # A chave está dividida em duas partes (+) para evitar que o robô do GitHub bloqueie o seu upload!
     URL_SUPABASE = "https://ewbhlxeekepwooutrlln.supabase.co"
     CHAVE_SUPABASE = "sb_publishable_" + "biqNEzpF9QSFLPiTzLFQRA_nTJyewa_"
 
@@ -39,14 +36,6 @@ def obter_configuracoes():
     resp = supa.table("configuracoes").select("*").eq("id", 1).execute()
     return resp.data[0] if resp.data else {}
 
-def ler_texto_seguro(df, nome_coluna):
-    if nome_coluna in df.columns: return df[nome_coluna].astype(str).str.strip()
-    return None
-
-def ler_numero_seguro(df, nome_coluna):
-    if nome_coluna in df.columns: return pd.to_numeric(df[nome_coluna], errors='coerce').fillna(0).astype(int)
-    return 0
-
 def formatar_hora_excel(val):
     if pd.isna(val) or str(val).strip().lower() in ['nan', 'none', '']: return None
     s = str(val).strip()
@@ -60,3 +49,69 @@ def minutos_para_string(m):
     h = int(m // 60)
     mn = int(m % 60)
     return f"{h:02d}:{mn:02d}h"
+
+# ==========================================
+# FUNÇÕES DE AUTENTICAÇÃO E USUÁRIOS
+# ==========================================
+
+def hash_senha(senha):
+    return hashlib.sha256(senha.encode()).hexdigest()
+
+def autenticar_usuario(username, senha_texto):
+    try:
+        supa = conectar()
+        username_limpo = username.strip().lower()
+        resp = supa.table("usuarios").select("*").eq("username", username_limpo).execute()
+        
+        if not resp.data: return None
+        user = resp.data[0]
+        
+        if not user.get('ativo', False): return None
+        
+        if user['senha'] == senha_texto or user['senha'] == hash_senha(senha_texto):
+            if user.get('perfil_id'):
+                resp_perfil = supa.table("perfis_acesso").select("*").eq("id", user['perfil_id']).execute()
+                user['perfis_acesso'] = resp_perfil.data[0] if resp_perfil.data else {}
+            else:
+                user['perfis_acesso'] = {}
+            return user
+        return None
+    except Exception as e:
+        st.error(f"Erro de comunicação com o banco: {e}")
+        return None
+
+def obter_usuario_por_login(username):
+    """Função para o Auto-Login (F5 da página)"""
+    try:
+        supa = conectar()
+        resp = supa.table("usuarios").select("*").eq("username", username).execute()
+        if not resp.data: return None
+        user = resp.data[0]
+        if not user.get('ativo', False): return None
+        
+        if user.get('perfil_id'):
+            resp_perfil = supa.table("perfis_acesso").select("*").eq("id", user['perfil_id']).execute()
+            user['perfis_acesso'] = resp_perfil.data[0] if resp_perfil.data else {}
+        else:
+            user['perfis_acesso'] = {}
+        return user
+    except:
+        return None
+
+def obter_perfis():
+    supa = conectar()
+    resp = supa.table("perfis_acesso").select("*").order("id").execute()
+    return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+
+def obter_usuarios_completo():
+    supa = conectar()
+    resp = supa.table("usuarios").select("*, perfis_acesso(nome_perfil)").order("id").execute()
+    return resp.data if resp.data else []
+
+def atualizar_perfil(id_perfil, dados):
+    supa = conectar()
+    supa.table("perfis_acesso").update(dados).eq("id", id_perfil).execute()
+
+def atualizar_usuario(id_usuario, dados):
+    supa = conectar()
+    supa.table("usuarios").update(dados).eq("id", id_usuario).execute()
