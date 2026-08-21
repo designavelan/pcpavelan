@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import banco
 import json
+import io
+import zipfile
 from datetime import datetime
 
 def limpar_nans(lista):
@@ -18,7 +20,7 @@ def renderizar():
     col1, col2 = st.columns(2)
 
     # ==========================================
-    # ÁREA DE DOWNLOAD (EXPORTAR BACKUP)
+    # ÁREA DE DOWNLOAD (EXPORTAR BACKUP JSON)
     # ==========================================
     with col1:
         st.markdown("#### ⬇️ Exportar Backup")
@@ -57,7 +59,7 @@ def renderizar():
                     st.error(f"Erro ao gerar backup: {e}")
 
     # ==========================================
-    # ÁREA DE UPLOAD (RESTAURAR BACKUP)
+    # ÁREA DE UPLOAD (RESTAURAR BACKUP JSON)
     # ==========================================
     with col2:
         st.markdown("#### ⬆️ Restaurar Backup")
@@ -86,7 +88,6 @@ def renderizar():
                                 supa.table("configuracoes").delete().neq("id", 0).execute()
                                 supa.table("configuracoes").insert(limpar_nans(dados_restauracao["configuracoes"])).execute()
 
-                            # CORREÇÃO AQUI: Apagando usando a coluna 'codigo' que sabemos que existe
                             if dados_restauracao.get("codigos_parada"):
                                 supa.table("codigos_parada").delete().neq("codigo", "LIXO").execute()
                                 supa.table("codigos_parada").insert(limpar_nans(dados_restauracao["codigos_parada"])).execute()
@@ -104,3 +105,50 @@ def renderizar():
                         
                 except Exception as e:
                     st.error(f"Erro ao restaurar backup: {e}")
+
+    # ==========================================
+    # ÁREA DE DOWNLOAD (BACKUP COMPLETO ZIP / CSV)
+    # ==========================================
+    st.markdown("<br><hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    st.markdown("#### ☁️ Backup Completo do Banco de Dados (Todas as Tabelas)")
+    st.markdown("Baixa uma cópia de segurança em formato ZIP contendo planilhas de absolutamente todas as tabelas e usuários do sistema.")
+    
+    if "backup_zip" not in st.session_state:
+        st.session_state.backup_zip = None
+        st.session_state.backup_nome = ""
+
+    if st.button("⚙️ Preparar Backup Completo (ZIP)"):
+        with st.spinner("Extraindo e compactando dados da nuvem (Isso pode levar alguns segundos)..."):
+            try:
+                tabelas = [
+                    "producao_diaria", "codigos_parada", "configuracoes", 
+                    "usuarios", "perfis_acesso", "status_maquinas", "estrutura_fabrica"
+                ]
+                
+                supa = banco.conectar()
+                zip_buffer = io.BytesIO()
+                
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for tab in tabelas:
+                        resp = supa.table(tab).select("*").execute()
+                        if resp.data:
+                            df = pd.DataFrame(resp.data)
+                            csv_str = df.to_csv(index=False, sep=";", encoding="utf-8-sig")
+                            zip_file.writestr(f"{tab}.csv", csv_str)
+                
+                agora = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                st.session_state.backup_nome = f"Backup_Supabase_{agora}.zip"
+                st.session_state.backup_zip = zip_buffer.getvalue()
+                
+            except Exception as e:
+                st.error(f"Erro ao gerar backup: {e}")
+
+    if st.session_state.backup_zip:
+        st.success("✅ Arquivo pronto! Clique abaixo para salvar onde preferir.")
+        st.download_button(
+            label="💾 Baixar Backup (ZIP)",
+            data=st.session_state.backup_zip,
+            file_name=st.session_state.backup_nome,
+            mime="application/zip",
+            type="primary"
+        )
