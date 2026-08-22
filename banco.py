@@ -142,3 +142,29 @@ def atualizar_estrutura_cascata(id_est, setor_antigo, maquina_antiga, setor_novo
     
     # 4. Efeito Cascata: Status Ao Vivo
     supa.table("status_maquinas").update({"setor": setor_novo, "maquina": maquina_novo}).eq("setor", setor_antigo).eq("maquina", maquina_antiga).execute()
+
+# ==========================================
+# FUNÇÕES DE PRODUTOS E PEÇAS (MATRIZ)
+# ==========================================
+def obter_produtos_matriz():
+    supa = conectar()
+    # Adicionamos .limit(10000) para forçar o Supabase a entregar todas as 2.900+ peças, 
+    # ignorando o bloqueio padrão de 1.000 linhas.
+    resp = supa.table("produtos_matriz").select("*").limit(10000).execute()
+    return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+
+def sincronizar_produtos(lista_dicionarios):
+    supa = conectar()
+    # 1. Substituição total (A Única Fonte de Verdade)
+    supa.table("produtos_matriz").delete().neq("id", 0).execute()
+    
+    # 2. Inserção em lotes (Para não travar o banco com 2.900 linhas)
+    tamanho_lote = 500
+    for i in range(0, len(lista_dicionarios), tamanho_lote):
+        lote = lista_dicionarios[i:i+tamanho_lote]
+        supa.table("produtos_matriz").insert(lote).execute()
+
+def atualizar_peca_individual(id_peca, dados):
+    supa = conectar()
+    # Agora salva a edição manual baseada no ID invisível do banco (funciona mesmo sem código!)
+    supa.table("produtos_matriz").update(dados).eq("id", id_peca).execute()

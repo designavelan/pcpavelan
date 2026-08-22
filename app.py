@@ -16,6 +16,7 @@ import chao_de_fabrica
 import ao_vivo 
 import gerenciador
 import usuarios
+import produtos
 from streamlit_option_menu import option_menu
 import base64
 
@@ -33,7 +34,6 @@ except:
 if 'usuario_logado' not in st.session_state:
     st.session_state['usuario_logado'] = None
 
-# Tenta fazer o Auto-Login se a pessoa recarregou a página
 if st.session_state['usuario_logado'] is None:
     try:
         if hasattr(st, 'query_params') and 'session' in st.query_params:
@@ -51,7 +51,6 @@ if st.session_state['usuario_logado'] is None:
     except:
         pass
 
-# Desenha a Tela de Login se realmente não tiver ninguém
 if st.session_state['usuario_logado'] is None:
     st.markdown("""
         <style>
@@ -88,7 +87,7 @@ if st.session_state['usuario_logado'] is None:
     st.stop() 
 
 # ==========================================
-# 2. APLICAÇÃO PRINCIPAL 
+# 2. LÓGICA DE PERMISSÃO E IDENTIFICAÇÃO DE ABA 
 # ==========================================
 usuario_atual = st.session_state['usuario_logado']
 perfil_atual = usuario_atual.get('perfis_acesso', {})
@@ -132,27 +131,7 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-c1, c2 = st.columns([8, 2])
-with c1:
-    logo_b64 = cfg.get('logo_base64', None)
-    if logo_b64:
-        st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{logo_b64}" class="logo-responsiva"><h1 class="titulo-responsivo">{titulo_app}</h1></div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="logo-container"><h1 class="titulo-responsivo">🏭 {titulo_app}</h1></div>', unsafe_allow_html=True)
-with c2:
-    st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-bottom: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
-    if st.button("🚪 Sair do Sistema", use_container_width=True):
-        st.session_state['usuario_logado'] = None
-        try: st.query_params.clear()
-        except: st.experimental_set_query_params()
-        st.rerun()
-
-st.markdown("<hr style='margin-top: 5px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
-
-# ==========================================
-# 3. LÓGICA DE PERMISSÃO DE ABAS
-# ==========================================
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações", "👥 Controle de Acessos"]
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -180,7 +159,31 @@ if 'aba_atual' not in st.session_state:
 
 if st.session_state.aba_atual not in todas_abas: st.session_state.aba_atual = todas_abas[0]
 
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "⚙️ Configurações", "👥 Controle de Acessos"]:
+# ==========================================
+# 3. CABEÇALHO GLOBAL CONDICIONAL (Oculto no Chão de Fábrica)
+# ==========================================
+if st.session_state.aba_atual != "📱 Chão de Fábrica":
+    c1, c2 = st.columns([8, 2])
+    with c1:
+        logo_b64 = cfg.get('logo_base64', None)
+        if logo_b64:
+            st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{logo_b64}" class="logo-responsiva"><h1 class="titulo-responsivo">{titulo_app}</h1></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="logo-container"><h1 class="titulo-responsivo">🏭 {titulo_app}</h1></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-bottom: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
+        if st.button("🚪 Sair do Sistema", use_container_width=True):
+            st.session_state['usuario_logado'] = None
+            try: st.query_params.clear()
+            except: st.experimental_set_query_params()
+            st.rerun()
+
+    st.markdown("<hr style='margin-top: 5px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
+
+# ==========================================
+# 4. APLICAÇÃO E ROTEAMENTO
+# ==========================================
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -210,7 +213,6 @@ if escolha != st.session_state.aba_atual:
     filtros.salvar_memoria() 
     st.rerun()
 
-# Roteamento 
 if st.session_state.aba_atual == "📱 Chão de Fábrica": chao_de_fabrica.renderizar(df_nuvem, df_codigos)
 elif st.session_state.aba_atual == "🔴 Ao Vivo": ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
 elif st.session_state.aba_atual == "💡 Plano de Ação": 
@@ -227,6 +229,8 @@ elif st.session_state.aba_atual == "📋 Apontamentos":
     else: st.info("O banco de dados está vazio.")
 elif st.session_state.aba_atual == "👥 Controle de Acessos":
     usuarios.renderizar(df_nuvem)
+elif st.session_state.aba_atual == "📦 Produtos":
+    produtos.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
     aba_interna, aba_config_abas, aba_estrutura, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
     with aba_interna: configuracoes.renderizar()

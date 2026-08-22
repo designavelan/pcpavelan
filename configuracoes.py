@@ -17,6 +17,18 @@ def salvar_breakpoints(cel, tab):
     with open("layout_config.json", "w") as f:
         json.dump({"bp_celular": cel, "bp_tablet": tab}, f)
 
+def ler_caminho_matriz():
+    if os.path.exists("matriz_config.json"):
+        try:
+            with open("matriz_config.json", "r") as f:
+                return json.load(f).get("caminho", "")
+        except: pass
+    return ""
+
+def salvar_caminho_matriz(caminho):
+    with open("matriz_config.json", "w") as f:
+        json.dump({"caminho": caminho}, f)
+
 def obter_parametros():
     cfg = banco.obter_configuracoes()
     meta = float(cfg.get('meta_disponibilidade', 85.0))
@@ -32,15 +44,10 @@ def obter_parametros():
 
     fmt = '%H:%M'
     try:
-        # Calcula os turnos brutos
         m_min = (datetime.strptime(m_as, fmt) - datetime.strptime(m_das, fmt)).total_seconds() / 60
         t_min = (datetime.strptime(t_as, fmt) - datetime.strptime(t_das, fmt)).total_seconds() / 60
-        
-        # Calcula os intervalos programados (Lanches)
         lm_min = (datetime.strptime(lm_as, fmt) - datetime.strptime(lm_das, fmt)).total_seconds() / 60 if lm_as and lm_das else 0
         lt_min = (datetime.strptime(lt_as, fmt) - datetime.strptime(lt_das, fmt)).total_seconds() / 60 if lt_as and lt_das else 0
-        
-        # A Jornada que alimenta o sistema todo passa a ser EXCLUSIVAMENTE o Tempo Útil!
         jornada = max(0, m_min - max(0, lm_min)) + max(0, t_min - max(0, lt_min))
     except:
         jornada = 520
@@ -88,7 +95,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -97,7 +104,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "⚙️ Configurações"]
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -114,7 +121,6 @@ def renderizar():
     with c2:
         st.markdown("##### 🕒 Jornada de Trabalho (Turnos)")
         
-        # --- TURNO DA MANHÃ ---
         t1, t2 = st.columns(2)
         with t1: n_mdas = st.text_input("Manhã - Início", value=m_das)
         with t2: n_mas = st.text_input("Manhã - Fim", value=m_as)
@@ -130,7 +136,6 @@ def renderizar():
         
         st.markdown(f"<div style='text-align: right; color: #27ae60; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Manhã (Útil): <b>{str_m_util}</b></i></div>", unsafe_allow_html=True)
 
-        # --- TURNO DA TARDE ---
         t3, t4 = st.columns(2)
         with t3: n_tdas = st.text_input("Tarde - Início", value=t_das)
         with t4: n_tas = st.text_input("Tarde - Fim", value=t_as)
@@ -146,7 +151,6 @@ def renderizar():
         
         st.markdown(f"<div style='text-align: right; color: #27ae60; font-size: 14px; margin-top: -10px; margin-bottom: 15px;'><i>Total Tarde (Útil): <b>{str_t_util}</b></i></div>", unsafe_allow_html=True)
 
-        # --- JORNADA GERAL ---
         total_min_util = min_m_util + min_t_util
         str_tot_util = f"{int(total_min_util // 60):02d}:{int(total_min_util % 60):02d}h"
         
@@ -156,14 +160,6 @@ def renderizar():
             <span style="color: #2c3e50; font-size: 28px; font-weight: 900;">{str_tot_util}</span>
         </div>
         """, unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("##### 🔎 Status Padrão de Análise")
-        tipos = ["Parado", "Trabalhando", "Todos"]
-        if 'tipo_global' not in st.session_state: st.session_state.tipo_global = "Parado"
-        try: idx_t = tipos.index(st.session_state.tipo_global)
-        except: idx_t = 0
-        st.selectbox("Status da Operação", tipos, index=idx_t, key='tipo_global')
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Salvar Ajustes Gerais", type="primary"):
@@ -212,14 +208,24 @@ def renderizar_config_abas():
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("🔴 Aba: Ao Vivo", expanded=True):
+    with st.expander("📦 Aba: Produtos (Integração com Excel)", expanded=True):
+        st.markdown("Defina o caminho local da sua planilha **Matriz** para permitir a sincronização automática nos computadores da fábrica.")
+        caminho_atual = ler_caminho_matriz()
+        
+        c1, c2 = st.columns([8,2])
+        with c1: novo_caminho = st.text_input("Caminho do arquivo", value=caminho_atual, placeholder="Ex: D:\\Google Drive\\Matriz.xlsx")
+        with c2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("💾 Salvar Caminho", use_container_width=True):
+                salvar_caminho_matriz(novo_caminho)
+                st.success("✅ Caminho vinculado!")
+    
+    with st.expander("🔴 Aba: Ao Vivo"):
         st.markdown("Controle o comportamento do painel de monitoramento da fábrica em tempo real (Sistema Andon):")
         
         cv1, cv2, cv3 = st.columns(3)
-        with cv1:
-            novo_ref = st.number_input("Taxa de Atualização Automática (Segundos)", value=ao_vivo_ref, step=5, min_value=5)
-        with cv2:
-            novo_crit = st.number_input("Limite para Alerta Crítico (Minutos)", value=ao_vivo_crit, step=1, min_value=1)
+        with cv1: novo_ref = st.number_input("Taxa de Atualização Automática (Segundos)", value=ao_vivo_ref, step=5, min_value=5)
+        with cv2: novo_crit = st.number_input("Limite para Alerta Crítico (Minutos)", value=ao_vivo_crit, step=1, min_value=1)
         with cv3:
             mapa_vel = {"Lenta": 4, "Normal": 8, "Rápida": 12}
             idx_vel = list(mapa_vel.values()).index(vel_atual) if vel_atual in mapa_vel.values() else 1
@@ -258,15 +264,9 @@ def renderizar_config_abas():
         try:
             supa = banco.conectar()
             dados = {
-                "meta_disponibilidade": nova_meta, 
-                "mostrar_cronico": novo_cronico,
-                "mostrar_especifico": novo_especifico,
-                "top_gerais": novo_top_g,
-                "top_individuais": novo_top_i,
-                "perc_individual": novo_perc_i,
-                "ao_vivo_refresh": novo_ref,
-                "ao_vivo_critico": novo_crit,
-                "ao_vivo_vel_barra": novo_vel
+                "meta_disponibilidade": nova_meta, "mostrar_cronico": novo_cronico, "mostrar_especifico": novo_especifico,
+                "top_gerais": novo_top_g, "top_individuais": novo_top_i, "perc_individual": novo_perc_i,
+                "ao_vivo_refresh": novo_ref, "ao_vivo_critico": novo_crit, "ao_vivo_vel_barra": novo_vel
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
             salvar_breakpoints(novo_cel, novo_tab)

@@ -6,14 +6,6 @@ import banco
 import filtros
 import streamlit.components.v1 as components 
 
-def classificar_status(row):
-    cod = str(row['cod_ocorrencia']).strip().lower()
-    if cod in ['none', 'nan', '']: return 'Trabalhando'
-    tipo = str(row['tipo']).strip().upper()
-    if 'DESNCONSIDERAR' in tipo or 'DESCONSIDERAR' in tipo: return 'Desconsiderar'
-    if tipo == 'PARADO': return 'Parado'
-    return 'Trabalhando'
-
 def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#666666", cor_titulo="#777777"):
     html = f"""
     <div style="background-color: #ffffff; padding: 20px 10px; border-radius: 8px; border: 1px solid #eaeaea; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); height: 100%;">
@@ -25,35 +17,15 @@ def criar_cartao(titulo, valor_principal, valor_secundario="", cor_secundaria="#
     st.markdown(html, unsafe_allow_html=True)
 
 def renderizar(df_nuvem, df_codigos, filtros_selecionados):
-    
     filtros.renderizar_cabecalho_global("Ocorrências")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    df_nuvem['data_registro'] = pd.to_datetime(df_nuvem['data_registro']).dt.strftime('%Y-%m-%d')
-    df_nuvem['das_dt'] = pd.to_datetime(df_nuvem['das'], format='%H:%M', errors='coerce')
-    df_nuvem['as_dt'] = pd.to_datetime(df_nuvem['as_hora'], format='%H:%M', errors='coerce')
-    df_nuvem['minutos'] = (df_nuvem['as_dt'] - df_nuvem['das_dt']).dt.total_seconds() / 60.0
-    df_nuvem.loc[df_nuvem['minutos'] < 0, 'minutos'] += 24 * 60 
-
-    if not df_codigos.empty:
-        df_codigos['codigo'] = df_codigos['codigo'].astype(str).str.strip()
-        df_nuvem['cod_ocorrencia'] = df_nuvem['cod_ocorrencia'].astype(str).str.strip()
-        df_nuvem = df_nuvem.merge(df_codigos[['codigo', 'descricao', 'tipo']], left_on='cod_ocorrencia', right_on='codigo', how='left')
-        df_nuvem['descricao'] = df_nuvem['descricao'].fillna("Sem Descrição")
-    else:
-        df_nuvem['tipo'] = None
-        df_nuvem['descricao'] = "Desconhecido"
-
-    df_nuvem['status_real'] = df_nuvem.apply(classificar_status, axis=1)
-
-    df_filt = df_nuvem.copy()
-    if filtros_selecionados['de'] != "[ Todas ]": df_filt = df_filt[df_filt['data_registro'] >= filtros_selecionados['de']]
-    if filtros_selecionados['ate'] != "[ Todas ]": df_filt = df_filt[df_filt['data_registro'] <= filtros_selecionados['ate']]
-    if filtros_selecionados['setor'] != "[ Todos ]": df_filt = df_filt[df_filt['setor'] == filtros_selecionados['setor']]
-    if filtros_selecionados['maquina'] != "[ Todas ]": df_filt = df_filt[df_filt['maquina'] == filtros_selecionados['maquina']]
+    df_filt = filtros.aplicar_filtros_analiticos(df_nuvem, df_codigos, filtros_selecionados)
+    if df_filt.empty:
+        st.warning("⚠️ Nenhum tempo de parada registrado para esta combinação de filtros.")
+        return
 
     df_parado = df_filt[df_filt['status_real'] == 'Parado'].copy()
-    
     if df_parado.empty:
         st.warning("⚠️ Nenhum tempo de parada registrado para esta combinação de filtros.")
         return
@@ -77,35 +49,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         mapa_ocorrencias[texto_opcao] = str(row['cod_ocorrencia'])
         codigos_lista.append(str(row['cod_ocorrencia']))
         
-    # ===============================================
-    # O CÉREBRO: 3 Camadas de Hierarquia
-    # ===============================================
     codigo_alvo = st.session_state.get('codigo_alvo')
     codigo_salvo = st.session_state.get('ocorrencia_selecionada', "")
     codigo_final = None
     
-    # Camada 1: Prioridade Absoluta -> Lupa dos Apontamentos
     if codigo_alvo and str(codigo_alvo) in codigos_lista:
         codigo_final = str(codigo_alvo)
-        st.session_state['codigo_alvo'] = None # Consome a instrução para não travar
-        st.session_state['ocorrencia_selecionada'] = codigo_final # Passa a intenção pra memória
-        
-    # Camada 2: O usuário quis deixar vazio de propósito?
-    elif codigo_salvo == "NENHUM":
-        codigo_final = None
-        
-    # Camada 3: Memória Histórica -> Lembra do que o usuário estava vendo
-    elif codigo_salvo and str(codigo_salvo) in codigos_lista:
-        codigo_final = str(codigo_salvo)
-        
-    # Camada 4: Inteligência Padrão -> Pré-seleciona a Pior Falha (A Maior)
+        st.session_state['codigo_alvo'] = None 
+        st.session_state['ocorrencia_selecionada'] = codigo_final 
+    elif codigo_salvo == "NENHUM": codigo_final = None
+    elif codigo_salvo and str(codigo_salvo) in codigos_lista: codigo_final = str(codigo_salvo)
     elif len(codigos_lista) > 0:
         codigo_final = codigos_lista[0]
         st.session_state['ocorrencia_selecionada'] = codigo_final
 
-    # ===============================================
-
-    # Traduz o código escolhido de volta para a posição visual (Index) no Menu
     idx_alvo = 0
     if codigo_final:
         for i, opcao in enumerate(opcoes_dropdown):
@@ -113,15 +70,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 idx_alvo = i
                 break 
 
-    # Gatilho de Memória (Dispara quando você troca manualmente no menu)
     def ao_mudar_ocorrencia():
         val = st.session_state.seletor_ocorrencia_ui
-        if val != "[ Selecione um Problema ]":
-            # Extrai apenas o código inicial cortando o texto ("12 - Movimentação...")
-            st.session_state.ocorrencia_selecionada = val.split(" - ")[0]
-        else:
-            # Protege a vontade do usuário de ver a tela em branco
-            st.session_state.ocorrencia_selecionada = "NENHUM"
+        if val != "[ Selecione um Problema ]": st.session_state.ocorrencia_selecionada = val.split(" - ")[0]
+        else: st.session_state.ocorrencia_selecionada = "NENHUM"
 
     col_sel1, col_sel2, col_sel3 = st.columns([2, 6, 2])
     with col_sel2:
@@ -131,11 +83,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         js_bloqueio_teclado = """
         <script>
             const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
-            inputs.forEach(input => {
-                input.setAttribute('readonly', 'true');
-                input.style.caretColor = 'transparent'; 
-                input.style.cursor = 'pointer';
-            });
+            inputs.forEach(input => { input.setAttribute('readonly', 'true'); input.style.caretColor = 'transparent'; input.style.cursor = 'pointer'; });
         </script>
         """
         components.html(js_bloqueio_teclado, height=0)
@@ -154,10 +102,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         texto_dias = f"em {qtd_dias} dia" if qtd_dias == 1 else f"em {qtd_dias} dias"
 
         media_minutos = total_minutos_alvo / qtd_ocorrencias if qtd_ocorrencias > 0 else 0
-        if media_minutos < 60:
-            texto_media = f"{int(media_minutos)} min"
-        else:
-            texto_media = banco.minutos_para_string(media_minutos)
+        texto_media = f"{int(media_minutos)} min" if media_minutos < 60 else banco.minutos_para_string(media_minutos)
             
         df_maq_alvo = df_alvo.groupby('maquina')['minutos'].sum().reset_index().sort_values(by='minutos', ascending=False)
         maq_mais_afetada = df_maq_alvo.iloc[0]['maquina'] if not df_maq_alvo.empty else "-"
@@ -189,10 +134,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             st.markdown("<div class='graficos-container'></div>", unsafe_allow_html=True)
             st.markdown(f"<h5 style='text-align: center; color: #444;'>Distribuição do Tempo Perdido</h5>", unsafe_allow_html=True)
             
-            fig_pie = px.pie(
-                df_maq_alvo, values='minutos', names='maquina', 
-                color='maquina', color_discrete_map=mapa_cores_mestre, hole=0
-            )
+            fig_pie = px.pie(df_maq_alvo, values='minutos', names='maquina', color='maquina', color_discrete_map=mapa_cores_mestre, hole=0)
             fig_pie.update_traces(textinfo='label+percent', textposition='outside', marker=dict(line=dict(color='#fff', width=1)))
             fig_pie.update_layout(showlegend=False, margin=dict(t=30, b=10, l=10, r=10), height=350, paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
@@ -202,16 +144,13 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             
             df_dia = df_alvo.groupby(['data_registro', 'maquina'])['minutos'].sum().reset_index()
             dias_pt = {0: 'SEG', 1: 'TER', 2: 'QUA', 3: 'QUI', 4: 'SEX', 5: 'SAB', 6: 'DOM'}
-            df_dia['data_formatada'] = pd.to_datetime(df_dia['data_registro']).apply(
-                lambda x: f"{dias_pt[x.weekday()]}<br>{x.strftime('%d/%m')}"
-            )
+            df_dia['data_formatada'] = pd.to_datetime(df_dia['data_registro']).apply(lambda x: f"{dias_pt[x.weekday()]}<br>{x.strftime('%d/%m')}")
             df_dia = df_dia.sort_values('data_registro')
             ordem_datas = df_dia['data_formatada'].unique().tolist()
             
             fig_line = px.line(
                 df_dia, x='data_formatada', y='minutos', color='maquina', markers=True,
-                category_orders={"data_formatada": ordem_datas},
-                color_discrete_map=mapa_cores_mestre 
+                category_orders={"data_formatada": ordem_datas}, color_discrete_map=mapa_cores_mestre 
             )
             
             max_val = df_dia['minutos'].max() if not df_dia.empty else 60
@@ -220,10 +159,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             ticktext = [banco.minutos_para_string(v) for v in tickvals]
             
             fig_line.update_layout(
-                dragmode=False, xaxis_title="", yaxis_title="Tempo Perdido (Horas)",
-                xaxis=dict(fixedrange=True),
+                dragmode=False, xaxis_title="", yaxis_title="Tempo Perdido (Horas)", xaxis=dict(fixedrange=True),
                 yaxis=dict(fixedrange=True, tickmode='array', tickvals=tickvals, ticktext=ticktext, range=[0, max_val * 1.1], gridcolor='rgba(0,0,0,0.05)'),
-                legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(t=30, b=10, l=10, r=10), height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0.02)"
+                legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(t=30, b=10, l=10, r=10), height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0.02)"
             )
             st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})

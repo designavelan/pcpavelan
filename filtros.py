@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import json
 import os
-import banco 
+import banco
 
 ARQUIVO_MEMORIA = "filtros_cache.json"
 
@@ -31,7 +31,6 @@ def salvar_memoria():
         "data_ate": st.session_state.get("data_ate", ""),
         "setor_global": st.session_state.get("setor_global", ""),
         "maquina_global": st.session_state.get("maquina_global", ""),
-        "tipo_global": st.session_state.get("tipo_global", ""),
         "ocorrencia_selecionada": st.session_state.get("ocorrencia_selecionada", ""),
         "aba_atual": st.session_state.get("aba_atual", "") 
     }
@@ -47,10 +46,7 @@ def iniciar_estados():
     if 'data_ate' not in st.session_state: st.session_state.data_ate = mem.get("data_ate", None)
     if 'setor_global' not in st.session_state: st.session_state.setor_global = mem.get("setor_global", "[ Todos ]")
     if 'maquina_global' not in st.session_state: st.session_state.maquina_global = mem.get("maquina_global", "[ Todas ]")
-    if 'tipo_global' not in st.session_state: st.session_state.tipo_global = mem.get("tipo_global", "Parado") 
-    
-    if 'ocorrencia_selecionada' not in st.session_state: 
-        st.session_state.ocorrencia_selecionada = mem.get("ocorrencia_selecionada", "")
+    if 'ocorrencia_selecionada' not in st.session_state: st.session_state.ocorrencia_selecionada = mem.get("ocorrencia_selecionada", "")
     
     if 'periodo_custom_de' not in st.session_state:
         try: st.session_state.periodo_custom_de = datetime.strptime(st.session_state.data_de, '%Y-%m-%d').date()
@@ -60,13 +56,67 @@ def iniciar_estados():
         try: st.session_state.periodo_custom_ate = datetime.strptime(st.session_state.data_ate, '%Y-%m-%d').date()
         except: st.session_state.periodo_custom_ate = (datetime.utcnow() - timedelta(hours=3)).date()
 
+# ===============================================
+# FUNÇÃO MESTRA (ORIENTADA A DADOS)
+# ===============================================
+def classificar_status(tipo_bd):
+    # Tradutor de segurança para manter as abas antigas funcionando
+    tipo = str(tipo_bd).strip().upper()
+    if tipo == 'PARADA': return 'Parado'
+    if tipo == 'NÃO CONTA' or 'DESCONSIDERAR' in tipo: return 'Desconsiderar'
+    if tipo == 'PRODUÇÃO': return 'Producao'
+    return 'Livre'
+
+def aplicar_filtros_analiticos(df_nuvem, df_codigos, filtros_selecionados):
+    if df_nuvem.empty: return pd.DataFrame()
+    df = df_nuvem.copy()
+    
+    # 1. Respeita 100% o Tipo que veio do banco de dados (PRODUÇÃO, PARADA, NÃO CONTA)
+    if 'tipo' not in df.columns: df['tipo'] = 'PARADA'
+    df['tipo'] = df['tipo'].astype(str).str.strip().str.upper()
+    
+    # 2. Matemática de minutos
+    df['data_registro'] = pd.to_datetime(df['data_registro']).dt.strftime('%Y-%m-%d')
+    df['das_dt'] = pd.to_datetime(df['das'], format='%H:%M', errors='coerce')
+    df['as_dt'] = pd.to_datetime(df['as_hora'], format='%H:%M', errors='coerce')
+    df['minutos'] = (df['as_dt'] - df['das_dt']).dt.total_seconds() / 60.0
+    df.loc[df['minutos'] < 0, 'minutos'] += 24 * 60
+    
+    # 3. Mesclagem Segura com Códigos
+    if not df_codigos.empty:
+        df_codigos_clean = df_codigos.copy()
+        df_codigos_clean['codigo'] = df_codigos_clean['codigo'].astype(str).str.strip()
+        if 'tipo' in df_codigos_clean.columns:
+            df_codigos_clean = df_codigos_clean.rename(columns={'tipo': 'tipo_codigo'})
+            
+        df['cod_ocorrencia'] = df['cod_ocorrencia'].astype(str).str.strip()
+        cols_merge = ['codigo', 'descricao', 'tipo_codigo']
+        if 'cronico' in df_codigos_clean.columns: cols_merge.append('cronico')
+        
+        df = df.merge(df_codigos_clean[[c for c in cols_merge if c in df_codigos_clean.columns]], left_on='cod_ocorrencia', right_on='codigo', how='left')
+        df['descricao'] = df['descricao'].fillna("Sem Descrição")
+    else:
+        df['tipo_codigo'] = None
+        df['descricao'] = "Desconhecido"
+        df['cronico'] = "Nao"
+        
+    df['status_real'] = df['tipo'].apply(classificar_status)
+    
+    # 4. Aplica os filtros da interface
+    if filtros_selecionados['de'] != "[ Todas ]": df = df[df['data_registro'] >= filtros_selecionados['de']]
+    if filtros_selecionados['ate'] != "[ Todas ]": df = df[df['data_registro'] <= filtros_selecionados['ate']]
+    if filtros_selecionados['setor'] != "[ Todos ]": df = df[df['setor'] == filtros_selecionados['setor']]
+    if filtros_selecionados['maquina'] != "[ Todas ]": df = df[df['maquina'] == filtros_selecionados['maquina']]
+    
+    return df
+# ===============================================
+
 def obter_datas_validas(df_nuvem):
     if df_nuvem.empty or 'data_registro' not in df_nuvem.columns: return []
     datas = pd.to_datetime(df_nuvem['data_registro']).dt.strftime('%Y-%m-%d').dropna().unique().tolist()
     return sorted(datas)
 
 def calcular_opcoes(datas_validas):
-    # Relógio travado no Fuso Horário correto para não virar o dia antes da hora
     hoje = (datetime.utcnow() - timedelta(hours=3)).date()
     ontem = hoje - timedelta(days=1)
     anteontem = hoje - timedelta(days=2)
@@ -84,8 +134,6 @@ def calcular_opcoes(datas_validas):
         opcoes.append("Último dia com dados")
         mapa["Último dia com dados"] = (ultimo, ultimo)
 
-    # --- NOVA OPÇÃO: HOJE ---
-    # Fica disponível para permitir o monitoramento das máquinas em tempo real
     str_hoje = hoje.strftime('%Y-%m-%d')
     opcoes.append("Hoje")
     mapa["Hoje"] = (str_hoje, str_hoje)
@@ -219,19 +267,15 @@ def renderizar_barra_superior(df_nuvem):
 
 def obter_filtros_atuais():
     iniciar_estados()
-    filtros = {
+    filtros_dict = {
         'de': st.session_state.data_de if st.session_state.data_de else "[ Todas ]",
         'ate': st.session_state.data_ate if st.session_state.data_ate else "[ Todas ]",
         'setor': st.session_state.setor_global,
-        'maquina': st.session_state.maquina_global,
-        'tipo': st.session_state.tipo_global
+        'maquina': st.session_state.maquina_global
     }
     salvar_memoria()
-    return filtros
+    return filtros_dict
 
-# ===============================================
-# CONSTRUTOR DO TÍTULO GLOBAL INTELIGENTE
-# ===============================================
 def renderizar_cabecalho_global(nome_aba):
     d1 = pd.to_datetime(st.session_state.data_de).strftime('%d/%m/%Y') if st.session_state.data_de else ""
     d2 = pd.to_datetime(st.session_state.data_ate).strftime('%d/%m/%Y') if st.session_state.data_ate else ""
@@ -242,33 +286,19 @@ def renderizar_cabecalho_global(nome_aba):
     if not df_nuvem.empty and st.session_state.data_de and st.session_state.data_ate:
         df_temp = df_nuvem.copy()
         df_temp['data_registro'] = pd.to_datetime(df_temp['data_registro']).dt.strftime('%Y-%m-%d')
-        
         df_temp = df_temp[(df_temp['data_registro'] >= st.session_state.data_de) & (df_temp['data_registro'] <= st.session_state.data_ate)]
         
-        if st.session_state.setor_global != "[ Todos ]":
-            df_temp = df_temp[df_temp['setor'] == st.session_state.setor_global]
-            
-        if st.session_state.maquina_global != "[ Todas ]":
-            df_temp = df_temp[df_temp['maquina'] == st.session_state.maquina_global]
-            
+        if st.session_state.setor_global != "[ Todos ]": df_temp = df_temp[df_temp['setor'] == st.session_state.setor_global]
+        if st.session_state.maquina_global != "[ Todas ]": df_temp = df_temp[df_temp['maquina'] == st.session_state.maquina_global]
+        
         qtd_dias = df_temp['data_registro'].nunique()
         
-    if qtd_dias == 0:
-        texto_dias = ""
-    elif qtd_dias == 1:
-        texto_dias = f" - 1 Dia"
-    else:
-        texto_dias = f" - {qtd_dias} Dias"
-    
-    if d1 == d2: texto_data = f"Período: {d1} · {tipo_per}{texto_dias}"
-    else: texto_data = f"Período: {d1} a {d2} · {tipo_per}{texto_dias}"
+    texto_dias = "" if qtd_dias == 0 else (f" - 1 Dia" if qtd_dias == 1 else f" - {qtd_dias} Dias")
+    texto_data = f"Período: {d1} · {tipo_per}{texto_dias}" if d1 == d2 else f"Período: {d1} a {d2} · {tipo_per}{texto_dias}"
     
     titulo = nome_aba
-    if st.session_state.setor_global != "[ Todos ]": 
-        titulo += f" — Setor {st.session_state.setor_global}"
-    
-    if st.session_state.maquina_global != "[ Todas ]": 
-        titulo += f" — Máquina {st.session_state.maquina_global}"
+    if st.session_state.setor_global != "[ Todos ]": titulo += f" — Setor {st.session_state.setor_global}"
+    if st.session_state.maquina_global != "[ Todas ]": titulo += f" — Máquina {st.session_state.maquina_global}"
         
     html = f"""
     <div style="text-align: center; margin-bottom: 20px;">
@@ -288,52 +318,22 @@ def renderizar_cabecalho_global(nome_aba):
     <style>
     @media (max-width: {bp_tab}px) {{
         .stack-charts {{ flex-wrap: wrap !important; }}
-        .stack-charts > div[data-testid="column"] {{
-            min-width: 100% !important;
-            width: 100% !important;
-            flex: 1 1 100% !important;
-            margin-bottom: 20px !important;
-        }}
+        .stack-charts > div[data-testid="column"] {{ min-width: 100% !important; width: 100% !important; flex: 1 1 100% !important; margin-bottom: 20px !important; }}
         .stack-kpis {{ flex-wrap: wrap !important; }}
-        .stack-kpis > div[data-testid="column"] {{
-            min-width: 48% !important;
-            width: 48% !important;
-            flex: 1 1 48% !important;
-            margin-bottom: 15px !important;
-        }}
+        .stack-kpis > div[data-testid="column"] {{ min-width: 48% !important; width: 48% !important; flex: 1 1 48% !important; margin-bottom: 15px !important; }}
     }}
     @media (max-width: {bp_cel}px) {{
-        .stack-kpis > div[data-testid="column"] {{
-            min-width: 100% !important;
-            width: 100% !important;
-            flex: 1 1 100% !important;
-        }}
+        .stack-kpis > div[data-testid="column"] {{ min-width: 100% !important; width: 100% !important; flex: 1 1 100% !important; }}
     }}
     </style>
     <script>
         setInterval(() => {{
             const chartMarkers = window.parent.document.querySelectorAll('.graficos-container');
-            chartMarkers.forEach(m => {{
-                const col = m.closest('div[data-testid="column"]');
-                if(col && col.parentElement && !col.parentElement.classList.contains('stack-charts')) {{
-                    col.parentElement.classList.add('stack-charts');
-                }}
-            }});
+            chartMarkers.forEach(m => {{ const col = m.closest('div[data-testid="column"]'); if(col && col.parentElement && !col.parentElement.classList.contains('stack-charts')) col.parentElement.classList.add('stack-charts'); }});
             const kpiMarkers = window.parent.document.querySelectorAll('.kpis-container');
-            kpiMarkers.forEach(m => {{
-                const col = m.closest('div[data-testid="column"]');
-                if(col && col.parentElement && !col.parentElement.classList.contains('stack-kpis')) {{
-                    col.parentElement.classList.add('stack-kpis');
-                }}
-            }});
+            kpiMarkers.forEach(m => {{ const col = m.closest('div[data-testid="column"]'); if(col && col.parentElement && !col.parentElement.classList.contains('stack-kpis')) col.parentElement.classList.add('stack-kpis'); }});
             const inputs = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
-            inputs.forEach(input => {{
-                if(!input.hasAttribute('readonly')) {{
-                    input.setAttribute('readonly', 'true');
-                    input.style.caretColor = 'transparent';
-                    input.style.cursor = 'pointer';
-                }}
-            }});
+            inputs.forEach(input => {{ if(!input.hasAttribute('readonly')) {{ input.setAttribute('readonly', 'true'); input.style.caretColor = 'transparent'; input.style.cursor = 'pointer'; }} }});
         }}, 500);
     </script>
     """
