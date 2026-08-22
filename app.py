@@ -14,6 +14,7 @@ import backups
 import plano_acao 
 import chao_de_fabrica
 import ao_vivo 
+import desempenho
 import gerenciador
 import usuarios
 import produtos
@@ -72,6 +73,10 @@ if st.session_state['usuario_logado'] is None:
         submit = st.form_submit_button("Entrar no Sistema", use_container_width=True, type="primary")
         
         if submit:
+            # --- ATALHO MÁGICO: Assume 'admin' se apenas a senha for digitada ---
+            if not login.strip() and senha:
+                login = "admin"
+                
             if login and senha:
                 user_valido = banco.autenticar_usuario(login, senha)
                 if user_valido:
@@ -131,7 +136,7 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -183,7 +188,7 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -194,19 +199,23 @@ else:
 
 idx_atual = todas_abas.index(st.session_state.aba_atual)
 
-escolha = option_menu(
-    menu_title=None,
-    options=todas_abas,
-    default_index=idx_atual,
-    orientation="horizontal",
-    icons=[''] * len(todas_abas), 
-    styles={
-        "container": {"padding": "0!important", "background-color": "#f8f9fa", "border-radius": "5px", "margin-bottom": "25px"},
-        "icon": {"display": "none"},
-        "nav-link": {"font-size": "15px", "text-align": "center", "margin": "0px 5px", "white-space": "nowrap", "--hover-color": "#eee"},
-        "nav-link-selected": {"background-color": "#2980b9"},
-    }
-)
+# Só mostra o menu de abas se houver mais de uma aba disponível para o usuário!
+if len(todas_abas) > 1:
+    escolha = option_menu(
+        menu_title=None,
+        options=todas_abas,
+        default_index=idx_atual,
+        orientation="horizontal",
+        icons=[''] * len(todas_abas), 
+        styles={
+            "container": {"padding": "0!important", "background-color": "#f8f9fa", "border-radius": "5px", "margin-bottom": "25px"},
+            "icon": {"display": "none"},
+            "nav-link": {"font-size": "15px", "text-align": "center", "margin": "0px 5px", "white-space": "nowrap", "--hover-color": "#eee"},
+            "nav-link-selected": {"background-color": "#2980b9"},
+        }
+    )
+else:
+    escolha = todas_abas[0]
 
 if escolha != st.session_state.aba_atual:
     st.session_state.aba_atual = escolha
@@ -215,6 +224,7 @@ if escolha != st.session_state.aba_atual:
 
 if st.session_state.aba_atual == "📱 Chão de Fábrica": chao_de_fabrica.renderizar(df_nuvem, df_codigos)
 elif st.session_state.aba_atual == "🔴 Ao Vivo": ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+elif st.session_state.aba_atual == "🏆 Desempenho": desempenho.renderizar()
 elif st.session_state.aba_atual == "💡 Plano de Ação": 
     if not df_nuvem.empty: plano_acao.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada)
     else: st.info("O banco de dados está vazio.")
@@ -232,10 +242,11 @@ elif st.session_state.aba_atual == "👥 Controle de Acessos":
 elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_estrutura, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
     with aba_estrutura: configuracoes.renderizar_estrutura()
+    with aba_produtos_linha: configuracoes.renderizar_produtos_linha()
     with aba_importacoes:
         importacao.renderizar_producao()
         st.markdown("<br>", unsafe_allow_html=True)

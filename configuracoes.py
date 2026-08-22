@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import banco
 from datetime import datetime
 import base64
@@ -95,7 +96,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações"]
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -104,7 +105,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações"]
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -275,14 +276,12 @@ def renderizar_config_abas():
             st.error(f"Erro ao salvar: {e}")
 
 def renderizar_estrutura():
-    import streamlit as st
-    import banco
-    
     st.markdown("### 🏭 Estrutura da Fábrica")
     st.markdown("Cadastre novos setores e máquinas, ou edite os nomes atuais. As alterações feitas aqui serão atualizadas **automaticamente em todo o histórico e nos usuários vinculados**.")
     st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
     
     df_est = banco.obter_estrutura()
+    supa = banco.conectar()
     
     c1, c2 = st.columns(2)
     
@@ -290,11 +289,13 @@ def renderizar_estrutura():
         st.markdown("#### ➕ Cadastrar Novo")
         n_setor = st.text_input("Nome do Setor", placeholder="Ex: Montagem")
         n_maq = st.text_input("Nome da Máquina", placeholder="Ex: Esteira 1")
+        n_dupla = st.checkbox("Esta máquina permite produção dupla (simultânea)", value=False)
         
         if st.button("💾 Cadastrar Estrutura", type="primary"):
             if n_setor and n_maq:
                 try:
                     banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
+                    supa.table("estrutura_fabrica").update({"permite_producao_dupla": n_dupla}).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
                     st.success("✅ Máquina cadastrada com sucesso!")
                     st.rerun()
                 except Exception as e:
@@ -315,22 +316,87 @@ def renderizar_estrutura():
             maq_ant = linha['maquina']
             id_est = int(linha['id'])
             
+            val_raw = linha.get('permite_producao_dupla', False)
+            val_dupla_ant = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
+            
             e_setor = st.text_input("Renomear Setor", value=setor_ant)
             e_maq = st.text_input("Renomear Máquina", value=maq_ant)
+            e_dupla = st.checkbox("Esta máquina permite produção dupla (simultânea)", value=val_dupla_ant, key=f"chk_{id_est}")
             
             if st.button("🔄 Salvar e Aplicar Cascata", type="primary"):
                 if e_setor and e_maq:
-                    if e_setor.strip() != setor_ant or e_maq.strip() != maq_ant:
+                    mudou_nome = (e_setor.strip() != setor_ant or e_maq.strip() != maq_ant)
+                    mudou_dupla = (e_dupla != val_dupla_ant)
+                    
+                    if mudou_nome or mudou_dupla:
                         with st.spinner("Atualizando todo o sistema (Isso pode levar alguns segundos)..."):
                             try:
-                                banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
-                                st.success("✅ Histórico, usuários e cadastros atualizados com sucesso!")
+                                if mudou_nome:
+                                    banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
+                                
+                                supa.table("estrutura_fabrica").update({"permite_producao_dupla": e_dupla}).eq("id", id_est).execute()
+                                
+                                st.success("✅ Estrutura atualizada com sucesso!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro na atualização: {e}")
                     else:
-                        st.info("Nenhuma alteração no nome foi feita.")
+                        st.info("Nenhuma alteração foi feita.")
                 else:
                     st.warning("Os campos não podem ficar vazios.")
         else:
             st.info("Nenhuma estrutura cadastrada ainda.")
+
+def renderizar_produtos_linha():
+    st.markdown("### 🟢 Produtos em Linha (Chão de Fábrica)")
+    st.markdown("Defina de forma rápida quais produtos devem aparecer como opção principal no tablet do operador. Você pode adicionar ou remover itens a qualquer momento.")
+    st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    
+    supa = banco.conectar()
+    
+    df_produtos = banco.obter_produtos_matriz()
+    lista_todos = []
+    if not df_produtos.empty:
+        lista_todos = sorted(df_produtos['produto_formula'].dropna().unique().tolist())
+        
+    resp = supa.table("produtos_ativos").select("*").execute()
+    ativos = [row['produto_formula'] for row in resp.data] if resp.data else []
+    
+    c1, c2 = st.columns([1, 1])
+    
+    with c1:
+        st.markdown("#### 🔍 Pesquisar e Adicionar")
+        st.markdown("<p style='font-size: 14px; color: #7f8c8d;'>Digite o nome do produto na caixa abaixo para filtrar. Selecione e clique em adicionar.</p>", unsafe_allow_html=True)
+        
+        opcoes_disponiveis = [p for p in lista_todos if p not in ativos]
+        
+        # Esse selectbox do Streamlit automaticamente permite digitar e pesquisar!
+        prod_selecionado = st.selectbox("Buscar Produto:", [""] + opcoes_disponiveis, key="sel_add_prod")
+        
+        if st.button("➕ Adicionar à Lista", type="primary"):
+            if prod_selecionado:
+                try:
+                    supa.table("produtos_ativos").insert({"produto_formula": prod_selecionado}).execute()
+                    st.success(f"✅ '{prod_selecionado}' adicionado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao adicionar: {e}")
+            else:
+                st.warning("Selecione um produto primeiro.")
+                
+    with c2:
+        st.markdown(f"#### 📋 Lista de Produtos em Linha ({len(ativos)})")
+        
+        if not ativos:
+            st.info("Nenhum produto configurado como 'Em Linha' no momento.")
+        else:
+            st.markdown("<div style='max-height: 400px; overflow-y: auto; padding-right: 10px;'>", unsafe_allow_html=True)
+            for prod in sorted(ativos):
+                col1, col2 = st.columns([8, 2])
+                with col1:
+                    st.markdown(f"<div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #27ae60; margin-bottom: 8px; font-weight: bold; color: #2c3e50;'>{prod}</div>", unsafe_allow_html=True)
+                with col2:
+                    if st.button("🗑️", key=f"del_{prod}", help="Remover da lista"):
+                        supa.table("produtos_ativos").delete().eq("produto_formula", prod).execute()
+                        st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)

@@ -76,12 +76,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     </div>
     """, unsafe_allow_html=True)
 
-    # O botão de atualização agora é visível, mas será transformado em flutuante pelo JS no final do arquivo
     if st.button("🔄 Atualizar", key="btn_refresh_aovivo"): pass
 
     supa = banco.conectar()
     df_est = banco.obter_estrutura()
     df_produtos = banco.obter_produtos_matriz() 
+    usuarios_cadastrados = banco.obter_usuarios_completo() # Carrega os operadores
     
     if df_est.empty:
         st.info("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá em Configurações > Estrutura.")
@@ -118,6 +118,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         info = status_dict.get(maq, {})
         status_maq = info.get('status', 'Livre')
         
+        # Inteligência para descobrir o operador da máquina
+        operadores_maq = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == str(maq).strip() and u.get('ativo') == True]
+        setor_exibicao = f"{setor} / {' / '.join(operadores_maq)}" if operadores_maq else setor
+        
         if status_maq == 'Parado':
             cod = info.get('cod_ocorrencia')
             desc = "Desconhecido"
@@ -126,7 +130,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 if not filtro.empty: desc = str(filtro.iloc[0]['descricao'])
             
             info['descricao_completa'] = f"{desc} ({cod})"
-            info['setor'] = setor
+            info['setor'] = setor_exibicao # Aplica o nome no Card
             info['is_pausa'] = str(cod).strip() in codigos_pausa
             
             if info['is_pausa']:
@@ -145,7 +149,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 
         elif status_maq == 'Produzindo':
             qtd_rodando += 1
-            info['setor'] = setor
+            info['setor'] = setor_exibicao # Aplica o nome no Card
             
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo = "Peça Desconhecida"
@@ -235,7 +239,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 24px;">🟢</span> <span style="color: #2ecc71; font-size: 28px;">{qtd_rodando}</span> Produzindo</div>
             <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 24px;">🔴</span> <span style="color: #e74c3c; font-size: 28px;">{len(maquinas_paradas_criticas)}</span> Paradas</div>
             <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 24px;">🟠</span> <span style="color: #f39c12; font-size: 28px;">{len(maquinas_pausas)}</span> Pausas</div>
-            <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 24px;">🔵</span> <span style="color: #3498db; font-size: 28px;">{qtd_livres}</span> Aguardando</div>
+            <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 24px;">🔵</span> <span style="color: #336699; font-size: 28px;">{qtd_livres}</span> Aguardando</div>
         </div>
     </div>
     """
@@ -374,7 +378,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         html_timelines = "<div style='max-width: 1200px; margin: 0 auto;'>"
         st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 30px;'>📊 Histórico Individual das Máquinas</h3>", unsafe_allow_html=True)
         
-        color_map = {0: "#ecf0f1", 1: "#27ae60", 2: "#e74c3c", 3: "#3498db", 4: "#f39c12", 5: "#bdc3c7"}
+        # ATUALIZAÇÃO DA PALETA DE CORES: Azul Libre alterado para #336699
+        color_map = {0: "#ecf0f1", 1: "#27ae60", 2: "#e74c3c", 3: "#336699", 4: "#f39c12", 5: "#bdc3c7"}
 
         for setor in sorted(setores_dict_timeline.keys()):
             html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
@@ -478,8 +483,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         html_timelines += "</div>" 
         
+        # LEGENDA ATUALIZADA
         html_timelines += "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: 10px; font-size: 13px; font-weight: bold; color: #555;'>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#3498db; border-radius:3px;'></div> Disponível (Livre)</div>"
+        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#336699; border-radius:3px;'></div> Disponível (Livre)</div>"
         html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#27ae60; border-radius:3px;'></div> Produzindo</div>"
         html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#e74c3c; border-radius:3px;'></div> Indisponível (Parada)</div>"
         html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#f39c12; border-radius:3px;'></div> Pausa Registrada</div>"
