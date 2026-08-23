@@ -353,8 +353,17 @@ def renderizar(df_nuvem, df_codigos):
                     
                     sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
                     
+                    # Preparando o nome dinâmico para o botão verde final
+                    if sel_peca_exibicao and sel_peca_exibicao in mapa_exibicao_limpa:
+                        peca_atual_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
+                        nome_peca_curto = peca_atual_limpa.split("(Cód:")[0].strip()
+                    else:
+                        nome_peca_curto = "PEÇA"
+                        
+                    texto_btn_iniciar = f"▶️ INICIAR: {nome_peca_curto} ({sel_prod})"
+                    
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("▶️ CONFIRMAR E INICIAR", type="primary", use_container_width=True):
+                    if st.button(texto_btn_iniciar, type="primary", use_container_width=True):
                         sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
                         
                         st.session_state[chave_last_prod] = sel_prod
@@ -697,7 +706,7 @@ def renderizar(df_nuvem, df_codigos):
                                 <button type="button" class="btn-key" onclick="pressKey('7')">7</button>
                                 <button type="button" class="btn-key" onclick="pressKey('8')">8</button>
                                 <button type="button" class="btn-key" onclick="pressKey('9')">9</button>
-                                <button type="button" class="btn-key btn-c" onclick="pressKey('C')">C</button>
+                                <button type="button" class="btn-key" onclick="pressKey('C')">C</button>
                                 <button type="button" class="btn-key" onclick="pressKey('0')">0</button>
                                 <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
                             </div>
@@ -838,7 +847,9 @@ def renderizar(df_nuvem, df_codigos):
     # 4. HISTÓRICO EXCLUSIVO DO TABLET (NOVO FORMATO CARDS)
     # ==========================================
     st.markdown("<hr style='opacity: 0.2; margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-    st.markdown(f"### 📋 Últimos Registros de Hoje")
+    
+    # TITULO ALTERADO PARA HTML PURO COM FONTE REDUZIDA
+    st.markdown("<div style='font-size: 20px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;'>📋 Últimos Registros de Hoje</div>", unsafe_allow_html=True)
     
     hoje_str = obter_hora_atual().strftime("%Y-%m-%d")
     
@@ -952,11 +963,15 @@ def renderizar(df_nuvem, df_codigos):
             btns.forEach(btn => {
                 const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
                 
-                if(texto === '▶️ CONFIRMAR E INICIAR' || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
-                    btn.style.setProperty('height', '90px', 'important');
+                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
                     btn.style.setProperty('font-size', '22px', 'important');
                     btn.style.setProperty('font-weight', '900', 'important');
                     btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
                     if (!btn.disabled) {
                         btn.style.setProperty('background-color', '#27ae60', 'important');
                         btn.style.setProperty('border-color', '#27ae60', 'important');
@@ -968,10 +983,14 @@ def renderizar(df_nuvem, df_codigos):
                     }
                 }
                 else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
-                    btn.style.setProperty('height', '90px', 'important');
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
                     btn.style.setProperty('font-size', '22px', 'important');
                     btn.style.setProperty('font-weight', '900', 'important');
                     btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
                     if (!btn.disabled) {
                         btn.style.setProperty('background-color', '#c0392b', 'important');
                         btn.style.setProperty('border-color', '#c0392b', 'important');
@@ -983,10 +1002,14 @@ def renderizar(df_nuvem, df_codigos):
                     }
                 }
                 else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
-                    btn.style.setProperty('height', '90px', 'important');
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
                     btn.style.setProperty('font-size', '22px', 'important');
                     btn.style.setProperty('font-weight', '900', 'important');
                     btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
                     if (!btn.disabled) {
                         btn.style.setProperty('background-color', '#e67e22', 'important');
                         btn.style.setProperty('border-color', '#e67e22', 'important');
