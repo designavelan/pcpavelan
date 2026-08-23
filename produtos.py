@@ -30,14 +30,16 @@ def processar_planilha(arquivo_ou_caminho):
         
     df = df.loc[:, df.columns.notnull()]
     
-    colunas_esperadas = ["Produto Formula", "Cod", "Descrição", "Qnt", "Comp", "Larg", "Esp.", "LP", "Fita+", "Fita-"]
+    # --- ADICIONADO "Furadeira" AQUI ---
+    colunas_esperadas = ["Produto Formula", "Cod", "Descrição", "Qnt", "Comp", "Larg", "Esp.", "LP", "Fita+", "Fita-", "Furadeira"]
     cols_presentes = [c for c in colunas_esperadas if c in df.columns]
     df = df[cols_presentes]
     
+    # --- ADICIONADO MAPEAMENTO DA "Furadeira" AQUI ---
     mapa = {
         "Produto Formula": "produto_formula", "Cod": "cod", "Descrição": "descricao",
         "Qnt": "qnt", "Comp": "comp", "Larg": "larg", "Esp.": "esp",
-        "LP": "lp", "Fita+": "fita_mais", "Fita-": "fita_menos"
+        "LP": "lp", "Fita+": "fita_mais", "Fita-": "fita_menos", "Furadeira": "furadeira"
     }
     df = df.rename(columns=mapa)
     
@@ -135,7 +137,8 @@ def renderizar():
             if produto_selecionado:
                 df_filtrado = df_produtos[df_produtos['produto_formula'] == produto_selecionado].copy()
                 
-                colunas_exibicao = ['id', 'cod', 'descricao', 'qnt', 'comp', 'larg', 'esp', 'lp', 'fita_mais', 'fita_menos']
+                # --- ADICIONADO 'furadeira' AQUI NA EXIBIÇÃO ---
+                colunas_exibicao = ['id', 'cod', 'descricao', 'qnt', 'comp', 'larg', 'esp', 'lp', 'fita_mais', 'fita_menos', 'furadeira']
                 df_filtrado = df_filtrado[colunas_exibicao]
                 
                 st.markdown(f"<p style='color: #2980b9; font-weight: bold;'>Exibindo {len(df_filtrado)} peças da fórmula: {produto_selecionado}</p>", unsafe_allow_html=True)

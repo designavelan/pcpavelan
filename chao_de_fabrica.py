@@ -28,6 +28,55 @@ def cache_obter_estrutura():
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
 
+# --- NOVO MOTOR DE TELEMETRIA (MATEMÁTICA UNIFICADA E RASTREABILIDADE) ---
+def registrar_telemetria(supa, setor, maquina, acao):
+    """Calcula a porcentagem global idêntica à aba Ao Vivo e salva com rastreabilidade."""
+    try:
+        agora_str = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 1. Puxa a "Verdade Absoluta" (Estrutura da Fábrica)
+        df_est = cache_obter_estrutura()
+        if not df_est.empty:
+            df_limpo = df_est[['setor', 'maquina']].dropna().drop_duplicates()
+            maquinas_validas = set(df_limpo['setor'].astype(str).str.strip() + "||" + df_limpo['maquina'].astype(str).str.strip())
+            total_maquinas = len(maquinas_validas)
+        else:
+            maquinas_validas = set()
+            total_maquinas = 1
+            
+        # 2. Puxa o status exclusivamente das máquinas validadas na estrutura
+        ativas = 0
+        if maquinas_validas:
+            resp = supa.table("status_maquinas").select("status, setor, maquina").eq("status", "Produzindo").execute()
+            if resp.data:
+                for m in resp.data:
+                    chave_m = str(m.get("setor")).strip() + "||" + str(m.get("maquina")).strip()
+                    if chave_m in maquinas_validas:
+                        ativas += 1
+        
+        # 3. Calcula o percentual cravado
+        if total_maquinas > 0:
+            percentual = round((ativas / total_maquinas) * 100.0, 2)
+        else:
+            percentual = 0.0
+            
+        texto_acao = f"[{setor}] {maquina}: {acao}"
+        
+        # 4. Envia as informações com a rastreabilidade matemática para o banco
+        dados_telemetria = {
+            "data_hora": agora_str,
+            "percentual": float(percentual),
+            "acao": str(texto_acao),
+            "maquinas_ativas": int(ativas),
+            "maquinas_totais": int(total_maquinas)
+        }
+        
+        supa.table("historico_operacao").insert([dados_telemetria]).execute()
+        
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
 def obter_html_teclado_qtd(label):
     return f"""
     <style>
@@ -55,7 +104,7 @@ def obter_html_teclado_qtd(label):
         <button type="button" class="btn-key" onclick="pressKey('7')">7</button>
         <button type="button" class="btn-key" onclick="pressKey('8')">8</button>
         <button type="button" class="btn-key" onclick="pressKey('9')">9</button>
-        <button type="button" class="btn-key btn-c" onclick="pressKey('C')">C</button>
+        <button type="button" class="btn-key" onclick="pressKey('C')">C</button>
         <button type="button" class="btn-key" onclick="pressKey('0')">0</button>
         <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
     </div>
@@ -91,31 +140,20 @@ def renderizar(df_nuvem, df_codigos):
 
     st.markdown("""
         <style>
-        /* 1. Remove o espaço em branco desnecessário no topo e na base */
-        .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+        .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
         div[data-testid="stTabs"] { margin-top: -15px; }
-
-        /* 2. Remove o rodapé padrão do Streamlit */
         footer { display: none !important; }
         #MainMenu { visibility: hidden; }
-
-        /* 3. Oculta 100% os inputs de texto que recebem dados do JS */
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js_int"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]) {
             position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
         }
-
-        /* 4. Oculta os 'Iframes' criados pelo components.html quando o height é 0 */
         div[data-testid="stElementContainer"]:has(iframe[height="0"]) {
             position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
         }
-        
-        /* Layout Geral Customizado */
-        div[data-baseweb="select"] > div {
-            min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important;
-        }
+        div[data-baseweb="select"] > div { min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important; }
         div[data-baseweb="select"] { font-size: 20px !important; }
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
@@ -129,9 +167,6 @@ def renderizar(df_nuvem, df_codigos):
         st.warning("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá na aba Configurações > Estrutura.")
         return
 
-    # ==========================================
-    # LÓGICA DE IDENTIFICAÇÃO DO USUÁRIO
-    # ==========================================
     usuario = st.session_state.get('usuario_logado', {})
     user_setor = usuario.get('setor', '[ Todos ]')
     user_maq = usuario.get('maquina', '[ Todas ]')
@@ -168,17 +203,15 @@ def renderizar(df_nuvem, df_codigos):
         val_raw = maq_row.iloc[0].get('permite_producao_dupla', False)
         permite_dupla = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
 
-    # ==========================================
-    # CÁLCULO DO RESUMO DE PRODUÇÃO
-    # ==========================================
     hoje_str = obter_hora_atual().strftime("%Y-%m-%d")
     producao_hoje_pecas = {}
     
-    if not df_nuvem.empty and 'maquina' in df_nuvem.columns:
+    if not df_nuvem.empty and 'maquina' in df_nuvem.columns and 'setor' in df_nuvem.columns:
         if 'tipo' not in df_nuvem.columns: df_nuvem['tipo'] = 'PARADA'
         
         df_prod_hoje = df_nuvem[
             (df_nuvem['maquina'] == maquina_selecionada) & 
+            (df_nuvem['setor'] == setor_selecionado) & 
             (df_nuvem['data_registro'] == hoje_str) & 
             (df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')
         ]
@@ -203,14 +236,14 @@ def renderizar(df_nuvem, df_codigos):
             return f"*📦 Produzido hoje: {total} peças*"
         return ""
 
-    # ==========================================
-    # STATUS DA MÁQUINA
-    # ==========================================
-    response = supa.table("status_maquinas").select("*").eq("maquina", maquina_selecionada).execute()
+    response = supa.table("status_maquinas").select("*").eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
     status_db = 'Livre'
     hora_inicio_str = None
     cod_ocorrencia = None
     cod_peca_atual = None
+    
+    ultimo_produto_sel = ""
+    ultima_peca_sel = ""
     
     if response.data:
         dados_maq = response.data[0]
@@ -219,6 +252,9 @@ def renderizar(df_nuvem, df_codigos):
         hora_inicio_str = dados_maq.get('hora_inicio')
         cod_ocorrencia = dados_maq.get('cod_ocorrencia')
         cod_peca_atual = dados_maq.get('cod_peca_atual')
+        
+        ultimo_produto_sel = dados_maq.get('ultimo_produto_sel', "")
+        ultima_peca_sel = dados_maq.get('ultima_peca_sel', "")
 
     if not df_codigos.empty:
         if 'exibir_na_lista' in df_codigos.columns:
@@ -240,16 +276,12 @@ def renderizar(df_nuvem, df_codigos):
         tab_prod, tab_parada = st.tabs(["🟢 MODO PRODUÇÃO", "🔴 MODO PARADA"])
         
         with tab_prod:
-            # --- MEMÓRIA SILENCIOSA DA MÁQUINA ---
-            chave_last_prod = f"mem_prod_{maquina_selecionada}"
-            chave_last_peca = f"mem_peca_{maquina_selecionada}"
-            
-            last_prod = st.session_state.get(chave_last_prod, "")
-            last_peca = st.session_state.get(chave_last_peca, "")
+            last_prod = ultimo_produto_sel if ultimo_produto_sel else ""
+            last_peca = ultima_peca_sel if ultima_peca_sel else ""
             
             st.markdown("<br>", unsafe_allow_html=True)
             c_header1, c_header2 = st.columns([7, 3])
-            with c_header1: st.markdown("<h4 style='color: #2c3e50; margin:0;'>📦 Seleção de Material</h4>", unsafe_allow_html=True)
+            with c_header1: st.markdown("<div style='font-size: 20px; font-weight: bold; color: #2c3e50; margin:0;'>📦 Seleção de Material</div>", unsafe_allow_html=True)
             with c_header2: mostrar_todos = st.checkbox("Exibir Produtos Fora de Linha", value=False)
             
             if not df_produtos.empty:
@@ -264,18 +296,20 @@ def renderizar(df_nuvem, df_codigos):
                     lista_exibicao.append(last_prod)
                     lista_exibicao = sorted(lista_exibicao)
                 
-                opcoes_prod = [""] + lista_exibicao
+                chave_wid_prod = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                 
-                chave_wid_prod = f"sel_prod_{maquina_selecionada}"
+                idx_prod = None
+                if last_prod and last_prod in lista_exibicao:
+                    idx_prod = lista_exibicao.index(last_prod)
                 
-                if chave_wid_prod not in st.session_state and last_prod in opcoes_prod:
-                    st.session_state[chave_wid_prod] = last_prod
+                sel_prod = st.selectbox(
+                    "1. Produto:", 
+                    options=lista_exibicao, 
+                    index=idx_prod, 
+                    placeholder="Clique aqui para selecionar o produto...",
+                    key=chave_wid_prod
+                )
                 
-                sel_prod = st.selectbox("1. Produto:", opcoes_prod, key=chave_wid_prod)
-                
-                # ==========================================
-                # INTERFACE DE SELEÇÃO DA PEÇA (BOTÕES GIGANTES COM RESUMO)
-                # ==========================================
                 if sel_prod:
                     df_pecas = df_produtos[df_produtos['produto_formula'] == sel_prod]
                     lista_pecas_limpa = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
@@ -289,7 +323,6 @@ def renderizar(df_nuvem, df_codigos):
                     for peca_limpa in lista_pecas_limpa:
                         codigo_ext = peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                         resumo_texto = obter_resumo_peca(codigo_ext)
-                        
                         texto_completo = f"{peca_limpa} {resumo_texto}" if resumo_texto else peca_limpa
                         lista_exibicao_pecas.append(texto_completo)
                         mapa_exibicao_limpa[texto_completo] = peca_limpa
@@ -303,48 +336,18 @@ def renderizar(df_nuvem, df_codigos):
                     
                     st.markdown("""
                         <style>
-                        /* Transforma o componente Radio Vertical em Botões Gigantes */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) > div { gap: 12px; }
+                        div[data-testid='stRadio'] { width: 100% !important; }
+                        div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label {
-                            background-color: #ffffff;
-                            border: 1px solid #bdc3c7;
-                            border-radius: 8px;
-                            padding: 16px 20px;
-                            width: 100%;
-                            cursor: pointer;
-                            transition: all 0.2s ease-in-out;
-                            margin: 0;
+                            background-color: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 16px 20px; width: 100%; cursor: pointer; transition: all 0.2s ease-in-out; margin: 0;
                         }
-                        
-                        /* Fundo cinza claro para peças com produção hoje (que possuem tag em) */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) {
-                            background-color: #f4f6f7;
-                            border-color: #d1d8e0;
-                        }
-
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] {
-                            background-color: #ff4b4b !important;
-                            border-color: #ff4b4b !important;
-                        }
-                        
-                        /* Oculta a bolinha redonda nativa do radio */
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) { background-color: #f4f6f7; border-color: #d1d8e0; }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] { background-color: #ff4b4b !important; border-color: #ff4b4b !important; }
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
-                        
-                        /* Alinhamento do texto totalmente à esquerda + Estrutura de bloco */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p {
-                            font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block;
-                        }
-                        
-                        /* O truque do Resumo (Texto em Itálico cai pra linha de baixo) */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em {
-                            display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal;
-                        }
-                        
-                        /* Cor do texto principal e do resumo quando selecionado */
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; }
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
-                        
-                        /* Adiciona um Checkmark via CSS na frente do texto quando selecionado */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
                         </style>
                     """, unsafe_allow_html=True)
@@ -353,7 +356,6 @@ def renderizar(df_nuvem, df_codigos):
                     
                     sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
                     
-                    # Preparando o nome dinâmico para o botão verde final
                     if sel_peca_exibicao and sel_peca_exibicao in mapa_exibicao_limpa:
                         peca_atual_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
                         nome_peca_curto = peca_atual_limpa.split("(Cód:")[0].strip()
@@ -365,18 +367,20 @@ def renderizar(df_nuvem, df_codigos):
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button(texto_btn_iniciar, type="primary", use_container_width=True):
                         sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
-                        
-                        st.session_state[chave_last_prod] = sel_prod
-                        st.session_state[chave_last_peca] = sel_peca_limpa
-                        
                         codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                         agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                         
-                        supa.table("status_maquinas").upsert({
-                            "maquina": maquina_selecionada, "setor": setor_selecionado, 
+                        supa.table("status_maquinas").update({
                             "status": "Produzindo", "cod_peca_atual": codigo_peca, 
-                            "hora_inicio": agora, "cod_ocorrencia": "P"
-                        }).execute()
+                            "hora_inicio": agora, "cod_ocorrencia": "P",
+                            "ultimo_produto_sel": sel_prod,
+                            "ultima_peca_sel": sel_peca_limpa
+                        }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                        
+                        sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
+                        if not sucesso:
+                            st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                            st.stop()
                         
                         if chave_wid_prod in st.session_state: del st.session_state[chave_wid_prod]
                         st.rerun()
@@ -390,7 +394,7 @@ def renderizar(df_nuvem, df_codigos):
                 valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
                 valid_codes_json = json.dumps(valid_codes)
                 
-                with st.form(key=f"form_parada_livre_{maquina_selecionada}"):
+                with st.form(key=f"form_parada_livre_{setor_selecionado}_{maquina_selecionada}"):
                     tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
                     with tab_tcl:
@@ -423,7 +427,7 @@ def renderizar(df_nuvem, df_codigos):
                             <button type="button" class="btn-key" onclick="pressKey('7')">7</button>
                             <button type="button" class="btn-key" onclick="pressKey('8')">8</button>
                             <button type="button" class="btn-key" onclick="pressKey('9')">9</button>
-                            <button type="button" class="btn-key btn-c" onclick="pressKey('C')">C</button>
+                            <button type="button" class="btn-key" onclick="pressKey('C')">C</button>
                             <button type="button" class="btn-key" onclick="pressKey('0')">0</button>
                             <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
                         </div>
@@ -463,10 +467,17 @@ def renderizar(df_nuvem, df_codigos):
                         cod_final = codigo_js if (codigo_js and codigo_js in valid_codes) else problema_selecionado.split("(")[-1].replace(")", "").strip() if problema_selecionado else None
                         if cod_final:
                             agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
-                            supa.table("status_maquinas").upsert({
-                                "maquina": maquina_selecionada, "setor": setor_selecionado, "status": "Parado", 
+                            
+                            supa.table("status_maquinas").update({
+                                "status": "Parado", 
                                 "cod_peca_atual": None, "cod_ocorrencia": cod_final, "hora_inicio": agora
-                            }).execute()
+                            }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                            
+                            sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({cod_final})")
+                            if not sucesso:
+                                st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                                st.stop()
+                            
                             st.session_state['tk_counter'] += 1 
                             st.rerun()
             else: st.warning(f"⚠️ Não há nenhum código configurado para este setor.")
@@ -521,7 +532,7 @@ def renderizar(df_nuvem, df_codigos):
         """
         components.html(js_cronometro, height=250)
         
-        chave_estado_fin = f"fin_estado_{maquina_selecionada}"
+        chave_estado_fin = f"fin_estado_{setor_selecionado}_{maquina_selecionada}"
         estado_fin = st.session_state.get(chave_estado_fin, None)
         
         if not estado_fin:
@@ -535,9 +546,14 @@ def renderizar(df_nuvem, df_codigos):
             if btn_canc_prod:
                 supa.table("status_maquinas").update({
                     "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-                }).eq("maquina", maquina_selecionada).execute()
+                }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
                 
-                chave_w_p = f"sel_prod_{maquina_selecionada}"
+                sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Produção Cancelada (Erro Seleção)")
+                if not sucesso:
+                    st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                    st.stop()
+                
+                chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                 if chave_w_p in st.session_state: del st.session_state[chave_w_p]
                     
                 st.rerun()
@@ -613,28 +629,37 @@ def renderizar(df_nuvem, df_codigos):
                     supa.table("status_maquinas").update({
                         "status": "Parado", "hora_inicio": hora_fim.strftime("%Y-%m-%d %H:%M:%S"),
                         "cod_ocorrencia": codigo_parada_novo, "cod_peca_atual": None
-                    }).eq("maquina", maquina_selecionada).execute()
+                    }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                    
+                    sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Fim de Lote c/ Parada ({codigo_parada_novo})")
+                    if not sucesso:
+                        st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                        st.stop()
                 else:
                     supa.table("status_maquinas").update({
                         "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-                    }).eq("maquina", maquina_selecionada).execute()
+                    }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                    
+                    sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim de Lote (Máquina Livre)")
+                    if not sucesso:
+                        st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                        st.stop()
                     
                 st.session_state[chave_estado_fin] = None
                 
-                chave_w_p = f"sel_prod_{maquina_selecionada}"
+                chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                 if chave_w_p in st.session_state: del st.session_state[chave_w_p]
                     
                 st.cache_data.clear()
                 st.rerun()
 
-            # --- RENDERIZAÇÃO ESPECÍFICA CONCLUIDO VS INTERROMPIDO ---
             if estado_fin == "CONCLUIDO":
-                with st.form(key=f"form_conc_{maquina_selecionada}"):
-                    st.markdown("<h3 style='margin:0; color:#2c3e50;'>📊 Fechamento da Produção</h3>", unsafe_allow_html=True)
+                with st.form(key=f"form_conc_{setor_selecionado}_{maquina_selecionada}"):
+                    st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
                     st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                     
                     qtd_str = st.text_input("input_qtd_js", value="0", label_visibility="collapsed")
-                    components.html(obter_html_teclado_qtd("input_qtd_js"), height=480)
+                    components.html(obter_html_teclado_qtd("input_qtd_js"), height=550)
                     
                     modalidade_escolhida = "Simples"
                     if permite_dupla:
@@ -657,12 +682,12 @@ def renderizar(df_nuvem, df_codigos):
                         st.rerun()
                         
             elif estado_fin == "INTERROMPIDO":
-                with st.form(key=f"form_int_{maquina_selecionada}"):
-                    st.markdown("<h3 style='margin:0; color:#2c3e50;'>🚨 Interrupção da Produção</h3>", unsafe_allow_html=True)
+                with st.form(key=f"form_int_{setor_selecionado}_{maquina_selecionada}"):
+                    st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
                     st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                     
                     qtd_str_int = st.text_input("input_qtd_js_int", value="0", label_visibility="collapsed")
-                    components.html(obter_html_teclado_qtd("input_qtd_js_int"), height=480)
+                    components.html(obter_html_teclado_qtd("input_qtd_js_int"), height=550)
                     
                     modalidade_escolhida = "Simples"
                     if permite_dupla:
@@ -836,19 +861,20 @@ def renderizar(df_nuvem, df_codigos):
             
             supa.table("status_maquinas").update({
                 "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-            }).eq("maquina", maquina_selecionada).execute()
+            }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
             
-            chave_w_p = f"sel_prod_{maquina_selecionada}"
-            if chave_w_p in st.session_state: del st.session_state[chave_w_p]
-                
+            texto_acao = "Problema Resolvido (Máquina Livre)" if btn_fin_parada else "Parada Cancelada (Erro Seleção)"
+            sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, texto_acao)
+            if not sucesso:
+                st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                st.stop()
+            
             st.rerun()
 
     # ==========================================
-    # 4. HISTÓRICO EXCLUSIVO DO TABLET (NOVO FORMATO CARDS)
+    # 4. HISTÓRICO EXCLUSIVO DO TABLET
     # ==========================================
     st.markdown("<hr style='opacity: 0.2; margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-    
-    # TITULO ALTERADO PARA HTML PURO COM FONTE REDUZIDA
     st.markdown("<div style='font-size: 20px; font-weight: bold; color: #2c3e50; margin-bottom: 15px;'>📋 Últimos Registros de Hoje</div>", unsafe_allow_html=True)
     
     hoje_str = obter_hora_atual().strftime("%Y-%m-%d")
@@ -857,7 +883,7 @@ def renderizar(df_nuvem, df_codigos):
     else:
         if 'origem' not in df_nuvem.columns: df_nuvem['origem'] = 'Importação'
         if 'tipo' not in df_nuvem.columns: df_nuvem['tipo'] = 'PARADA'
-        df_hist = df_nuvem[(df_nuvem['maquina'] == maquina_selecionada) & (df_nuvem['data_registro'] == hoje_str) & (df_nuvem['origem'] == 'Chão de Fábrica')].copy()
+        df_hist = df_nuvem[(df_nuvem['maquina'] == maquina_selecionada) & (df_nuvem['setor'] == setor_selecionado) & (df_nuvem['data_registro'] == hoje_str) & (df_nuvem['origem'] == 'Chão de Fábrica')].copy()
     
     if df_hist.empty: st.info("Nenhum apontamento nesta máquina hoje.")
     else:

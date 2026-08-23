@@ -15,9 +15,11 @@ def renderizar(df_nuvem):
     supa = banco.conectar()
     df_perfis = banco.obter_perfis()
     
+    # ⚠️ LISTA ATUALIZADA: Painel de OPs, Desempenho e Produtos incluídos
     todas_abas_sistema = [
-        "📱 Chão de Fábrica", "🔴 Ao Vivo", "💡 Plano de Ação", 
-        "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", 
+        "📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", 
+        "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", 
+        "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", 
         "⚙️ Configurações", "👥 Controle de Acessos"
     ]
     

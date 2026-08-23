@@ -5,6 +5,7 @@ import banco
 import streamlit.components.v1 as components
 import json
 import time
+import altair as alt
 
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
@@ -80,26 +81,109 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     supa = banco.conectar()
     df_est = banco.obter_estrutura()
+    
+    total_maq_atual = 0
+    if not df_est.empty:
+        total_maq_atual = len(df_est[['setor', 'maquina']].dropna().drop_duplicates())
+    
+    # ==========================================
+    # 📈 MOTOR DO GRÁFICO DE TELEMETRIA
+    # ==========================================
+    resp_hist = supa.table("historico_operacao").select("data_hora, percentual, maquinas_ativas, maquinas_totais").gte("data_hora", f"{hoje_str} 00:00:00").order("data_hora").execute()
+    
+    hora_inicio_turno = datetime.strptime(f"{hoje_str} {m_das}", "%Y-%m-%d %H:%M")
+    hora_fim_turno = datetime.strptime(f"{hoje_str} {t_as}", "%Y-%m-%d %H:%M")
+    
+    df_h = pd.DataFrame(resp_hist.data) if resp_hist.data else pd.DataFrame()
+    
+    if not df_h.empty:
+        df_h['data_hora'] = pd.to_datetime(df_h['data_hora']).dt.tz_localize(None)
+        df_h['minuto_exato'] = df_h['data_hora'].dt.floor('min')
+        df_agrupado = df_h.groupby('minuto_exato')[['percentual', 'maquinas_ativas', 'maquinas_totais']].last().reset_index()
+        df_agrupado.set_index('minuto_exato', inplace=True)
+    else:
+        df_agrupado = pd.DataFrame(columns=['percentual', 'maquinas_ativas', 'maquinas_totais'])
+        
+    idx_todos_minutos = pd.date_range(start=hora_inicio_turno, end=hora_fim_turno, freq='min')
+    df_completo = pd.DataFrame(index=idx_todos_minutos)
+    
+    if not df_agrupado.empty:
+        df_completo = df_completo.join(df_agrupado)
+    else:
+        df_completo['percentual'] = pd.NA
+        df_completo['maquinas_ativas'] = pd.NA
+        df_completo['maquinas_totais'] = pd.NA
+        
+    df_completo['percentual'] = df_completo['percentual'].ffill().fillna(0.0)
+    df_completo['maquinas_ativas'] = df_completo['maquinas_ativas'].ffill().fillna(0)
+    df_completo['maquinas_totais'] = df_completo['maquinas_totais'].ffill().fillna(total_maq_atual)
+    
+    agora_minuto = agora.replace(second=0, microsecond=0)
+    df_completo.loc[df_completo.index > agora_minuto, 'percentual'] = pd.NA
+    
+    df_completo.reset_index(inplace=True)
+    df_completo.rename(columns={'index': 'Hora', 'percentual': 'Em Operação (%)'}, inplace=True)
+    df_plot = df_completo.dropna(subset=['Em Operação (%)']).copy()
+    
+    df_plot['Ativas_Str'] = df_plot['maquinas_ativas'].astype(int).astype(str)
+    df_plot['Totais_Str'] = df_plot['maquinas_totais'].astype(int).astype(str)
+    df_plot['Detalhe_Maquinas'] = df_plot['Ativas_Str'] + " de " + df_plot['Totais_Str'] + " ativas"
+    
+    st.markdown("<div style='margin-top: 5px; margin-bottom: 5px; color: #34495e; font-weight: 800; font-size: 14px; text-transform: uppercase; text-align: center; letter-spacing: 1px;'>📈 Evolução da Operação (Ao Vivo)</div>", unsafe_allow_html=True)
+    
+    chart = alt.Chart(df_plot).mark_area(
+        line={'color': '#2980b9', 'strokeWidth': 2},
+        color='#2980b9',
+        opacity=0.4
+    ).encode(
+        x=alt.X('Hora:T', 
+                title='', 
+                axis=alt.Axis(format='%H:%M', tickCount=15, grid=True),
+                scale=alt.Scale(domain=[hora_inicio_turno.isoformat(), hora_fim_turno.isoformat()])),
+        y=alt.Y('Em Operação (%):Q', 
+                title='', 
+                axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True),
+                scale=alt.Scale(domain=[0, 100])),
+        tooltip=[
+            alt.Tooltip('Hora:T', format='%H:%M', title='Horário'), 
+            alt.Tooltip('Em Operação (%):Q', format='.1f', title='Operação (%)'),
+            alt.Tooltip('Detalhe_Maquinas:N', title='Máquinas')
+        ]
+    ).properties(height=230)
+    
+    st.markdown("<div style='padding: 0 5px;'>", unsafe_allow_html=True)
+    st.altair_chart(chart, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
     df_produtos = banco.obter_produtos_matriz() 
-    usuarios_cadastrados = banco.obter_usuarios_completo() # Carrega os operadores
+    usuarios_cadastrados = banco.obter_usuarios_completo() 
     
     if df_est.empty:
         st.info("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá em Configurações > Estrutura.")
         return
 
-    if filtros_selecionados['setor'] != "[ Todos ]":
-        todas_maquinas = sorted(df_est[df_est['setor'] == filtros_selecionados['setor']]['maquina'].dropna().unique().tolist())
-    else:
-        todas_maquinas = sorted(df_est['maquina'].dropna().unique().tolist())
+    ordem_setores = {}
+    if 'ordem_fluxo' in df_est.columns:
+        df_ordem = df_est[['setor', 'ordem_fluxo']].dropna().drop_duplicates(subset=['setor'])
+        for _, row in df_ordem.iterrows():
+            try:
+                ordem_setores[str(row['setor']).strip()] = float(row['ordem_fluxo'])
+            except:
+                pass
 
-    if not todas_maquinas:
+    if filtros_selecionados['setor'] != "[ Todos ]":
+        df_filtrado = df_est[df_est['setor'] == filtros_selecionados['setor']]
+    else:
+        df_filtrado = df_est
+
+    pares_maquinas = df_filtrado[['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
+
+    if not pares_maquinas:
         st.info("Nenhuma máquina encontrada neste setor.")
         return
 
-    mapa_setores = df_est[['maquina', 'setor']].dropna().drop_duplicates().set_index('maquina')['setor'].to_dict()
-
-    resp_status = supa.table("status_maquinas").select("*").in_("maquina", todas_maquinas).execute()
-    status_dict = {d['maquina']: d for d in resp_status.data} if resp_status.data else {}
+    resp_status = supa.table("status_maquinas").select("*").execute()
+    status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
     maquinas_paradas_criticas = []
     maquinas_pausas = []
@@ -108,19 +192,28 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     qtd_rodando = 0
     qtd_livres = 0
     minutos_ativos_perdidos = 0
-    setores_dict = {}
+    
+    mapa_visual_dict = {}
 
-    for maq in todas_maquinas:
-        setor = mapa_setores.get(maq, "Sem Setor")
-        if setor not in setores_dict: setores_dict[setor] = []
-        setores_dict[setor].append(maq)
+    for setor_raw, maq_raw in pares_maquinas:
+        setor = str(setor_raw).strip()
+        maq = str(maq_raw).strip()
         
-        info = status_dict.get(maq, {})
+        if setor not in mapa_visual_dict:
+            mapa_visual_dict[setor] = []
+        
+        info = status_dict.get((setor, maq), {})
         status_maq = info.get('status', 'Livre')
         
-        # Inteligência para descobrir o operador da máquina
-        operadores_maq = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == str(maq).strip() and u.get('ativo') == True]
+        info['maquina'] = maq
+        info['setor'] = setor
+        
+        operadores_maq = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == maq and str(u.get('setor', '')).strip() == setor and u.get('ativo') == True]
         setor_exibicao = f"{setor} / {' / '.join(operadores_maq)}" if operadores_maq else setor
+        info['setor_exibicao'] = setor_exibicao
+        
+        # ⚠️ NOME DO OPERADOR PARA O MAPA
+        operadores_texto = " / ".join(operadores_maq) if operadores_maq else "Sem Operador"
         
         if status_maq == 'Parado':
             cod = info.get('cod_ocorrencia')
@@ -130,13 +223,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 if not filtro.empty: desc = str(filtro.iloc[0]['descricao'])
             
             info['descricao_completa'] = f"{desc} ({cod})"
-            info['setor'] = setor_exibicao # Aplica o nome no Card
             info['is_pausa'] = str(cod).strip() in codigos_pausa
             
             if info['is_pausa']:
                 maquinas_pausas.append(info)
+                classe_mapa = "status-pausa"
+                icone_mapa = "🟠"
             else:
                 maquinas_paradas_criticas.append(info)
+                classe_mapa = "status-parado"
+                icone_mapa = "🔴"
                 try:
                     h_ini = datetime.strptime(info['hora_inicio'], "%Y-%m-%d %H:%M:%S")
                     if h_ini.date() == agora.date():
@@ -149,7 +245,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 
         elif status_maq == 'Produzindo':
             qtd_rodando += 1
-            info['setor'] = setor_exibicao # Aplica o nome no Card
+            classe_mapa = "status-prod"
+            icone_mapa = "🟢"
             
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo = "Peça Desconhecida"
@@ -164,18 +261,26 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             maquinas_produzindo.append(info)
         else:
             qtd_livres += 1
+            classe_mapa = "status-livre"
+            icone_mapa = "🔵"
+            
+        mapa_visual_dict[setor].append({
+            "maquina": maq,
+            "operadores": operadores_texto,
+            "classe": classe_mapa,
+            "icone": icone_mapa
+        })
 
     cards_exibicao = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
 
-    qtd_total = len(todas_maquinas)
+    qtd_total = len(pares_maquinas)
     qtd_paradas = len(maquinas_paradas_criticas) + len(maquinas_pausas)
     perc_rodando = (qtd_rodando / qtd_total) * 100 if qtd_total > 0 else 0
-    perc_paradas = (qtd_paradas / qtd_total) * 100 if qtd_total > 0 else 0
 
     df_hoje = pd.DataFrame()
-    if not df_nuvem.empty and 'maquina' in df_nuvem.columns:
+    if not df_nuvem.empty and 'maquina' in df_nuvem.columns and 'setor' in df_nuvem.columns:
         if 'tipo' not in df_nuvem.columns: df_nuvem['tipo'] = 'PARADA'
-        df_hoje = df_nuvem[(df_nuvem['data_registro'] == hoje_str) & (df_nuvem['maquina'].isin(todas_maquinas))].copy()
+        df_hoje = df_nuvem[(df_nuvem['data_registro'] == hoje_str)].copy()
     
     minutos_finalizados = 0
     top_ofensor = "Nenhum (0)"
@@ -211,15 +316,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         df_noticias = df_paradas_hoje.sort_values(by='as_hora', ascending=False).head(5)
         for _, rr in df_noticias.iterrows():
-            noticias.append(f"🟢 {rr['maquina']} solucionou problema às {rr['as_hora']}")
+            noticias.append(f"🟢 [{rr.get('setor', '')}] {rr['maquina']} solucionou problema às {rr['as_hora']}")
 
     total_perdido_hoje = minutos_finalizados + minutos_ativos_perdidos
     h_perdido = int(total_perdido_hoje // 60)
     m_perdido = int(total_perdido_hoje % 60)
     
-    for p in maquinas_paradas_criticas: noticias.append(f"🔴 {p['maquina']} parada: {p['descricao_completa']}")
-    for p in maquinas_pausas: noticias.append(f"☕ {p['maquina']} em intervalo: {p['descricao_completa']}")
-    for p in maquinas_produzindo: noticias.append(f"🟢 {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
+    for p in maquinas_paradas_criticas: noticias.append(f"🔴 [{p['setor']}] {p['maquina']} parada: {p['descricao_completa']}")
+    for p in maquinas_pausas: noticias.append(f"☕ [{p['setor']}] {p['maquina']} em intervalo: {p['descricao_completa']}")
+    for p in maquinas_produzindo: noticias.append(f"🟢 [{p['setor']}] {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
         
     texto_letreiro = " &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; ".join(noticias) if noticias else "🟢 FÁBRICA OPERANDO COM 100% DE CAPACIDADE NESTE MOMENTO"
 
@@ -271,7 +376,53 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
+
+    # ==========================================
+    # 🗺️ MAPA VISUAL DA FÁBRICA (Com Operador)
+    # ==========================================
+    if mapa_visual_dict:
+        setores_ordenados = sorted(mapa_visual_dict.keys(), key=lambda s: (ordem_setores.get(s, 999), s))
+
+        st.markdown("""
+            <style>
+            .mapa-wrapper { background: #ffffff; border-radius: 15px; padding: 25px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 30px; border: 1px solid #eaeaea; }
+            .mapa-title { text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; font-size: 22px; margin-bottom: 25px; letter-spacing: 1px; }
+            .mapa-fluxo { display: flex; flex-direction: row; gap: 20px; overflow-x: auto; padding-bottom: 15px; align-items: flex-start; }
+            .mapa-coluna { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+            .mapa-header { background: #34495e; color: white; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; text-transform: uppercase; font-size: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; margin-bottom: 5px; }
+            .mapa-coluna:not(:last-child) .mapa-header::after { content: '➔'; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: #bdc3c7; font-size: 22px; z-index: 10; }
+            .mapa-maq-card { padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 800; color: white; display: flex; align-items: center; gap: 8px; box-shadow: 0 3px 6px rgba(0,0,0,0.1); transition: transform 0.2s ease; cursor: default; }
+            .mapa-maq-card:hover { transform: scale(1.03); box-shadow: 0 5px 10px rgba(0,0,0,0.15); }
+            
+            .status-livre { background-color: #3498db; }
+            .status-prod { background-color: #27ae60; }
+            .status-parado { background-color: #e74c3c; }
+            .status-pausa { background-color: #f39c12; }
+            
+            .mapa-fluxo::-webkit-scrollbar { height: 8px; display: block; }
+            .mapa-fluxo::-webkit-scrollbar-track { background: #f1f2f6; border-radius: 4px; }
+            .mapa-fluxo::-webkit-scrollbar-thumb { background: #bdc3c7; border-radius: 4px; }
+            .mapa-fluxo::-webkit-scrollbar-thumb:hover { background: #95a5a6; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        html_mapa = "<div class='mapa-wrapper'><div class='mapa-title'>🗺️ Mapa Visual da Fábrica</div><div class='mapa-fluxo'>"
+        
+        for setor in setores_ordenados:
+            maquinas_lista = mapa_visual_dict[setor]
+            qtd = len(maquinas_lista)
+            
+            html_mapa += "<div class='mapa-coluna'>"
+            html_mapa += f"<div class='mapa-header'>🏭 {setor} <br><span style='font-size: 11px; opacity: 0.7; font-weight: normal;'>({qtd} máqs)</span></div>"
+            
+            for m in sorted(maquinas_lista, key=lambda x: x['maquina']):
+                html_mapa += f"<div class='mapa-maq-card {m['classe']}'><span>{m['icone']}</span> {m['maquina']} <span style='font-weight: 400; opacity: 0.9; margin-left: 4px;'>— {m['operadores']}</span></div>"
+                
+            html_mapa += "</div>"
+            
+        html_mapa += "</div></div>"
+        st.markdown(html_mapa, unsafe_allow_html=True)
 
     # ==========================================
     # PAINEL DE PARADAS E PRODUÇÃO ATIVAS
@@ -313,8 +464,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             hora_iso = str(p['hora_inicio']).replace(" ", "T")
             try: hora_formatada = datetime.strptime(p['hora_inicio'], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
             except: hora_formatada = "--:--"
-                
-            p_id = p['maquina'].replace(" ", "_")
+            
+            p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
             lista_js_timers.append({"id": p_id, "inicio_iso": hora_iso})
             
             status_maq = p.get('status', 'Livre')
@@ -330,7 +481,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 texto_inicio = "Início do intervalo" if is_pausa else "Início da parada"
             
             html_cards += f"<div id='card_{p_id}' class='card-ao-vivo {classe_card}'>"
-            html_cards += f"<div class='maq-setor'>{p['setor']}</div>"
+            html_cards += f"<div class='maq-setor'>{p.get('setor_exibicao', p['setor'])}</div>"
             html_cards += f"<div class='maq-nome'><span class='alerta-icone'>{icone}</span>{p['maquina']}</div>"
             html_cards += f"<div class='maq-prob'>{p['descricao_completa']}</div>"
             html_cards += f"<div class='maq-inicio'>{texto_inicio}: {hora_formatada}</div>"
@@ -353,24 +504,28 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     pct_as_m = ((m_as_min - m_das_min) / total_timeline_min) * 100
     pct_das_t = ((t_das_min - m_das_min) / total_timeline_min) * 100
 
-    maquinas_ativas_hoje = set()
+    pares_ativos_hoje = set()
     if not df_hoje.empty:
-        maquinas_ativas_hoje.update(df_hoje['maquina'].dropna().unique().tolist())
-        
-    for maq, info_maq in status_dict.items():
+        for _, r in df_hoje.iterrows():
+            pares_ativos_hoje.add((str(r.get('setor', '')).strip(), str(r.get('maquina', '')).strip()))
+            
+    for (setor, maq), info_maq in status_dict.items():
         if info_maq.get('status') in ['Produzindo', 'Parado']:
             try:
                 h_ini_obj = datetime.strptime(info_maq['hora_inicio'], "%Y-%m-%d %H:%M:%S")
                 if h_ini_obj.date() == agora.date():
-                    maquinas_ativas_hoje.add(maq)
+                    pares_ativos_hoje.add((setor, maq))
             except:
-                maquinas_ativas_hoje.add(maq)
+                pares_ativos_hoje.add((setor, maq))
 
     setores_dict_timeline = {}
-    for setor, maquinas_do_setor in setores_dict.items():
-        maquinas_filtradas = [m for m in maquinas_do_setor if m in maquinas_ativas_hoje]
-        if maquinas_filtradas:
-            setores_dict_timeline[setor] = sorted(maquinas_filtradas)
+    for setor, maq in pares_maquinas:
+        if (setor, maq) in pares_ativos_hoje:
+            if setor not in setores_dict_timeline: setores_dict_timeline[setor] = []
+            setores_dict_timeline[setor].append(maq)
+            
+    for s in setores_dict_timeline:
+        setores_dict_timeline[s] = sorted(setores_dict_timeline[s])
 
     if not setores_dict_timeline:
         st.markdown("<div style='background:#f8f9fa; padding:30px; border-radius:10px; text-align:center; border:1px dashed #ccc;'><h4 style='color:#7f8c8d; margin:0;'>Nenhum apontamento registrado no dia de hoje até o momento.</h4></div>", unsafe_allow_html=True)
@@ -378,10 +533,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         html_timelines = "<div style='max-width: 1200px; margin: 0 auto;'>"
         st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 30px;'>📊 Histórico Individual das Máquinas</h3>", unsafe_allow_html=True)
         
-        # ATUALIZAÇÃO DA PALETA DE CORES: Azul Libre alterado para #336699
         color_map = {0: "#ecf0f1", 1: "#27ae60", 2: "#e74c3c", 3: "#336699", 4: "#f39c12", 5: "#bdc3c7"}
 
-        for setor in sorted(setores_dict_timeline.keys()):
+        for setor in sorted(setores_dict_timeline.keys(), key=lambda s: (ordem_setores.get(s, 999), s)):
             html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
             html_timelines += f"<h4 style='color: #7f8c8d; text-transform: uppercase; font-weight: 900; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px;'>🏭 {setor}</h4>"
             
@@ -411,7 +565,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             for maq in setores_dict_timeline[setor]:
                 timeline = [0] * total_timeline_min
                 
-                # 1. Base Padrão: Azul, Cinza ou Branco(Futuro)
                 for i in range(total_timeline_min):
                     curr = m_das_min + i
                     if curr >= m_as_min and curr < t_das_min: timeline[i] = 5
@@ -420,9 +573,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     elif curr > agora_min: timeline[i] = 0 
                     elif (curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min): timeline[i] = 3
                         
-                # 2. Registros Reais
                 if not df_hoje.empty:
-                    maq_records = df_hoje[df_hoje['maquina'] == maq]
+                    maq_records = df_hoje[(df_hoje['maquina'] == maq) & (df_hoje['setor'] == setor)]
                     for _, row in maq_records.iterrows():
                         if pd.notna(row.get('das')) and pd.notna(row.get('as_hora')):
                             inicio = calcular_minutos_str(row['das'])
@@ -437,8 +589,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                                 idx = m - m_das_min
                                 if 0 <= idx < total_timeline_min: timeline[idx] = cor_linha
                                 
-                # 3. Estado Atual da Máquina 
-                info_maq = status_dict.get(maq, {})
+                info_maq = status_dict.get((setor, maq), {})
                 status_atual = info_maq.get('status', 'Livre')
                 
                 if status_atual in ['Produzindo', 'Parado']:
@@ -483,7 +634,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         html_timelines += "</div>" 
         
-        # LEGENDA ATUALIZADA
         html_timelines += "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: 10px; font-size: 13px; font-weight: bold; color: #555;'>"
         html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#336699; border-radius:3px;'></div> Disponível (Livre)</div>"
         html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#27ae60; border-radius:3px;'></div> Produzindo</div>"
@@ -511,7 +661,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     # ==========================================
     js_engine = f"""
     <script>
-        // Transforma o botão Atualizar em um ícone flutuante discreto no canto inferior direito
         const allBtns = window.parent.document.querySelectorAll('button');
         allBtns.forEach(b => {{
             if(b.innerText.includes('Atualizar')) {{

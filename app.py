@@ -3,6 +3,7 @@ import streamlit as st
 st.set_page_config(page_title="PCP Avelan", page_icon="🏭", layout="wide")
 
 import streamlit.components.v1 as components
+from datetime import datetime, timedelta
 import banco
 import configuracoes
 import filtros
@@ -18,19 +19,84 @@ import desempenho
 import gerenciador
 import usuarios
 import produtos
+import painel_ops 
 from streamlit_option_menu import option_menu
 import base64
+
+# ==========================================
+# MOTOR DE HEARTBEAT (MONITORAMENTO SILENCIOSO)
+# ==========================================
+def registrar_heartbeat():
+    """Registra a atividade do usuário a cada 5 minutos no banco de dados."""
+    # Só executa se o usuário estiver logado
+    usuario_logado = st.session_state.get('usuario_logado')
+    if not usuario_logado:
+        return
+
+    nome_usuario = usuario_logado.get('nome', 'Desconhecido')
+    username = usuario_logado.get('username', '').strip().lower()
+
+    # 🛑 IGNORAR ADMIN MASTER: Não registra os acessos do desenvolvedor
+    if nome_usuario == "Admin Master" or username == "admin":
+        return
+
+    aba_atual = st.session_state.get('aba_atual', 'Desconhecida')
+    
+    agora = datetime.utcnow() - timedelta(hours=3) # Horário de Brasília
+
+    # Cria as variáveis na sessão se for o primeiro acesso
+    if 'sessao_db_id' not in st.session_state:
+        st.session_state['sessao_db_id'] = None
+    if 'ultimo_ping' not in st.session_state:
+        st.session_state['ultimo_ping'] = None
+
+    ultimo_ping = st.session_state['ultimo_ping']
+
+    # O "Gatilho": Só vai ao banco se for a primeira vez ou se passou de 5 minutos (300 segundos)
+    if ultimo_ping is None or (agora - ultimo_ping).total_seconds() > 300:
+        agora_str = agora.strftime("%Y-%m-%d %H:%M:%S")
+        
+        try:
+            supa = banco.conectar()
+            
+            if st.session_state['sessao_db_id'] is None:
+                # INÍCIO DA SESSÃO: Cria uma linha nova no banco
+                dados = {
+                    "usuario": nome_usuario,
+                    "inicio": agora_str,
+                    "ultima_atividade": agora_str,
+                    "ultima_aba": aba_atual
+                }
+                resp = supa.table("registro_sessoes").insert([dados]).execute()
+                if resp.data:
+                    st.session_state['sessao_db_id'] = resp.data[0]['id']
+                    st.session_state['ultimo_ping'] = agora
+            else:
+                # SESSÃO EM ANDAMENTO: Apenas atualiza a última atividade
+                dados = {
+                    "ultima_atividade": agora_str,
+                    "ultima_aba": aba_atual
+                }
+                supa.table("registro_sessoes").update(dados).eq("id", st.session_state['sessao_db_id']).execute()
+                st.session_state['ultimo_ping'] = agora
+                
+        except Exception as e:
+            pass # Fica silencioso para nunca travar a tela do usuário se houver falha de rede
 
 # Carrega configurações visuais
 try:
     cfg = banco.obter_configuracoes()
     titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
+    modo_manutencao = cfg.get('modo_manutencao', False)
+    previsao_retorno = cfg.get('previsao_retorno', 'Em breve')
 except:
     cfg = {}
     titulo_app = 'PCP Avelan'
+    modo_manutencao = False
+    previsao_retorno = ''
 
 # ==========================================
-# 1. SISTEMA DE LOGIN COM PERSISTÊNCIA (F5)
+# 1. SISTEMA DE LOGIN COM PERSISTÊNCIA E MANUTENÇÃO
 # ==========================================
 if 'usuario_logado' not in st.session_state:
     st.session_state['usuario_logado'] = None
@@ -52,6 +118,7 @@ if st.session_state['usuario_logado'] is None:
     except:
         pass
 
+# SE AINDA ASSIM NÃO TIVER LOGADO, MOSTRA A TELA DE LOGIN
 if st.session_state['usuario_logado'] is None:
     st.markdown("""
         <style>
@@ -78,23 +145,45 @@ if st.session_state['usuario_logado'] is None:
                 login = "admin"
                 
             if login and senha:
-                user_valido = banco.autenticar_usuario(login, senha)
-                if user_valido:
-                    st.session_state['usuario_logado'] = user_valido
-                    encoded_user = base64.b64encode(user_valido['username'].encode('utf-8')).decode('utf-8')
-                    try: st.query_params['session'] = encoded_user
-                    except: st.experimental_set_query_params(session=encoded_user)
-                    st.rerun()
+                # 🛑 BLOQUEIO DE MANUTENÇÃO (Passa apenas o Admin)
+                if modo_manutencao and login.strip().lower() != "admin":
+                    st.error("🚧 Acesso negado: O sistema encontra-se em manutenção.")
                 else:
-                    st.error("❌ Usuário ou senha incorretos, ou conta desativada.")
+                    user_valido = banco.autenticar_usuario(login, senha)
+                    if user_valido:
+                        st.session_state['usuario_logado'] = user_valido
+                        encoded_user = base64.b64encode(user_valido['username'].encode('utf-8')).decode('utf-8')
+                        try: st.query_params['session'] = encoded_user
+                        except: st.experimental_set_query_params(session=encoded_user)
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuário ou senha incorretos, ou conta desativada.")
             else:
                 st.warning("⚠️ Preencha usuário e senha.")
+                
+    # 🛑 BANNER DE AVISO DE MANUTENÇÃO (Abaixo do Login)
+    if modo_manutencao:
+        st.markdown(f"""
+        <div style="background-color: #fdf3f2; border-left: 5px solid #e74c3c; padding: 15px; margin-top: 25px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+            <h4 style="color: #c0392b; margin: 0 0 5px 0; font-size: 16px;">🚧 SISTEMA EM MANUTENÇÃO</h4>
+            <p style="color: #e74c3c; margin: 0; font-size: 14px; line-height: 1.4;">Estou realizando algumas atualizações no sistema no momento. Por favor, aguarde a liberação!<br><br><b>⏳ Previsão de retorno:</b> {previsao_retorno}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
     st.stop() 
 
 # ==========================================
 # 2. LÓGICA DE PERMISSÃO E IDENTIFICAÇÃO DE ABA 
 # ==========================================
 usuario_atual = st.session_state['usuario_logado']
+
+# 🛑 EXPULSÃO ATIVA: Se o cara já estava logado, a manutenção ligou e ele NÃO é admin: RUA!
+if modo_manutencao and usuario_atual.get('username', '').lower() != "admin":
+    st.session_state['usuario_logado'] = None
+    try: st.query_params.clear()
+    except: st.experimental_set_query_params()
+    st.rerun()
+
 perfil_atual = usuario_atual.get('perfis_acesso', {})
 is_admin = perfil_atual.get('is_admin', False)
 abas_permitidas_str = perfil_atual.get('abas_permitidas', '')
@@ -136,7 +225,8 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
+# --- ABA PAINEL DE OPs INCLUÍDA NA LISTA PADRÃO ---
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -183,12 +273,16 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
             except: st.experimental_set_query_params()
             st.rerun()
 
+    # 🛑 AVISO DE MANUTENÇÃO ATIVA PARA O ADMIN (Pra ele não esquecer ligada)
+    if modo_manutencao:
+        st.markdown("""<div style='background-color:#e74c3c; color:white; padding:8px 15px; border-radius:5px; text-align:center; font-weight:bold; margin-top:10px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>⚠️ ATENÇÃO: O MODO MANUTENÇÃO ESTÁ ATIVADO. OPERADORES ESTÃO BLOQUEADOS.</div>""", unsafe_allow_html=True)
+
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 10px; opacity: 0.2;'>", unsafe_allow_html=True)
 
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -222,8 +316,13 @@ if escolha != st.session_state.aba_atual:
     filtros.salvar_memoria() 
     st.rerun()
 
+# Dispara o vigia silencioso para registrar a atividade (a cada 5 min)
+registrar_heartbeat()
+
+# ROTEADOR DE ABAS
 if st.session_state.aba_atual == "📱 Chão de Fábrica": chao_de_fabrica.renderizar(df_nuvem, df_codigos)
 elif st.session_state.aba_atual == "🔴 Ao Vivo": ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+elif st.session_state.aba_atual == "🎯 Painel de OPs": painel_ops.renderizar()
 elif st.session_state.aba_atual == "🏆 Desempenho": desempenho.renderizar()
 elif st.session_state.aba_atual == "💡 Plano de Ação": 
     if not df_nuvem.empty: plano_acao.renderizar(df_nuvem, df_codigos, filtros_selecionados, jornada)
@@ -242,7 +341,7 @@ elif st.session_state.aba_atual == "👥 Controle de Acessos":
 elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
     with aba_estrutura: configuracoes.renderizar_estrutura()
@@ -253,3 +352,4 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
         importacao.renderizar_codigos()
     with aba_backup: backups.renderizar()
     with aba_gerenciador: gerenciador.renderizar(df_nuvem)
+    with aba_acessos: configuracoes.renderizar_registro_acessos()

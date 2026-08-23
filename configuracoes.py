@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import banco
-from datetime import datetime
+from datetime import datetime, timedelta
 import base64
 import json
 import os
@@ -82,6 +82,9 @@ def renderizar():
     lm_as = cfg.get('lanche_m_as', '')
     lt_das = cfg.get('lanche_t_das', '')
     lt_as = cfg.get('lanche_t_as', '')
+    
+    is_manut = cfg.get('modo_manutencao', False)
+    prev_retorno = cfg.get('previsao_retorno', '')
 
     st.markdown("### ⚙️ Preferências do Sistema")
 
@@ -96,7 +99,8 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
+        # ⚠️ CORREÇÃO AQUI: Incluído o "Painel de OPs" na lista de opções
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -105,7 +109,8 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
+        # ⚠️ CORREÇÃO AQUI: Incluído o "Painel de OPs" na lista de ordenação
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -118,6 +123,13 @@ def renderizar():
         nova_ordem = st.multiselect("Organizador Visual (Arraste ou clique no X):", options=todas_abas_padrao, default=ordem_atual)
         if len(nova_ordem) < len(todas_abas_padrao):
             st.warning("⚠️ Adicione todas as abas para não esconder nenhuma tela acidentalmente.")
+
+        st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+        st.markdown("##### 🚧 Modo Manutenção (Área de Perigo)")
+        st.markdown("<p style='font-size: 13px; color: #666;'>Bloqueia o login para todos os operadores da fábrica e expulsa os que estiverem ativos (Apenas a conta <b>admin</b> continua tendo acesso).</p>", unsafe_allow_html=True)
+        
+        novo_manut = st.toggle("🔒 ATIVAR MODO MANUTENÇÃO", value=is_manut)
+        nova_prev = st.text_input("Mensagem ou previsão de retorno:", value=prev_retorno, placeholder="Ex: Hoje às 15:30 ou 'Em breve'")
 
     with c2:
         st.markdown("##### 🕒 Jornada de Trabalho (Turnos)")
@@ -182,7 +194,9 @@ def renderizar():
                 "lanche_m_as": n_lmas,
                 "lanche_t_das": n_ltdas,
                 "lanche_t_as": n_ltas,
-                "ordem_abas": ",".join(ordem_final) 
+                "ordem_abas": ",".join(ordem_final),
+                "modo_manutencao": novo_manut,
+                "previsao_retorno": nova_prev
             }
             if up_logo is not None:
                 dados["logo_base64"] = base64.b64encode(up_logo.getvalue()).decode()
@@ -283,6 +297,40 @@ def renderizar_estrutura():
     df_est = banco.obter_estrutura()
     supa = banco.conectar()
     
+    st.markdown("#### 🛤️ Ordem do Fluxo de Produção (Roteamento)")
+    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequência cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
+    
+    if not df_est.empty:
+        if 'ordem_fluxo' not in df_est.columns:
+            df_est['ordem_fluxo'] = 99
+            
+        setores_unicos = df_est.sort_values('ordem_fluxo')['setor'].dropna().unique().tolist()
+        
+        nova_ordem_fluxo = st.multiselect(
+            "Arraste ou clique no X para organizar na ordem correta (Passo 1, Passo 2...):", 
+            options=setores_unicos, 
+            default=setores_unicos
+        )
+        
+        if st.button("💾 Salvar Ordem do Fluxo", type="primary"):
+            if len(nova_ordem_fluxo) == len(setores_unicos):
+                with st.spinner("Atualizando a ordem dos setores no banco de dados..."):
+                    try:
+                        for idx, setor_nome in enumerate(nova_ordem_fluxo):
+                            num_ordem = idx + 1
+                            supa.table("estrutura_fabrica").update({"ordem_fluxo": num_ordem}).eq("setor", setor_nome).execute()
+                        st.cache_data.clear()
+                        st.success("✅ Ordem do fluxo atualizada com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+            else:
+                st.warning("⚠️ Selecione TODOS os setores cadastrados para não quebrar a linha de produção.")
+    else:
+        st.info("Cadastre as máquinas e setores abaixo primeiro.")
+        
+    st.markdown("<hr style='opacity: 0.2; margin-top: 25px; margin-bottom: 25px;'>", unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
     
     with c1:
@@ -296,6 +344,7 @@ def renderizar_estrutura():
                 try:
                     banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
                     supa.table("estrutura_fabrica").update({"permite_producao_dupla": n_dupla}).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
+                    st.cache_data.clear()
                     st.success("✅ Máquina cadastrada com sucesso!")
                     st.rerun()
                 except Exception as e:
@@ -336,6 +385,7 @@ def renderizar_estrutura():
                                 
                                 supa.table("estrutura_fabrica").update({"permite_producao_dupla": e_dupla}).eq("id", id_est).execute()
                                 
+                                st.cache_data.clear()
                                 st.success("✅ Estrutura atualizada com sucesso!")
                                 st.rerun()
                             except Exception as e:
@@ -344,8 +394,6 @@ def renderizar_estrutura():
                         st.info("Nenhuma alteração foi feita.")
                 else:
                     st.warning("Os campos não podem ficar vazios.")
-        else:
-            st.info("Nenhuma estrutura cadastrada ainda.")
 
 def renderizar_produtos_linha():
     st.markdown("### 🟢 Produtos em Linha (Chão de Fábrica)")
@@ -370,7 +418,6 @@ def renderizar_produtos_linha():
         
         opcoes_disponiveis = [p for p in lista_todos if p not in ativos]
         
-        # Esse selectbox do Streamlit automaticamente permite digitar e pesquisar!
         prod_selecionado = st.selectbox("Buscar Produto:", [""] + opcoes_disponiveis, key="sel_add_prod")
         
         if st.button("➕ Adicionar à Lista", type="primary"):
@@ -400,3 +447,119 @@ def renderizar_produtos_linha():
                         supa.table("produtos_ativos").delete().eq("produto_formula", prod).execute()
                         st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
+
+# ==========================================
+# NOVO MÓDULO: REGISTRO DE ACESSOS 
+# ==========================================
+def renderizar_registro_acessos():
+    st.markdown("### 📡 Registro de Acessos")
+    st.markdown("Acompanhe o histórico de sessões e a utilização do sistema pelos usuários de forma centralizada.")
+    st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    
+    supa = banco.conectar()
+    
+    # Tenta buscar os dados da tabela
+    try:
+        resp = supa.table("registro_sessoes").select("*").order("ultima_atividade", desc=True).execute()
+        df_sessoes = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except Exception as e:
+        df_sessoes = pd.DataFrame()
+
+    if df_sessoes.empty:
+        st.info("ℹ️ Nenhum registro de sessão encontrado ainda. Comece a utilizar o sistema para gerar os primeiros dados.")
+        # Mantém a estrutura vazia
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("""
+            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Usuários Ativos Hoje</div>
+                <div style='font-size: 28px; font-weight: 900; color: #2980b9;'>0</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with c2:
+            st.markdown("""
+            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Aba Mais Utilizada</div>
+                <div style='font-size: 28px; font-weight: 900; color: #27ae60;'>--</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with c3:
+            st.markdown("""
+            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Tempo Médio Sessão</div>
+                <div style='font-size: 28px; font-weight: 900; color: #e67e22;'>0m</div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📋 Histórico Detalhado de Sessões")
+        st.dataframe(pd.DataFrame(columns=["ID da Sessão", "Usuário", "Início", "Última Atividade", "Última Aba Visitada", "Status", "Duração"]), use_container_width=True, hide_index=True)
+        return
+
+    # Processamento dos Dados Reais
+    df_sessoes['inicio_dt'] = pd.to_datetime(df_sessoes['inicio'])
+    df_sessoes['ultima_atividade_dt'] = pd.to_datetime(df_sessoes['ultima_atividade'])
+    
+    # Cálculo da duração em minutos
+    df_sessoes['duracao_min'] = (df_sessoes['ultima_atividade_dt'] - df_sessoes['inicio_dt']).dt.total_seconds() / 60.0
+    
+    def format_duration(m):
+        if pd.isna(m): return "0m"
+        if m < 1: return "< 1 min"
+        h = int(m // 60)
+        mins = int(m % 60)
+        if h > 0: return f"{h}h {mins}m"
+        return f"{mins}m"
+        
+    df_sessoes['Duração'] = df_sessoes['duracao_min'].apply(format_duration)
+    
+    agora = datetime.utcnow() - timedelta(hours=3)
+    hoje_str = agora.strftime("%Y-%m-%d")
+    
+    # Definição de Status (Considera online se teve atividade nos últimos 30 min)
+    def get_status(ultima_ativ):
+        diff = (agora - ultima_ativ).total_seconds() / 60.0
+        if diff <= 30: return "🟢 Ativo"
+        return "⚪ Encerrada"
+        
+    df_sessoes['Status'] = df_sessoes['ultima_atividade_dt'].apply(get_status)
+    
+    # Métricas
+    ativos_hoje = df_sessoes[df_sessoes['ultima_atividade_dt'].dt.strftime("%Y-%m-%d") == hoje_str]['usuario'].nunique()
+    aba_mais = df_sessoes['ultima_aba'].mode()[0] if not df_sessoes['ultima_aba'].dropna().empty else "--"
+    tempo_medio = df_sessoes['duracao_min'].mean()
+    tempo_medio_str = format_duration(tempo_medio)
+    
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(f"""
+        <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+            <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Usuários Ativos Hoje</div>
+            <div style='font-size: 28px; font-weight: 900; color: #2980b9;'>{ativos_hoje}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+            <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Aba Mais Utilizada</div>
+            <div style='font-size: 24px; font-weight: 900; color: #27ae60; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{aba_mais}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
+        <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
+            <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Tempo Médio de Sessão</div>
+            <div style='font-size: 28px; font-weight: 900; color: #e67e22;'>{tempo_medio_str}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### 📋 Histórico Detalhado de Sessões")
+    
+    # Formatação final para exibir na tela
+    df_sessoes['Início'] = df_sessoes['inicio_dt'].dt.strftime('%d/%m/%Y %H:%M')
+    df_sessoes['Última Ativ.'] = df_sessoes['ultima_atividade_dt'].dt.strftime('%d/%m/%Y %H:%M')
+    
+    df_exibicao = df_sessoes[['id', 'usuario', 'Início', 'Última Ativ.', 'ultima_aba', 'Status', 'Duração']].copy()
+    df_exibicao.columns = ['ID', 'Usuário', 'Início', 'Última Atividade', 'Última Aba Visitada', 'Status', 'Duração']
+    
+    st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
