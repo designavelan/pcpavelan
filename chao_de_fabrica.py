@@ -201,7 +201,6 @@ def renderizar(df_nuvem, df_codigos):
             if len(lista_qtds) > 1:
                 return f"*📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total} peças*"
             return f"*📦 Produzido hoje: {total} peças*"
-        # Retorna string vazia caso não haja produção
         return ""
 
     # ==========================================
@@ -281,11 +280,9 @@ def renderizar(df_nuvem, df_codigos):
                     df_pecas = df_produtos[df_produtos['produto_formula'] == sel_prod]
                     lista_pecas_limpa = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
                     
-                    # Hack da Peça de Memória
                     if sel_prod == last_prod and last_peca and last_peca not in lista_pecas_limpa:
                         lista_pecas_limpa.append(last_peca)
                         
-                    # Montando a lista dupla (Nome Limpo para Lógica / Nome Formatado para a Tela)
                     lista_exibicao_pecas = []
                     mapa_exibicao_limpa = {}
                     
@@ -297,7 +294,6 @@ def renderizar(df_nuvem, df_codigos):
                         lista_exibicao_pecas.append(texto_completo)
                         mapa_exibicao_limpa[texto_completo] = peca_limpa
                         
-                    # Descobrindo o index da memória
                     idx_peca = 0
                     if sel_prod == last_prod and last_peca:
                         for i, txt in enumerate(lista_exibicao_pecas):
@@ -308,9 +304,7 @@ def renderizar(df_nuvem, df_codigos):
                     st.markdown("""
                         <style>
                         /* Transforma o componente Radio Vertical em Botões Gigantes */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) > div {
-                            gap: 12px;
-                        }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) > div { gap: 12px; }
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label {
                             background-color: #ffffff;
                             border: 1px solid #bdc3c7;
@@ -334,43 +328,24 @@ def renderizar(df_nuvem, df_codigos):
                         }
                         
                         /* Oculta a bolinha redonda nativa do radio */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child {
-                            display: none !important;
-                        }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
                         
                         /* Alinhamento do texto totalmente à esquerda + Estrutura de bloco */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p {
-                            font-size: 16px;
-                            font-weight: 600;
-                            color: #2c3e50;
-                            margin: 0;
-                            text-align: left !important;
-                            width: 100%;
-                            display: block;
+                            font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block;
                         }
                         
                         /* O truque do Resumo (Texto em Itálico cai pra linha de baixo) */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em {
-                            display: block;
-                            margin-top: 6px;
-                            font-size: 14px;
-                            font-weight: 500;
-                            color: #7f8c8d;
-                            font-style: normal;
+                            display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal;
                         }
                         
                         /* Cor do texto principal e do resumo quando selecionado */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p {
-                            color: #ffffff !important;
-                        }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em {
-                            color: #fcebeb !important;
-                        }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
                         
                         /* Adiciona um Checkmark via CSS na frente do texto quando selecionado */
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before {
-                            content: '✅ ';
-                        }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
                         </style>
                     """, unsafe_allow_html=True)
                     
@@ -380,7 +355,6 @@ def renderizar(df_nuvem, df_codigos):
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("▶️ CONFIRMAR E INICIAR", type="primary", use_container_width=True):
-                        # Pega o nome limpo com base no que foi clicado na tela
                         sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
                         
                         st.session_state[chave_last_prod] = sel_prod
@@ -473,7 +447,6 @@ def renderizar(df_nuvem, df_codigos):
                     with tab_lst:
                         opcoes_prob = [f"{str(row['descricao']).strip()} ({str(row['codigo']).strip()})" for _, row in df_codigos_parado.iterrows()]
                         problema_selecionado = st.selectbox("Selecione o problema:", [""] + opcoes_prob)
-                        
                         st.markdown("<br>", unsafe_allow_html=True)
                         btn_submit_lista_parada = st.form_submit_button("🔴 CONFIRMAR PARADA", use_container_width=True)
                         
@@ -554,6 +527,10 @@ def renderizar(df_nuvem, df_codigos):
                 supa.table("status_maquinas").update({
                     "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
                 }).eq("maquina", maquina_selecionada).execute()
+                
+                chave_w_p = f"sel_prod_{maquina_selecionada}"
+                if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                    
                 st.rerun()
                 
             if btn_fin_prod:
@@ -634,6 +611,10 @@ def renderizar(df_nuvem, df_codigos):
                     }).eq("maquina", maquina_selecionada).execute()
                     
                 st.session_state[chave_estado_fin] = None
+                
+                chave_w_p = f"sel_prod_{maquina_selecionada}"
+                if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                    
                 st.cache_data.clear()
                 st.rerun()
 
@@ -847,10 +828,14 @@ def renderizar(df_nuvem, df_codigos):
             supa.table("status_maquinas").update({
                 "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
             }).eq("maquina", maquina_selecionada).execute()
+            
+            chave_w_p = f"sel_prod_{maquina_selecionada}"
+            if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                
             st.rerun()
 
     # ==========================================
-    # 4. HISTÓRICO EXCLUSIVO DO TABLET
+    # 4. HISTÓRICO EXCLUSIVO DO TABLET (NOVO FORMATO CARDS)
     # ==========================================
     st.markdown("<hr style='opacity: 0.2; margin-top: 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
     st.markdown(f"### 📋 Últimos Registros de Hoje")
@@ -866,34 +851,68 @@ def renderizar(df_nuvem, df_codigos):
     if df_hist.empty: st.info("Nenhum apontamento nesta máquina hoje.")
     else:
         df_hist = df_hist.sort_values(by=['data_registro', 'as_hora'], ascending=[False, False]).head(20)
-        linhas_html = ""
+        
+        html_cards_hist = "<div style='display: flex; flex-direction: column; gap: 12px; margin-top: 15px;'>"
         for i, row in df_hist.iterrows():
-            fundo = "#f9f9f9" if i % 2 != 0 else "#ffffff"
             tipo_bd = str(row.get('tipo', '')).strip().upper()
             codigo_bd = str(row.get('cod_ocorrencia', '')).strip().upper()
-            nome_operador_hist = row.get('operador', 'Não registrado')
+            das_h = row['das']
+            as_h = row['as_hora']
             
             if codigo_bd == 'P':
+                cor_borda = "#27ae60"
+                cor_fundo = "#f4fcf7"
+                
                 cod_peca = row.get('cod_peca', 'S/N')
-                qtd_peca = row.get('quantidade', 0)
-                nome_peca_hist = row.get('nome_peca', 'Peça Desconhecida')
-                modalidade = row.get('modalidade_processo', 'Simples')
-                tag_mod = f" <span style='background:#ecf0f1; color:#7f8c8d; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:5px; border:1px solid #bdc3c7;'>{modalidade}</span>"
-                texto_exibicao = f"🟢 <b>Produção:</b> {nome_peca_hist}{tag_mod} <br><span style='font-size: 13px; color: #7f8c8d;'>Cód: {cod_peca} | Qtde Produzida: {qtd_peca} | Operador: {nome_operador_hist}</span>"
+                
+                qtd_val = row.get('quantidade', 0)
+                try:
+                    if float(qtd_val).is_integer(): qtd_peca = str(int(float(qtd_val)))
+                    else: qtd_peca = str(float(qtd_val))
+                except:
+                    qtd_peca = str(qtd_val)
+                
+                nome_peca_hist = str(row.get('nome_peca', 'Peça Desconhecida'))
+                if " ➔ " in nome_peca_hist:
+                    partes_nome = nome_peca_hist.split(" ➔ ")
+                    produto_nome = partes_nome[0]
+                    peca_nome = partes_nome[1]
+                else:
+                    produto_nome = "Produto"
+                    peca_nome = nome_peca_hist
+                    
+                modalidade = str(row.get('modalidade_processo', 'Simples'))
+                
+                titulo = produto_nome
             else:
                 desc_oco = "Sem Descrição"
                 if not df_codigos.empty:
                     f_cod = df_codigos[df_codigos['codigo'].astype(str).str.upper() == codigo_bd]
                     if not f_cod.empty: desc_oco = str(f_cod.iloc[0]['descricao']).strip()
+                
                 if tipo_bd == "NÃO CONTA" or "DESCONSIDERAR" in tipo_bd:
-                    texto_exibicao = f"🟠 <b>Pausa:</b> {desc_oco} <b>({codigo_bd})</b> <br><span style='font-size: 13px; color: #7f8c8d;'>Operador: {nome_operador_hist}</span>"
+                    cor_borda = "#f39c12"
+                    cor_fundo = "#fdf8f3"
+                    titulo = f"Pausa: {desc_oco} ({codigo_bd})"
                 else:
-                    texto_exibicao = f"🔴 <b>Parada:</b> {desc_oco} <b>({codigo_bd})</b> <br><span style='font-size: 13px; color: #7f8c8d;'>Operador: {nome_operador_hist}</span>"
-
-            linhas_html += f"<tr style='background-color: {fundo};'><td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #2c3e50;'>{row['das']}</td><td style='padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #2c3e50;'>{row['as_hora']}</td><td style='padding: 10px; border-bottom: 1px solid #eee;'>{texto_exibicao}</td></tr>"
+                    cor_borda = "#e74c3c"
+                    cor_fundo = "#fdf4f3"
+                    titulo = f"Parada: {desc_oco} ({codigo_bd})"
             
-        tabela_html = f"<div style='border: 1px solid #eaeaea; border-radius: 8px; overflow: hidden;'><table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px;'><thead><tr style='color: white; text-align: left;'><th style='padding: 10px; text-align: center; background-color: #34495e;'>Início</th><th style='padding: 10px; text-align: center; background-color: #34495e;'>Fim</th><th style='padding: 10px; background-color: #34495e;'>Apontamento Registrado</th></tr></thead><tbody>{linhas_html}</tbody></table></div>"
-        st.markdown(tabela_html, unsafe_allow_html=True)
+            html_cards_hist += "<div style='border-left: 6px solid " + cor_borda + "; background-color: " + cor_fundo + "; padding: 12px 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-right: 1px solid #eee; border-top: 1px solid #eee; border-bottom: 1px solid #eee;'>"
+            html_cards_hist += "<div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;'>"
+            html_cards_hist += "<div style='font-size: 16px; font-weight: 800; color: #2c3e50; line-height: 1.2;'>" + titulo + "</div>"
+            html_cards_hist += "<div style='font-size: 13px; font-weight: 700; color: #7f8c8d; background: #fff; padding: 2px 8px; border-radius: 4px; border: 1px solid #ddd; white-space: nowrap; margin-left: 10px;'>⏱️ " + str(das_h) + " às " + str(as_h) + "</div>"
+            html_cards_hist += "</div>"
+            
+            if codigo_bd == 'P':
+                html_cards_hist += "<div style='font-size: 15px; font-weight: 700; color: #34495e;'>" + peca_nome + " <span style='font-size: 12px; color: #7f8c8d; font-weight: normal;'>(Cód: " + str(cod_peca) + ")</span></div>"
+                html_cards_hist += "<div style='margin-top: 8px; font-size: 18px; font-weight: 900; color: #27ae60;'>Qtde: " + qtd_peca + " <span style='font-size: 14px; color: #7f8c8d; font-weight: 600; margin-left: 15px; background: #e8f8f5; padding: 2px 6px; border-radius: 4px;'>Mod: " + modalidade + "</span></div>"
+                
+            html_cards_hist += "</div>"
+            
+        html_cards_hist += "</div>"
+        st.markdown(html_cards_hist, unsafe_allow_html=True)
 
     # ==========================================
     # 5. RODAPÉ DO TERMINAL
