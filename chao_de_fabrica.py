@@ -91,18 +91,28 @@ def renderizar(df_nuvem, df_codigos):
 
     st.markdown("""
         <style>
-        /* Remove o espaço em branco desnecessário no topo */
-        .block-container { padding-top: 0.5rem !important; }
+        /* 1. Remove o espaço em branco desnecessário no topo e na base */
+        .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
         div[data-testid="stTabs"] { margin-top: -15px; }
 
-        /* Oculta 100% os inputs de texto que recebem dados do JS */
+        /* 2. Remove o rodapé padrão do Streamlit */
+        footer { display: none !important; }
+        #MainMenu { visibility: hidden; }
+
+        /* 3. Oculta 100% os inputs de texto que recebem dados do JS */
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js_int"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]) {
-            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important;
+            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
+        }
+
+        /* 4. Oculta os 'Iframes' criados pelo components.html quando o height é 0 */
+        div[data-testid="stElementContainer"]:has(iframe[height="0"]) {
+            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
         }
         
+        /* Layout Geral Customizado */
         div[data-baseweb="select"] > div {
             min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important;
         }
@@ -157,6 +167,42 @@ def renderizar(df_nuvem, df_codigos):
     if not maq_row.empty:
         val_raw = maq_row.iloc[0].get('permite_producao_dupla', False)
         permite_dupla = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
+
+    # ==========================================
+    # CÁLCULO DO RESUMO DE PRODUÇÃO
+    # ==========================================
+    hoje_str = obter_hora_atual().strftime("%Y-%m-%d")
+    producao_hoje_pecas = {}
+    
+    if not df_nuvem.empty and 'maquina' in df_nuvem.columns:
+        if 'tipo' not in df_nuvem.columns: df_nuvem['tipo'] = 'PARADA'
+        
+        df_prod_hoje = df_nuvem[
+            (df_nuvem['maquina'] == maquina_selecionada) & 
+            (df_nuvem['data_registro'] == hoje_str) & 
+            (df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')
+        ]
+        
+        for _, row_prod in df_prod_hoje.iterrows():
+            c_peca = str(row_prod.get('cod_peca', '')).strip()
+            qtd = row_prod.get('quantidade', 0)
+            try: qtd = int(qtd)
+            except: qtd = 0
+            
+            if c_peca not in producao_hoje_pecas:
+                producao_hoje_pecas[c_peca] = []
+            if qtd > 0:
+                producao_hoje_pecas[c_peca].append(qtd)
+
+    def obter_resumo_peca(codigo):
+        if codigo in producao_hoje_pecas and producao_hoje_pecas[codigo]:
+            lista_qtds = producao_hoje_pecas[codigo]
+            total = sum(lista_qtds)
+            if len(lista_qtds) > 1:
+                return f"*📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total} peças*"
+            return f"*📦 Produzido hoje: {total} peças*"
+        # Retorna string vazia caso não haja produção
+        return ""
 
     # ==========================================
     # STATUS DA MÁQUINA
@@ -229,21 +275,36 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod = st.selectbox("1. Produto:", opcoes_prod, key=chave_wid_prod)
                 
                 # ==========================================
-                # INTERFACE DE SELEÇÃO DA PEÇA (BOTÕES GIGANTES)
+                # INTERFACE DE SELEÇÃO DA PEÇA (BOTÕES GIGANTES COM RESUMO)
                 # ==========================================
                 if sel_prod:
                     df_pecas = df_produtos[df_produtos['produto_formula'] == sel_prod]
-                    lista_pecas = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
+                    lista_pecas_limpa = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
                     
                     # Hack da Peça de Memória
-                    if sel_prod == last_prod and last_peca and last_peca not in lista_pecas:
-                        lista_pecas.append(last_peca)
+                    if sel_prod == last_prod and last_peca and last_peca not in lista_pecas_limpa:
+                        lista_pecas_limpa.append(last_peca)
                         
-                    idx_peca = lista_pecas.index(last_peca) if (sel_prod == last_prod and last_peca in lista_pecas) else 0
+                    # Montando a lista dupla (Nome Limpo para Lógica / Nome Formatado para a Tela)
+                    lista_exibicao_pecas = []
+                    mapa_exibicao_limpa = {}
                     
-                    sel_peca = None
-                    iniciar_producao_flag = False
-
+                    for peca_limpa in lista_pecas_limpa:
+                        codigo_ext = peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
+                        resumo_texto = obter_resumo_peca(codigo_ext)
+                        
+                        texto_completo = f"{peca_limpa} {resumo_texto}" if resumo_texto else peca_limpa
+                        lista_exibicao_pecas.append(texto_completo)
+                        mapa_exibicao_limpa[texto_completo] = peca_limpa
+                        
+                    # Descobrindo o index da memória
+                    idx_peca = 0
+                    if sel_prod == last_prod and last_peca:
+                        for i, txt in enumerate(lista_exibicao_pecas):
+                            if mapa_exibicao_limpa[txt] == last_peca:
+                                idx_peca = i
+                                break
+                    
                     st.markdown("""
                         <style>
                         /* Transforma o componente Radio Vertical em Botões Gigantes */
@@ -260,15 +321,24 @@ def renderizar(df_nuvem, df_codigos):
                             transition: all 0.2s ease-in-out;
                             margin: 0;
                         }
+                        
+                        /* Fundo cinza claro para peças com produção hoje (que possuem tag em) */
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) {
+                            background-color: #f4f6f7;
+                            border-color: #d1d8e0;
+                        }
+
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] {
                             background-color: #ff4b4b !important;
                             border-color: #ff4b4b !important;
                         }
+                        
                         /* Oculta a bolinha redonda nativa do radio */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child {
                             display: none !important;
                         }
-                        /* Alinhamento do texto totalmente à esquerda */
+                        
+                        /* Alinhamento do texto totalmente à esquerda + Estrutura de bloco */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p {
                             font-size: 16px;
                             font-weight: 600;
@@ -276,11 +346,27 @@ def renderizar(df_nuvem, df_codigos):
                             margin: 0;
                             text-align: left !important;
                             width: 100%;
+                            display: block;
                         }
-                        /* Cor do texto quando selecionado */
+                        
+                        /* O truque do Resumo (Texto em Itálico cai pra linha de baixo) */
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em {
+                            display: block;
+                            margin-top: 6px;
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: #7f8c8d;
+                            font-style: normal;
+                        }
+                        
+                        /* Cor do texto principal e do resumo quando selecionado */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p {
                             color: #ffffff !important;
                         }
+                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em {
+                            color: #fcebeb !important;
+                        }
+                        
                         /* Adiciona um Checkmark via CSS na frente do texto quando selecionado */
                         div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before {
                             content: '✅ ';
@@ -290,20 +376,17 @@ def renderizar(df_nuvem, df_codigos):
                     
                     st.markdown("<h4 style='color: #2c3e50; font-size: 16px; margin-top: 15px;'>2. Toque na peça para selecionar:</h4>", unsafe_allow_html=True)
                     
-                    sel_peca = st.radio("Selecione a Peça", lista_pecas, index=idx_peca, label_visibility="collapsed")
+                    sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("▶️ CONFIRMAR E INICIAR", type="primary", use_container_width=True):
-                        iniciar_producao_flag = True
-
-                    # ==========================================
-                    # AÇÃO ÚNICA DE INÍCIO DA PRODUÇÃO
-                    # ==========================================
-                    if iniciar_producao_flag and sel_peca:
-                        st.session_state[chave_last_prod] = sel_prod
-                        st.session_state[chave_last_peca] = sel_peca
+                        # Pega o nome limpo com base no que foi clicado na tela
+                        sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
                         
-                        codigo_peca = sel_peca.split("(Cód: ")[-1].replace(")", "").strip()
+                        st.session_state[chave_last_prod] = sel_prod
+                        st.session_state[chave_last_peca] = sel_peca_limpa
+                        
+                        codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                         agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                         
                         supa.table("status_maquinas").upsert({
