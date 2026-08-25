@@ -78,7 +78,7 @@ def registrar_telemetria(supa, setor, maquina, acao):
         return False, str(e)
 
 # ==========================================
-# COMPONENTES NATIVOS E BLINDADOS (REPLACE PURO)
+# COMPONENTES NATIVOS E BLINDADOS
 # ==========================================
 @st.dialog("📦 Catálogo de Produtos")
 def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
@@ -91,15 +91,15 @@ def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
                 st.session_state[chave_memoria] = p
                 st.rerun()
 
-def obter_html_teclado(label_input_js, titulo="Quantidade"):
-    """Teclado HTML 100% protegido contra erros na Nuvem (usando replace em vez de f-string)"""
+def obter_html_teclado(label_input_js, titulo="Quantidade Produzida"):
+    """Teclado 3 colunas em HTML puro blindado contra FOUC e Sandbox"""
     html_content = """
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; }
         .lcd { background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .lcd-val { margin: 0; font-family: monospace; font-size: 45px; letter-spacing: 5px; color: #27ae60; min-height: 55px; font-weight: 900; }
         .lcd-desc { margin: 5px 0 0 0; font-size: 16px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
         .btn-key { background: #ffffff; border: 1px solid #dcdde1; border-radius: 12px; font-size: 28px; font-weight: 900; color: #2c3e50; padding: 20px 0; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; }
         .btn-key:active { transform: scale(0.95); background: #f1f2f6; }
         .btn-c { color: #e74c3c; }
@@ -134,6 +134,8 @@ def obter_html_teclado(label_input_js, titulo="Quantidade"):
                     let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                     nativeSetter.call(inp, currentQty === "" ? "0" : currentQty); 
                     inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    // Força a atualização do estado
+                    setTimeout(() => { inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true })); inp.blur(); }, 50);
                 }
             });
         }
@@ -153,24 +155,30 @@ def obter_html_teclado(label_input_js, titulo="Quantidade"):
     return html_content.replace('LABEL_PLACEHOLDER', label_input_js).replace('TITULO_PLACEHOLDER', titulo)
 
 def renderizar(df_nuvem, df_codigos):
-    # CSS GLOBAL (Ocultação Blindada e Sem FOUC)
+    # ==========================================
+    # CORREÇÃO DO ERRO KEYERROR DA NUVEM
+    # ==========================================
+    if 'tk_counter' not in st.session_state: 
+        st.session_state['tk_counter'] = 0
+
+    # CSS GLOBAL BLINDADO (Anti-Piscar)
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
         div[data-testid="stTabs"] { margin-top: -15px; }
         footer { display: none !important; }
         #MainMenu { visibility: hidden; }
+        div[data-baseweb="select"] > div { min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important; }
+        div[data-baseweb="select"] { font-size: 20px !important; }
+        button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
+        div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
+        
+        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto nativas da UI */
+        div[data-testid="stTextInput"] {
+            display: none !important;
+        }
+        
         ::-webkit-scrollbar { display: none; }
-        
-        div[data-testid="stButton"] button {
-            min-height: 70px; font-size: 20px; font-weight: 700; border-radius: 12px;
-        }
-        div[data-testid="stButton"] button[kind="primary"] {
-            min-height: 85px; font-size: 22px; font-weight: 900;
-        }
-        
-        /* 🔥 A OPÇÃO NUCLEAR: Esconde caixas de texto mantendo-as na DOM para o JS ler */
-        div[data-testid="stTextInput"] { display: none !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -317,25 +325,21 @@ def renderizar(df_nuvem, df_codigos):
                 mapa_prod_real = {}
                 ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
                 
-                # Bloco 1: Produtos em OP
                 for idx_op, p in enumerate(ops_presentes):
                     numero_op = idx_op + 1
                     display_name = f"🔥 [OP {numero_op}] {p}"
                     lista_exibicao_final.append(display_name)
                     mapa_prod_real[display_name] = p
                     
-                # Bloco 2: Separador
                 if ops_presentes:
                     lista_exibicao_final.append(separador)
                     mapa_prod_real[separador] = None
                     
-                # Bloco 3: Restante
                 for p in lista_base:
                     if p not in ops_presentes:
                         lista_exibicao_final.append(p)
                         mapa_prod_real[p] = p
                 
-                # MEMÓRIA NATIVA DE PRODUTO
                 chave_mem_prod = f"mem_prod_{setor_selecionado}_{maquina_selecionada}"
                 if chave_mem_prod not in st.session_state:
                     initial_val = ""
@@ -352,12 +356,8 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod_display = st.session_state[chave_mem_prod]
                 sel_prod = mapa_prod_real.get(sel_prod_display)
 
-                # =========================================================
-                # 🖥️ A MÁGICA DA INTERFACE NATIVA 
-                # =========================================================
+                # BOTÃO NATIVO 
                 texto_exibicao = sel_prod_display if sel_prod_display else "Selecione..."
-                
-                # Caixa visual de exibição
                 st.markdown(f"""
                 <div style='background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 15px; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
                     <div style='font-size:14px; color:#7f8c8d; font-weight:bold; text-transform:uppercase;'>Produto da Linha:</div>
@@ -365,12 +365,11 @@ def renderizar(df_nuvem, df_codigos):
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Botão nativo para chamar o Modal
                 if st.button("🔍 ALTERAR PRODUTO", use_container_width=True):
                     modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
 
                 # =========================================================
-                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS
+                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS EM 3 ANDARES
                 # =========================================================
                 if sel_prod:
                     is_in_op = sel_prod in mapa_ops
@@ -528,7 +527,6 @@ def renderizar(df_nuvem, df_codigos):
                             
                             try:
                                 atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, dados_update)
-                                
                                 sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
                                 if not sucesso:
                                     st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
@@ -549,22 +547,22 @@ def renderizar(df_nuvem, df_codigos):
                 tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                 
                 with tab_tcl:
-                    chave_dinamica = f"input_js_{st.session_state['tk_counter']}"
-                    codigo_js = st.text_input("input_codigo_js", key=chave_dinamica, label_visibility="collapsed")
-                    components.html(obter_html_teclado("input_codigo_js", "CÓDIGO DE PARADA"), height=530)
+                    chave_din_cod = f"in_cod_livre_{st.session_state['tk_counter']}"
+                    codigo_digitado = st.text_input("input_cod_livre", key=chave_din_cod, label_visibility="collapsed")
+                    components.html(obter_html_teclado("input_cod_livre", "CÓDIGO DE PARADA"), height=530)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if codigo_js in valid_codes:
-                        st.success(f"✅ Identificado: **{valid_codes[codigo_js]}**")
+                    if codigo_digitado in valid_codes:
+                        st.success(f"✅ Identificado: **{valid_codes[codigo_digitado]}**")
                         if st.button("🔴 CONFIRMAR PARADA", use_container_width=True, type="primary"):
                             agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                             atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
-                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_js, "hora_inicio": agora
+                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
                             })
-                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_js})")
+                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
                             st.session_state['tk_counter'] += 1 
                             st.rerun()
-                    elif codigo_js:
+                    elif codigo_digitado:
                         st.error("❌ Código não encontrado")
 
                 with tab_lst:
@@ -743,6 +741,8 @@ def renderizar(df_nuvem, df_codigos):
                         registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim Lote -> Livre")
                         
                     st.session_state[chave_estado_fin] = None
+                    st.session_state['tk_counter'] += 1
+                        
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as e:
@@ -752,7 +752,8 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                qtd_str = st.text_input("input_qtd_conc", label_visibility="collapsed")
+                chave_din_conc = f"in_qtd_conc_{st.session_state['tk_counter']}"
+                qtd_str = st.text_input("input_qtd_conc", key=chave_din_conc, label_visibility="collapsed")
                 components.html(obter_html_teclado("input_qtd_conc", "Qtd Concluída"), height=530)
                 
                 modalidade_escolhida = "Simples"
@@ -770,13 +771,15 @@ def renderizar(df_nuvem, df_codigos):
                 with cb2:
                     if st.button("❌ Cancelar Operação", use_container_width=True):
                         st.session_state[chave_estado_fin] = None
+                        st.session_state['tk_counter'] += 1
                         st.rerun()
                         
             elif estado_fin == "INTERROMPIDO":
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                qtd_str = st.text_input("input_qtd_int", label_visibility="collapsed")
+                chave_din_int_qtd = f"in_qtd_int_{st.session_state['tk_counter']}"
+                qtd_str = st.text_input("input_qtd_int", key=chave_din_int_qtd, label_visibility="collapsed")
                 components.html(obter_html_teclado("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
                 
                 modalidade_escolhida = "Simples"
@@ -792,7 +795,8 @@ def renderizar(df_nuvem, df_codigos):
                     tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
                     with tab_tcl_int:
-                        codigo_digitado_int = st.text_input("input_cod_int", label_visibility="collapsed")
+                        chave_din_int_cod = f"in_cod_int_{st.session_state['tk_counter']}"
+                        codigo_digitado_int = st.text_input("input_cod_int", key=chave_din_int_cod, label_visibility="collapsed")
                         components.html(obter_html_teclado("input_cod_int", "CÓDIGO DE PARADA"), height=530)
                         
                         st.markdown("<br>", unsafe_allow_html=True)
@@ -819,6 +823,7 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("❌ Cancelar Operação (Voltar)", use_container_width=True):
                     st.session_state[chave_estado_fin] = None
+                    st.session_state['tk_counter'] += 1
                     st.rerun()
 
     # ==========================================
@@ -1011,44 +1016,122 @@ def renderizar(df_nuvem, df_codigos):
         if logo_b64: st.markdown(f'<div style="display: flex; align-items: center; gap: 15px;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;"><h3 style="margin:0; color: #2c3e50;">{titulo_app}</h3></div>', unsafe_allow_html=True)
         else: st.markdown(f'<h3 style="margin:0; color: #2c3e50;">🏭 {titulo_app}</h3>', unsafe_allow_html=True)
     with c2:
-        if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
-            st.session_state['usuario_logado'] = None
-            try: st.query_params.clear()
-            except: st.experimental_set_query_params()
-            st.rerun()
+        if is_travado and permite_troca:
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button("🔄 Trocar Máquina", use_container_width=True, key="btn_trocar_maq"):
+                    st.session_state['show_troca_maquina'] = not st.session_state.get('show_troca_maquina', False)
+                    st.rerun()
+            with b2:
+                if st.button("🚪 Sair", use_container_width=True, key="btn_sair_cf"):
+                    st.session_state['usuario_logado'] = None
+                    try: st.query_params.clear()
+                    except: st.experimental_set_query_params()
+                    st.rerun()
+        else:
+            if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
+                st.session_state['usuario_logado'] = None
+                try: st.query_params.clear()
+                except: st.experimental_set_query_params()
+                st.rerun()
 
-    # --- SCRIPT PARA ESCONDER BARRAS DE ROLAGEM E RECOLORIR BOTÕES ---
-    st.markdown("""
-        <script>
-            document.body.style.overflow = 'hidden';
-            setTimeout(() => { document.body.style.overflow = 'auto'; }, 1000);
+    # --- JANELA DE TROCA DE MÁQUINA ---
+    if st.session_state.get('show_troca_maquina'):
+        st.markdown("<div style='background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #ddd; margin-top: 15px;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #2c3e50; margin-top:0;'>🔄 Selecione o seu novo posto de trabalho:</h4>", unsafe_allow_html=True)
+        
+        sel_c1, sel_c2 = st.columns(2)
+        with sel_c1:
+            idx_setor = lista_setores_nuvem.index(setor_selecionado) if setor_selecionado in lista_setores_nuvem else 0
+            novo_setor = st.selectbox("Novo Setor:", lista_setores_nuvem, key="novo_sec_troca", index=idx_setor)
+        with sel_c2:
+            lista_maq_novo = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
+            nova_maq = st.selectbox("Nova Máquina:", lista_maq_novo, key="nova_maq_troca")
             
-            setInterval(() => {
-                const btns = window.parent.document.querySelectorAll('button');
-                btns.forEach(btn => {
-                    const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
-                    if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#27ae60', 'important');
-                            btn.style.setProperty('border-color', '#27ae60', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
+        st.markdown("<br>", unsafe_allow_html=True)
+        conf_c1, conf_c2 = st.columns(2)
+        with conf_c1:
+            if st.button("✅ Confirmar Mudança", type="primary", use_container_width=True):
+                supa.table("usuarios").update({
+                    "setor": novo_setor,
+                    "maquina": nova_maq
+                }).eq("username", usuario['username']).execute()
+                
+                st.session_state['usuario_logado']['setor'] = novo_setor
+                st.session_state['usuario_logado']['maquina'] = nova_maq
+                st.session_state['show_troca_maquina'] = False
+                st.rerun()
+        with conf_c2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.session_state['show_troca_maquina'] = False
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ==========================================
+    # SCRIPT PARA INFLAR OS BOTÕES E ESCONDER AS ÂNCORAS
+    # ==========================================
+    js_cores = """
+    <script>
+        setInterval(() => {
+            const btns = window.parent.document.querySelectorAll('button');
+            btns.forEach(btn => {
+                const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
+                
+                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
+                    btn.style.setProperty('font-size', '22px', 'important');
+                    btn.style.setProperty('font-weight', '900', 'important');
+                    btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
+                    if (!btn.disabled) {
+                        btn.style.setProperty('background-color', '#27ae60', 'important');
+                        btn.style.setProperty('border-color', '#27ae60', 'important');
+                        btn.style.setProperty('color', 'white', 'important');
+                    } else {
+                        btn.style.setProperty('background-color', '#ecf0f1', 'important');
+                        btn.style.setProperty('border-color', '#bdc3c7', 'important');
+                        btn.style.setProperty('color', '#95a5a6', 'important');
                     }
-                    else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#c0392b', 'important');
-                            btn.style.setProperty('border-color', '#c0392b', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
+                }
+                else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
+                    btn.style.setProperty('font-size', '22px', 'important');
+                    btn.style.setProperty('font-weight', '900', 'important');
+                    btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
+                    if (!btn.disabled) {
+                        btn.style.setProperty('background-color', '#c0392b', 'important');
+                        btn.style.setProperty('border-color', '#c0392b', 'important');
+                        btn.style.setProperty('color', 'white', 'important');
+                    } else {
+                        btn.style.setProperty('background-color', '#ecf0f1', 'important');
+                        btn.style.setProperty('border-color', '#bdc3c7', 'important');
+                        btn.style.setProperty('color', '#95a5a6', 'important');
                     }
-                    else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#e67e22', 'important');
-                            btn.style.setProperty('border-color', '#e67e22', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
+                }
+                else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
+                    btn.style.setProperty('font-size', '22px', 'important');
+                    btn.style.setProperty('font-weight', '900', 'important');
+                    btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
+                    if (!btn.disabled) {
+                        btn.style.setProperty('background-color', '#e67e22', 'important');
+                        btn.style.setProperty('border-color', '#e67e22', 'important');
+                        btn.style.setProperty('color', 'white', 'important');
                     }
-                });
-            }, 300);
-        </script>
-    """, unsafe_allow_html=True)
+                }
+            });
+        }, 300);
+    </script>
+    """
+    components.html(js_cores, height=0)
