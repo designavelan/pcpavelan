@@ -39,6 +39,7 @@ def obter_hora_atual():
 
 def atualizar_status_maquina(supa, setor, maquina, dados):
     """Garante que a máquina exista no banco antes de atualizar o status"""
+    # CORREÇÃO: Procurar pela coluna 'maquina' ao invés de 'id'
     resp = supa.table("status_maquinas").select("maquina").eq("setor", setor).eq("maquina", maquina).execute()
     if not resp.data:
         dados_in = dados.copy()
@@ -90,7 +91,7 @@ def registrar_telemetria(supa, setor, maquina, acao):
     except Exception as e:
         return False, str(e)
 
-def obter_html_teclado_qtd(label_input_js):
+def obter_html_teclado_qtd(label):
     return f"""
     <style>
         body {{ font-family: sans-serif; margin: 0; padding: 10px; }}
@@ -126,14 +127,13 @@ def obter_html_teclado_qtd(label_input_js):
         function updateLCD() {{
             const lcdVal = document.getElementById("lcd-val");
             lcdVal.innerText = currentQty === "" ? "0" : currentQty;
-            const inputs = window.parent.document.querySelectorAll('input');
-            inputs.forEach(inp => {{
-                if(inp.getAttribute('aria-label') === '{label_input_js}') {{
-                    let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    nativeSetter.call(inp, currentQty === "" ? "0" : currentQty); 
-                    inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                }}
-            }});
+            const inputs = window.parent.document.querySelectorAll('input[aria-label="{label}"]');
+            if (inputs.length > 0) {{
+                const input = inputs[0]; 
+                let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                nativeSetter.call(input, currentQty === "" ? "0" : currentQty); 
+                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            }}
         }}
         function pressKey(k) {{ 
             if (k === 'C') currentQty = ""; 
@@ -152,23 +152,25 @@ def obter_html_teclado_qtd(label_input_js):
 def renderizar(df_nuvem, df_codigos):
     if 'tk_counter' not in st.session_state: st.session_state['tk_counter'] = 0
 
-    # CSS GLOBAL BLINDADO: Arranca todos os campos de texto direto do servidor (Anti-Piscar)
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
         div[data-testid="stTabs"] { margin-top: -15px; }
         footer { display: none !important; }
         #MainMenu { visibility: hidden; }
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js"]),
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js_int"]),
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js"]),
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]) {
+            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
+        }
+        div[data-testid="stElementContainer"]:has(iframe[height="0"]) {
+            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
+        }
         div[data-baseweb="select"] > div { min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important; }
         div[data-baseweb="select"] { font-size: 20px !important; }
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
-        
-        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto mantendo-as na DOM para o JS ler */
-        div[data-testid="stTextInput"] {
-            display: none !important;
-        }
-        
         ::-webkit-scrollbar { display: none; }
         </style>
     """, unsafe_allow_html=True)
@@ -301,190 +303,27 @@ def renderizar(df_nuvem, df_codigos):
                 lista_todos = sorted(df_produtos['produto_formula'].dropna().unique().tolist())
                 
                 if mostrar_todos or not produtos_ativos: 
-                    lista_base = lista_todos.copy()
+                    lista_exibicao = lista_todos.copy()
                 else: 
-                    lista_base = [p for p in lista_todos if p in produtos_ativos]
+                    lista_exibicao = [p for p in lista_todos if p in produtos_ativos]
                 
-                if last_prod and last_prod not in lista_base and last_prod in lista_todos:
-                    lista_base.append(last_prod)
-                    lista_base = sorted(lista_base)
+                if last_prod and last_prod not in lista_exibicao and last_prod in lista_todos:
+                    lista_exibicao.append(last_prod)
+                    lista_exibicao = sorted(lista_exibicao)
                 
-                # --- BUSCA INTELIGENTE E NUMERADA DAS OPs ---
-                try:
-                    resp_ops = supa.table("planejamento_ops").select("produto_formula").eq("status", "Em Andamento").order("ordem_prioridade", desc=False).order("id", desc=True).execute()
-                    ops_ativas_brutas = [op['produto_formula'] for op in (resp_ops.data if resp_ops.data else [])]
-                    ops_ativas_unicas = []
-                    for op in ops_ativas_brutas:
-                        if op not in ops_ativas_unicas: ops_ativas_unicas.append(op)
-                except:
-                    ops_ativas_unicas = []
+                chave_wid_prod = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                 
-                separador = "───────────────────────────────"
-                lista_exibicao_final = []
-                mapa_prod_real = {}
-                ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
+                idx_prod = None
+                if last_prod and last_prod in lista_exibicao:
+                    idx_prod = lista_exibicao.index(last_prod)
                 
-                # Bloco 1: Produtos em OP
-                for idx_op, p in enumerate(ops_presentes):
-                    numero_op = idx_op + 1
-                    display_name = f"🔥 [OP {numero_op}] {p}"
-                    lista_exibicao_final.append(display_name)
-                    mapa_prod_real[display_name] = p
-                    
-                # Bloco 2: Separador
-                if ops_presentes:
-                    lista_exibicao_final.append(separador)
-                    mapa_prod_real[separador] = None
-                    
-                # Bloco 3: Restante
-                for p in lista_base:
-                    if p not in ops_presentes:
-                        lista_exibicao_final.append(p)
-                        mapa_prod_real[p] = p
-                
-                chave_wid_prod_js = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
-                
-                # Input cego com LABEL COLLAPSED. A mágica do CSS global o mantém oculto de forma blindada!
-                sel_prod_display = st.text_input("input_produto_js", key=chave_wid_prod_js, label_visibility="collapsed")
-                
-                # Lógica de Memória do Produto Selecionado
-                if not sel_prod_display:
-                    initial_val = ""
-                    if last_prod:
-                        if last_prod in ops_presentes:
-                            numero_op = ops_presentes.index(last_prod) + 1
-                            initial_val = f"🔥 [OP {numero_op}] {last_prod}"
-                        elif last_prod in lista_base and last_prod not in ops_presentes:
-                            initial_val = last_prod
-                    elif ops_presentes and len(lista_exibicao_final) > 1:
-                        initial_val = lista_exibicao_final[0]
-                    sel_prod_display = initial_val
-
-                # Traduz o nome visual (com os emojis) de volta para o nome original e puro do banco
-                sel_prod = mapa_prod_real.get(sel_prod_display)
-
-                # =========================================================
-                # 🖥️ A MÁGICA DO BOTÃO GIGANTE (Quebra de Linha + Sem botão Alterar)
-                # =========================================================
-                texto_exibicao = sel_prod_display if sel_prod_display else "Selecione o produto..."
-                html_caixa_produto = f"""
-                <style>
-                    body {{ margin: 0; padding: 0; font-family: sans-serif; background-color: transparent; }}
-                    .box-btn {{
-                        background: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 15px 20px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;
-                        box-sizing: border-box; width: 100%; min-height: 80px;
-                        cursor: pointer; text-align: left; transition: all 0.2s ease-in-out;
-                        -webkit-tap-highlight-color: transparent; outline: none; margin-top: 5px;
-                    }}
-                    .box-btn:active {{ transform: scale(0.98); background-color: #f1f2f6; border-color: #3498db; }}
-                    .text-container {{ flex-grow: 1; padding-right: 15px; }}
-                    .label-prod {{ font-size:13px; color:#7f8c8d; font-weight:bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }}
-                    .val-prod {{ font-size:18px; font-weight:900; color:#2c3e50; white-space: normal; line-height: 1.3; word-wrap: break-word; }}
-                    .icon-right {{ font-size: 22px; color: #3498db; flex-shrink: 0; background: #ebf5fb; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }}
-                </style>
-                <button class="box-btn" onclick="window.parent.openProdModal()">
-                    <div class="text-container">
-                        <div class="label-prod">Produto</div>
-                        <div class="val-prod">{texto_exibicao}</div>
-                    </div>
-                    <div class="icon-right">🔍</div>
-                </button>
-                """
-                # Aumentei o espaço para evitar cortes se a linha quebrar muito
-                components.html(html_caixa_produto, height=130)
-
-                # Montando os botões HTML do Modal nos bastidores
-                html_botoes = ""
-                for p in lista_exibicao_final:
-                    if p == separador:
-                        html_botoes += "<div style='border-bottom: 2px dashed #bdc3c7; margin: 15px 0;'></div>"
-                    else:
-                        p_safe = str(p).replace("'", "\\'").replace('"', '&quot;')
-                        html_botoes += f"<button style='display:block; width:100%; padding:15px; margin-bottom:10px; background:white; border:1px solid #dcdde1; border-radius:8px; font-size:18px; font-weight:bold; color:#2c3e50; text-align:left; cursor:pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.02); line-height: 1.3;' onclick='window.parent.selectProduct(\"{p_safe}\")'>{p}</button>"
-
-                html_botoes = html_botoes.replace('\n', ' ')
-
-                js_modal = f"""
-                <script>
-                    const parentDoc = window.parent.document;
-                    let modal = parentDoc.getElementById('custom-prod-modal');
-                    const botoesHTML = `{html_botoes}`;
-                    
-                    if (!modal) {{
-                        modal = parentDoc.createElement('div');
-                        modal.id = 'custom-prod-modal';
-                        modal.style.display = 'none';
-                        modal.style.position = 'fixed';
-                        modal.style.top = '0';
-                        modal.style.left = '0';
-                        modal.style.width = '100%';
-                        modal.style.height = '100%';
-                        modal.style.backgroundColor = 'rgba(0,0,0,0.6)';
-                        modal.style.zIndex = '999999';
-                        modal.style.justifyContent = 'center';
-                        modal.style.alignItems = 'flex-start';
-                        modal.style.paddingTop = '30px';
-                        modal.style.overflowY = 'auto';
-                        
-                        const content = parentDoc.createElement('div');
-                        content.style.backgroundColor = '#f8f9fa';
-                        content.style.width = '95%';
-                        content.style.maxWidth = '700px';
-                        content.style.borderRadius = '12px';
-                        content.style.padding = '25px';
-                        content.style.marginBottom = '50px';
-                        content.style.boxShadow = '0 10px 25px rgba(0,0,0,0.2)';
-                        
-                        const header = parentDoc.createElement('div');
-                        header.innerHTML = '<h3 style="margin-top:0; color:#2c3e50; font-size:22px;">📦 Catálogo de Produtos</h3><button id="close-prod-modal" style="float:right; margin-top:-45px; background:none; border:none; font-size:28px; cursor:pointer; color:#e74c3c;">❌</button>';
-                        
-                        const btnContainer = parentDoc.createElement('div');
-                        btnContainer.id = 'prod-modal-btn-container';
-                        
-                        content.appendChild(header);
-                        content.appendChild(btnContainer);
-                        modal.appendChild(content);
-                        parentDoc.body.appendChild(modal);
-                        
-                        parentDoc.getElementById('close-prod-modal').onclick = function() {{
-                            modal.style.display = 'none';
-                        }};
-                    }}
-                    
-                    const btnContainer = parentDoc.getElementById('prod-modal-btn-container');
-                    if(btnContainer) {{
-                        btnContainer.innerHTML = botoesHTML;
-                    }}
-                    
-                    window.parent.selectProduct = function(prodName) {{
-                        const m = window.parent.document.getElementById('custom-prod-modal');
-                        if(m) m.style.display = 'none';
-                        
-                        const inputs = parentDoc.querySelectorAll('input');
-                        inputs.forEach(inp => {{
-                            if(inp.getAttribute('aria-label') === 'input_produto_js') {{
-                                let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                nativeSetter.call(inp, prodName);
-                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                setTimeout(() => {{ 
-                                    inp.focus(); 
-                                    inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); 
-                                    inp.blur(); 
-                                }}, 50);
-                            }}
-                        }});
-                    }};
-                    
-                    window.parent.openProdModal = function() {{
-                        const m = window.parent.document.getElementById('custom-prod-modal');
-                        if(m) m.style.display = 'flex';
-                    }};
-                </script>
-                """
-                components.html(js_modal, height=0)
-
-                # =========================================================
+                sel_prod = st.selectbox(
+                    "1. Produto:", 
+                    options=lista_exibicao, 
+                    index=idx_prod, 
+                    placeholder="Clique aqui para selecionar o produto...",
+                    key=chave_wid_prod
+                )
                 
                 if sel_prod:
                     if is_embalagem:
@@ -574,7 +413,7 @@ def renderizar(df_nuvem, df_codigos):
                                 st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
                                 st.stop()
                             
-                            if chave_wid_prod_js in st.session_state: del st.session_state[chave_wid_prod_js]
+                            if chave_wid_prod in st.session_state: del st.session_state[chave_wid_prod]
                             st.rerun()
                             
                         except Exception as e:
@@ -594,7 +433,6 @@ def renderizar(df_nuvem, df_codigos):
                     
                     with tab_tcl:
                         chave_dinamica = f"input_js_{st.session_state['tk_counter']}"
-                        
                         codigo_js = st.text_input("input_codigo_js", key=chave_dinamica, label_visibility="collapsed")
                         
                         html_teclado = f"""
@@ -642,15 +480,12 @@ def renderizar(df_nuvem, df_codigos):
                             function sendCode() {{
                                 if (!validCodes[currentCode]) return;
                                 document.getElementById("btn-start").innerText = "Processando...";
-                                const inputs = window.parent.document.querySelectorAll('input');
-                                inputs.forEach(inp => {{
-                                    if(inp.getAttribute('aria-label') === 'input_codigo_js') {{
-                                        let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                        nativeSetter.call(inp, currentCode); 
-                                        inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                        setTimeout(() => {{ inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); inp.blur(); }}, 50);
-                                    }}
-                                }});
+                                const inputs = window.parent.document.querySelectorAll('input[aria-label="input_codigo_js"]');
+                                if (inputs.length > 0) {{
+                                    const input = inputs[0]; let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                    nativeSetter.call(input, currentCode); input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    setTimeout(() => {{ input.focus(); input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); input.blur(); }}, 50);
+                                }}
                             }}
                         </script>
                         """
@@ -693,7 +528,6 @@ def renderizar(df_nuvem, df_codigos):
     elif status_db == 'Produzindo':
         nome_peca = "Peça Desconhecida"
         
-        # Recuperar o código da caixa a partir do texto para o funcionamento limpo da UI
         if not cod_peca_atual and is_embalagem and ultima_peca_sel and "(Cód:" in ultima_peca_sel:
             cod_peca_atual = ultima_peca_sel.split("(Cód: ")[-1].replace(")", "").strip()
             
@@ -782,7 +616,7 @@ def renderizar(df_nuvem, df_codigos):
                         st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
                         st.stop()
                     
-                    chave_w_p = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
+                    chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                     if chave_w_p in st.session_state: del st.session_state[chave_w_p]
                     st.rerun()
                 except Exception as e:
@@ -871,7 +705,7 @@ def renderizar(df_nuvem, df_codigos):
                         if not sucesso: st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
                         
                     st.session_state[chave_estado_fin] = None
-                    chave_w_p = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
+                    chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
                     if chave_w_p in st.session_state: del st.session_state[chave_w_p]
                         
                     st.cache_data.clear()
@@ -976,15 +810,12 @@ def renderizar(df_nuvem, df_codigos):
                                 function sendCode() {{
                                     if (!validCodes[currentCode]) return;
                                     document.getElementById("btn-start").innerText = "Processando...";
-                                    const inputs = window.parent.document.querySelectorAll('input');
-                                    inputs.forEach(inp => {{
-                                        if(inp.getAttribute('aria-label') === 'input_codigo_js_int') {{
-                                            let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                            nativeSetter.call(inp, currentCode); 
-                                            inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                            setTimeout(() => {{ inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); inp.blur(); }}, 50);
-                                        }}
-                                    }});
+                                    const inputs = window.parent.document.querySelectorAll('input[aria-label="input_codigo_js_int"]');
+                                    if (inputs.length > 0) {{
+                                        const input = inputs[0]; let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                        nativeSetter.call(input, currentCode); input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        setTimeout(() => {{ input.focus(); input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); input.blur(); }}, 50);
+                                    }}
                                 }}
                             </script>
                             """
@@ -1268,7 +1099,7 @@ def renderizar(df_nuvem, df_codigos):
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ==========================================
-    # SCRIPT PARA INFLAR OS BOTÕES
+    # SCRIPT PARA INFLAR OS BOTÕES DE AÇÃO 
     # ==========================================
     js_cores = """
     <script>
@@ -1331,6 +1162,13 @@ def renderizar(df_nuvem, df_codigos):
                     }
                 }
             });
+            
+            const selects = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
+            selects.forEach(sel => {
+                sel.setAttribute('inputmode', 'none');
+                sel.readOnly = true;
+            });
+
         }, 300);
     </script>
     """
