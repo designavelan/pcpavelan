@@ -78,7 +78,7 @@ def registrar_telemetria(supa, setor, maquina, acao):
         return False, str(e)
 
 # ==========================================
-# COMPONENTES NATIVOS E HTML BLINDADOS
+# COMPONENTES HTML BLINDADOS (SEM F-STRINGS)
 # ==========================================
 @st.dialog("📦 Catálogo de Produtos")
 def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
@@ -91,15 +91,15 @@ def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
                 st.session_state[chave_memoria] = p
                 st.rerun()
 
-def obter_html_teclado(label_input_js, titulo="Quantidade"):
-    """Teclado 3 colunas em HTML puro blindado contra FOUC e Sandbox na Nuvem"""
+def obter_html_teclado_qtd(label_input_js, titulo="Quantidade"):
+    """Teclado HTML exclusivo para quantidades (sem botão de submit embutido, limpa zeros à esquerda)"""
     html_content = """
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; }
         .lcd { background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .lcd-val { margin: 0; font-family: monospace; font-size: 50px; letter-spacing: 5px; color: #27ae60; min-height: 60px; font-weight: 900; }
         .lcd-desc { margin: 5px 0 0 0; font-size: 16px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
         .btn-key { background: #ffffff; border: 1px solid #dcdde1; border-radius: 12px; font-size: 28px; font-weight: 900; color: #2c3e50; padding: 20px 0; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; }
         .btn-key:active { transform: scale(0.95); background: #f1f2f6; }
         .btn-c { color: #e74c3c; }
@@ -134,8 +134,6 @@ def obter_html_teclado(label_input_js, titulo="Quantidade"):
                     let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                     nativeSetter.call(inp, currentQty === "" ? "0" : currentQty); 
                     inp.dispatchEvent(new Event('input', { bubbles: true }));
-                    // Força a atualização do estado
-                    setTimeout(() => { inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true })); inp.blur(); }, 50);
                 }
             });
         }
@@ -153,6 +151,102 @@ def obter_html_teclado(label_input_js, titulo="Quantidade"):
     </script>
     """
     return html_content.replace('LABEL_PLACEHOLDER', label_input_js).replace('TITULO_PLACEHOLDER', titulo)
+
+def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="🔴 CONFIRMAR PARADA"):
+    """Teclado HTML exclusivo para Códigos de Parada (Aceita '00', exibe nome dinâmico e tem botão embutido)"""
+    html_content = """
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 10px; }
+        .lcd { background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .lcd-val { margin: 0; font-family: monospace; font-size: 45px; letter-spacing: 5px; color: #2c3e50; min-height: 55px; }
+        .lcd-desc { margin: 5px 0 0 0; font-size: 18px; font-weight: bold; min-height: 25px; transition: color 0.2s; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
+        .btn-key { background: #ffffff; border: 1px solid #dcdde1; border-radius: 12px; font-size: 28px; font-weight: 900; color: #2c3e50; padding: 20px 0; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; }
+        .btn-key:active { transform: scale(0.95); background: #f1f2f6; }
+        .btn-c { color: #e74c3c; }
+        .btn-del { color: #e67e22; }
+        .btn-start { width: 100%; background: #e74c3c; color: white; border: none; border-radius: 12px; font-size: 22px; font-weight: 900; text-transform: uppercase; padding: 25px 0; cursor: pointer; opacity: 0.5; -webkit-tap-highlight-color: transparent; }
+        .btn-start.ready { opacity: 1; background: #c0392b; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(231, 76, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); } }
+    </style>
+    <div class="lcd">
+        <h2 id="lcd-val" class="lcd-val">---</h2>
+        <p id="lcd-desc" class="lcd-desc" style="color: #7f8c8d;">Aguardando código...</p>
+    </div>
+    <div class="grid">
+        <button type="button" class="btn-key" onclick="pressKey('1')">1</button>
+        <button type="button" class="btn-key" onclick="pressKey('2')">2</button>
+        <button type="button" class="btn-key" onclick="pressKey('3')">3</button>
+        <button type="button" class="btn-key" onclick="pressKey('4')">4</button>
+        <button type="button" class="btn-key" onclick="pressKey('5')">5</button>
+        <button type="button" class="btn-key" onclick="pressKey('6')">6</button>
+        <button type="button" class="btn-key" onclick="pressKey('7')">7</button>
+        <button type="button" class="btn-key" onclick="pressKey('8')">8</button>
+        <button type="button" class="btn-key" onclick="pressKey('9')">9</button>
+        <button type="button" class="btn-key btn-c" onclick="pressKey('C')">C</button>
+        <button type="button" class="btn-key" onclick="pressKey('0')">0</button>
+        <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
+    </div>
+    <button id="btn-start" class="btn-start" onclick="sendCode()" disabled>TEXTO_BOTAO_PLACEHOLDER</button>
+
+    <script>
+        const validCodes = VALID_CODES_PLACEHOLDER;
+        let currentCode = "";
+        
+        function updateLCD() {
+            const lcdVal = document.getElementById("lcd-val");
+            const lcdDesc = document.getElementById("lcd-desc");
+            const btnStart = document.getElementById("btn-start");
+            
+            lcdVal.innerText = currentCode === "" ? "---" : currentCode;
+
+            if (currentCode === "") {
+                lcdDesc.innerText = "Aguardando código...";
+                lcdDesc.style.color = "#7f8c8d";
+                btnStart.disabled = true;
+                btnStart.classList.remove("ready");
+            } else if (validCodes[currentCode]) {
+                lcdDesc.innerText = "✅ " + validCodes[currentCode];
+                lcdDesc.style.color = "#27ae60";
+                btnStart.disabled = false;
+                btnStart.classList.add("ready");
+            } else {
+                lcdDesc.innerText = "❌ Código não encontrado";
+                lcdDesc.style.color = "#e74c3c";
+                btnStart.disabled = true;
+                btnStart.classList.remove("ready");
+            }
+        }
+        
+        function pressKey(k) {
+            if (k === 'C') currentCode = "";
+            else if (k === '<') currentCode = currentCode.slice(0, -1);
+            else currentCode += k;
+            
+            if (currentCode.length > 6) currentCode = currentCode.slice(0, 6);
+            updateLCD();
+        }
+        
+        function sendCode() {
+            if (!validCodes[currentCode]) return;
+            document.getElementById("btn-start").innerText = "Processando...";
+            const inputs = window.parent.document.querySelectorAll('input');
+            inputs.forEach(inp => {
+                if(inp.getAttribute('aria-label') === 'LABEL_PLACEHOLDER') {
+                    let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeSetter.call(inp, currentCode);
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    setTimeout(() => {
+                        inp.focus();
+                        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                        inp.blur();
+                    }, 50);
+                }
+            });
+        }
+    </script>
+    """
+    return html_content.replace('VALID_CODES_PLACEHOLDER', valid_codes_json).replace('LABEL_PLACEHOLDER', label_input_js).replace('TEXTO_BOTAO_PLACEHOLDER', texto_botao)
 
 def renderizar(df_nuvem, df_codigos):
     # ==========================================
@@ -325,19 +419,16 @@ def renderizar(df_nuvem, df_codigos):
                 mapa_prod_real = {}
                 ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
                 
-                # Bloco 1: Produtos em OP
                 for idx_op, p in enumerate(ops_presentes):
                     numero_op = idx_op + 1
                     display_name = f"🔥 [OP {numero_op}] {p}"
                     lista_exibicao_final.append(display_name)
                     mapa_prod_real[display_name] = p
                     
-                # Bloco 2: Separador
                 if ops_presentes:
                     lista_exibicao_final.append(separador)
                     mapa_prod_real[separador] = None
                     
-                # Bloco 3: Restante
                 for p in lista_base:
                     if p not in ops_presentes:
                         lista_exibicao_final.append(p)
@@ -359,12 +450,8 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod_display = st.session_state[chave_mem_prod]
                 sel_prod = mapa_prod_real.get(sel_prod_display)
 
-                # =========================================================
-                # 🖥️ A MÁGICA DA INTERFACE NATIVA 
-                # =========================================================
+                # BOTÃO NATIVO 
                 texto_exibicao = sel_prod_display if sel_prod_display else "Selecione..."
-                
-                # Caixa visual de exibição
                 st.markdown(f"""
                 <div style='background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 15px; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
                     <div style='font-size:14px; color:#7f8c8d; font-weight:bold; text-transform:uppercase;'>Produto da Linha:</div>
@@ -372,7 +459,6 @@ def renderizar(df_nuvem, df_codigos):
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Botão nativo para chamar o Modal
                 if st.button("🔍 ALTERAR PRODUTO", use_container_width=True):
                     modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
 
@@ -449,7 +535,6 @@ def renderizar(df_nuvem, df_codigos):
                             # --- LINHA 3: DADOS DA OP ---
                             linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
                             
-                            # O uso de asteriscos formata o texto como <em> no markdown (acionando os 3 andares do CSS)
                             if is_concluida:
                                 texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_concluidas.append(texto_completo)
@@ -485,7 +570,7 @@ def renderizar(df_nuvem, df_codigos):
                     else:
                         st.markdown("""
                             <style>
-                            /* --- ESTILO PARA FORÇAR OS 3 ANDARES NATIVOS --- */
+                            /* --- ESTILO PARA FORÇAR OS 3 ANDARES --- */
                             div[data-testid='stRadio'] { width: 100% !important; }
                             div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
                             div[data-testid='stRadio'] label {
@@ -535,13 +620,11 @@ def renderizar(df_nuvem, df_codigos):
                             
                             try:
                                 atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, dados_update)
-                                
                                 sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
                                 if not sucesso:
                                     st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
                                     st.stop()
                                 st.rerun()
-                                
                             except Exception as e:
                                 st.error(f"Erro ao iniciar produção: {e}")
 
@@ -552,28 +635,26 @@ def renderizar(df_nuvem, df_codigos):
             st.markdown("<br>", unsafe_allow_html=True)
             if not df_codigos_parado.empty:
                 valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
+                valid_codes_json = json.dumps(valid_codes)
                 
                 tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                 
                 with tab_tcl:
-                    # Aplicando a Vacina do KeyError na inicialização da chave:
                     tk_val = st.session_state.get('tk_counter', 0)
                     chave_din_cod = f"in_cod_livre_{tk_val}"
                     
+                    # Teclado Dinâmico 3 Colunas HTML 
                     codigo_digitado = st.text_input("input_cod_livre", key=chave_din_cod, label_visibility="collapsed")
-                    components.html(obter_html_teclado("input_cod_livre", "CÓDIGO DE PARADA"), height=530)
+                    components.html(obter_html_teclado_parada("input_cod_livre", valid_codes_json, "🔴 CONFIRMAR PARADA"), height=650)
                     
-                    st.markdown("<br>", unsafe_allow_html=True)
                     if codigo_digitado in valid_codes:
-                        st.success(f"✅ Identificado: **{valid_codes[codigo_digitado]}**")
-                        if st.button("🔴 CONFIRMAR PARADA", use_container_width=True, type="primary"):
-                            agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
-                            atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
-                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
-                            })
-                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
-                            st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1 
-                            st.rerun()
+                        agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
+                        atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                            "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
+                        })
+                        registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
+                        st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1 
+                        st.rerun()
                     elif codigo_digitado:
                         st.error("❌ Código não encontrado")
 
@@ -767,7 +848,7 @@ def renderizar(df_nuvem, df_codigos):
                 tk_val_conc = st.session_state.get('tk_counter', 0)
                 chave_din_conc = f"in_qtd_conc_{tk_val_conc}"
                 qtd_str = st.text_input("input_qtd_conc", key=chave_din_conc, label_visibility="collapsed")
-                components.html(obter_html_teclado("input_qtd_conc", "Qtd Concluída"), height=530)
+                components.html(obter_html_teclado_qtd("input_qtd_conc", "Qtd Concluída"), height=530)
                 
                 modalidade_escolhida = "Simples"
                 if permite_dupla:
@@ -794,7 +875,7 @@ def renderizar(df_nuvem, df_codigos):
                 tk_val_int = st.session_state.get('tk_counter', 0)
                 chave_din_int_qtd = f"in_qtd_int_{tk_val_int}"
                 qtd_str = st.text_input("input_qtd_int", key=chave_din_int_qtd, label_visibility="collapsed")
-                components.html(obter_html_teclado("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
+                components.html(obter_html_teclado_qtd("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
                 
                 modalidade_escolhida = "Simples"
                 if permite_dupla:
@@ -805,17 +886,19 @@ def renderizar(df_nuvem, df_codigos):
                 
                 if not df_codigos_parado.empty:
                     valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
+                    valid_codes_json = json.dumps(valid_codes)
                     
                     tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
                     with tab_tcl_int:
                         chave_din_int_cod = f"in_cod_int_{tk_val_int}"
                         codigo_digitado_int = st.text_input("input_cod_int", key=chave_din_int_cod, label_visibility="collapsed")
-                        components.html(obter_html_teclado("input_cod_int", "CÓDIGO DE PARADA"), height=530)
+                        components.html(obter_html_teclado_parada("input_cod_int", valid_codes_json, "🔴 CONFIRMAR INTERRUPÇÃO"), height=650)
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if codigo_digitado_int in valid_codes:
                             st.success(f"✅ Identificado: **{valid_codes[codigo_digitado_int]}**")
+                            # Botão ocultado pelo CSS e substituído pelo clique de Javascript
                             if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_tcl"):
                                 try: qtd_val_int = int(qtd_str)
                                 except: qtd_val_int = 0
