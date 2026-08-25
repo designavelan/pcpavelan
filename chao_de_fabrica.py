@@ -13,6 +13,15 @@ def cache_obter_produtos():
     return banco.obter_produtos_matriz()
 
 @st.cache_data(ttl=60, show_spinner=False)
+def cache_obter_caixas():
+    supa = banco.conectar()
+    try:
+        resp = supa.table("caixas_matriz").select("*").execute()
+        return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60, show_spinner=False)
 def cache_obter_ativos():
     supa = banco.conectar()
     try:
@@ -28,13 +37,21 @@ def cache_obter_estrutura():
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
 
-# --- NOVO MOTOR DE TELEMETRIA (MATEMÁTICA UNIFICADA E RASTREABILIDADE) ---
+def atualizar_status_maquina(supa, setor, maquina, dados):
+    """Garante que a máquina exista no banco antes de atualizar o status"""
+    resp = supa.table("status_maquinas").select("maquina").eq("setor", setor).eq("maquina", maquina).execute()
+    if not resp.data:
+        dados_in = dados.copy()
+        dados_in['setor'] = setor
+        dados_in['maquina'] = maquina
+        return supa.table("status_maquinas").insert(dados_in).execute()
+    else:
+        return supa.table("status_maquinas").update(dados).eq("setor", setor).eq("maquina", maquina).execute()
+
 def registrar_telemetria(supa, setor, maquina, acao):
-    """Calcula a porcentagem global idêntica à aba Ao Vivo e salva com rastreabilidade."""
     try:
         agora_str = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
         
-        # 1. Puxa a "Verdade Absoluta" (Estrutura da Fábrica)
         df_est = cache_obter_estrutura()
         if not df_est.empty:
             df_limpo = df_est[['setor', 'maquina']].dropna().drop_duplicates()
@@ -44,7 +61,6 @@ def registrar_telemetria(supa, setor, maquina, acao):
             maquinas_validas = set()
             total_maquinas = 1
             
-        # 2. Puxa o status exclusivamente das máquinas validadas na estrutura
         ativas = 0
         if maquinas_validas:
             resp = supa.table("status_maquinas").select("status, setor, maquina").eq("status", "Produzindo").execute()
@@ -54,7 +70,6 @@ def registrar_telemetria(supa, setor, maquina, acao):
                     if chave_m in maquinas_validas:
                         ativas += 1
         
-        # 3. Calcula o percentual cravado
         if total_maquinas > 0:
             percentual = round((ativas / total_maquinas) * 100.0, 2)
         else:
@@ -62,7 +77,6 @@ def registrar_telemetria(supa, setor, maquina, acao):
             
         texto_acao = f"[{setor}] {maquina}: {acao}"
         
-        # 4. Envia as informações com a rastreabilidade matemática para o banco
         dados_telemetria = {
             "data_hora": agora_str,
             "percentual": float(percentual),
@@ -72,12 +86,11 @@ def registrar_telemetria(supa, setor, maquina, acao):
         }
         
         supa.table("historico_operacao").insert([dados_telemetria]).execute()
-        
         return True, ""
     except Exception as e:
         return False, str(e)
 
-def obter_html_teclado_qtd(label):
+def obter_html_teclado_qtd(label_input_js):
     return f"""
     <style>
         body {{ font-family: sans-serif; margin: 0; padding: 10px; }}
@@ -92,7 +105,7 @@ def obter_html_teclado_qtd(label):
     </style>
     <div class="lcd">
         <h2 id="lcd-val" class="lcd-val">0</h2>
-        <p class="lcd-desc">Peças Produzidas</p>
+        <p class="lcd-desc">Qtd Produzida / Embalada</p>
     </div>
     <div class="grid">
         <button type="button" class="btn-key" onclick="pressKey('1')">1</button>
@@ -113,13 +126,14 @@ def obter_html_teclado_qtd(label):
         function updateLCD() {{
             const lcdVal = document.getElementById("lcd-val");
             lcdVal.innerText = currentQty === "" ? "0" : currentQty;
-            const inputs = window.parent.document.querySelectorAll('input[aria-label="{label}"]');
-            if (inputs.length > 0) {{
-                const input = inputs[0]; 
-                let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                nativeSetter.call(input, currentQty === "" ? "0" : currentQty); 
-                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-            }}
+            const inputs = window.parent.document.querySelectorAll('input');
+            inputs.forEach(inp => {{
+                if(inp.getAttribute('aria-label') === '{label_input_js}') {{
+                    let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeSetter.call(inp, currentQty === "" ? "0" : currentQty); 
+                    inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                }}
+            }});
         }}
         function pressKey(k) {{ 
             if (k === 'C') currentQty = ""; 
@@ -138,25 +152,23 @@ def obter_html_teclado_qtd(label):
 def renderizar(df_nuvem, df_codigos):
     if 'tk_counter' not in st.session_state: st.session_state['tk_counter'] = 0
 
+    # CSS GLOBAL BLINDADO: Arranca todos os campos de texto direto do servidor (Anti-Piscar)
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
         div[data-testid="stTabs"] { margin-top: -15px; }
         footer { display: none !important; }
         #MainMenu { visibility: hidden; }
-        div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js"]),
-        div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js_int"]),
-        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js"]),
-        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]) {
-            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
-        }
-        div[data-testid="stElementContainer"]:has(iframe[height="0"]) {
-            position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
-        }
         div[data-baseweb="select"] > div { min-height: 65px !important; font-size: 20px !important; border-radius: 8px !important; }
         div[data-baseweb="select"] { font-size: 20px !important; }
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
+        
+        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto mantendo-as na DOM para o JS ler */
+        div[data-testid="stTextInput"] {
+            display: none !important;
+        }
+        
         ::-webkit-scrollbar { display: none; }
         </style>
     """, unsafe_allow_html=True)
@@ -196,6 +208,7 @@ def renderizar(df_nuvem, df_codigos):
 
     df_produtos = cache_obter_produtos()
     produtos_ativos = cache_obter_ativos()
+    is_embalagem = (str(setor_selecionado).strip().upper() == "EMBALAGEM")
 
     permite_dupla = False
     maq_row = df_est[(df_est['setor'] == setor_selecionado) & (df_est['maquina'] == maquina_selecionada)]
@@ -226,15 +239,6 @@ def renderizar(df_nuvem, df_codigos):
                 producao_hoje_pecas[c_peca] = []
             if qtd > 0:
                 producao_hoje_pecas[c_peca].append(qtd)
-
-    def obter_resumo_peca(codigo):
-        if codigo in producao_hoje_pecas and producao_hoje_pecas[codigo]:
-            lista_qtds = producao_hoje_pecas[codigo]
-            total = sum(lista_qtds)
-            if len(lista_qtds) > 1:
-                return f"*📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total} peças*"
-            return f"*📦 Produzido hoje: {total} peças*"
-        return ""
 
     response = supa.table("status_maquinas").select("*").eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
     status_db = 'Livre'
@@ -288,44 +292,286 @@ def renderizar(df_nuvem, df_codigos):
                 lista_todos = sorted(df_produtos['produto_formula'].dropna().unique().tolist())
                 
                 if mostrar_todos or not produtos_ativos: 
-                    lista_exibicao = lista_todos.copy()
+                    lista_base = lista_todos.copy()
                 else: 
-                    lista_exibicao = [p for p in lista_todos if p in produtos_ativos]
+                    lista_base = [p for p in lista_todos if p in produtos_ativos]
                 
-                if last_prod and last_prod not in lista_exibicao and last_prod in lista_todos:
-                    lista_exibicao.append(last_prod)
-                    lista_exibicao = sorted(lista_exibicao)
+                if last_prod and last_prod not in lista_base and last_prod in lista_todos:
+                    lista_base.append(last_prod)
+                    lista_base = sorted(lista_base)
                 
-                chave_wid_prod = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
+                # --- BUSCA INTELIGENTE E NUMERADA DAS OPs ---
+                mapa_ops = {}
+                ops_ativas_unicas = []
+                try:
+                    resp_ops = supa.table("planejamento_ops").select("*").eq("status", "Em Andamento").order("ordem_prioridade", desc=False).order("id", desc=True).execute()
+                    for op in (resp_ops.data if resp_ops.data else []):
+                        p_name = op['produto_formula']
+                        if p_name not in ops_ativas_unicas:
+                            ops_ativas_unicas.append(p_name)
+                            mapa_ops[p_name] = op
+                except:
+                    pass
                 
-                idx_prod = None
-                if last_prod and last_prod in lista_exibicao:
-                    idx_prod = lista_exibicao.index(last_prod)
+                separador = "───────────────────────────────"
+                lista_exibicao_final = []
+                mapa_prod_real = {}
+                ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
                 
-                sel_prod = st.selectbox(
-                    "1. Produto:", 
-                    options=lista_exibicao, 
-                    index=idx_prod, 
-                    placeholder="Clique aqui para selecionar o produto...",
-                    key=chave_wid_prod
-                )
+                # Bloco 1: Produtos em OP
+                for idx_op, p in enumerate(ops_presentes):
+                    numero_op = idx_op + 1
+                    display_name = f"🔥 [OP {numero_op}] {p}"
+                    lista_exibicao_final.append(display_name)
+                    mapa_prod_real[display_name] = p
+                    
+                # Bloco 2: Separador
+                if ops_presentes:
+                    lista_exibicao_final.append(separador)
+                    mapa_prod_real[separador] = None
+                    
+                # Bloco 3: Restante
+                for p in lista_base:
+                    if p not in ops_presentes:
+                        lista_exibicao_final.append(p)
+                        mapa_prod_real[p] = p
                 
+                chave_wid_prod_js = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
+                
+                # Input cego recebendo dados do JS
+                sel_prod_display = st.text_input("input_produto_js", key=chave_wid_prod_js, label_visibility="collapsed")
+                
+                # Lógica de Memória do Produto Selecionado
+                if not sel_prod_display:
+                    initial_val = ""
+                    if last_prod:
+                        if last_prod in ops_presentes:
+                            numero_op = ops_presentes.index(last_prod) + 1
+                            initial_val = f"🔥 [OP {numero_op}] {last_prod}"
+                        elif last_prod in lista_base and last_prod not in ops_presentes:
+                            initial_val = last_prod
+                    elif ops_presentes and len(lista_exibicao_final) > 1:
+                        initial_val = lista_exibicao_final[0]
+                    sel_prod_display = initial_val
+
+                sel_prod = mapa_prod_real.get(sel_prod_display)
+
+                # =========================================================
+                # 🖥️ A MÁGICA DO BOTÃO GIGANTE (Sem Retângulo Vazio)
+                # =========================================================
+                texto_exibicao = sel_prod_display if sel_prod_display else "Selecione o produto..."
+                html_caixa_produto = f"""
+                <style>
+                    body {{ margin: 0; padding: 0; font-family: sans-serif; background-color: transparent; }}
+                    .box-btn {{
+                        background: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 15px 20px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;
+                        box-sizing: border-box; width: 100%; min-height: 80px;
+                        cursor: pointer; text-align: left; transition: all 0.2s ease-in-out;
+                        -webkit-tap-highlight-color: transparent; outline: none; margin-top: 5px;
+                    }}
+                    .box-btn:active {{ transform: scale(0.98); background-color: #f1f2f6; border-color: #3498db; }}
+                    .text-container {{ flex-grow: 1; padding-right: 15px; }}
+                    .label-prod {{ font-size:13px; color:#7f8c8d; font-weight:bold; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }}
+                    .val-prod {{ font-size:18px; font-weight:900; color:#2c3e50; white-space: normal; line-height: 1.3; word-wrap: break-word; }}
+                    .icon-right {{ font-size: 22px; color: #3498db; flex-shrink: 0; background: #ebf5fb; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }}
+                </style>
+                <button class="box-btn" onclick="window.parent.openProdModal()">
+                    <div class="text-container">
+                        <div class="label-prod">Produto</div>
+                        <div class="val-prod">{texto_exibicao}</div>
+                    </div>
+                    <div class="icon-right">🔍</div>
+                </button>
+                """
+                components.html(html_caixa_produto, height=130)
+
+                # Montando os botões HTML do Modal nos bastidores
+                html_botoes = ""
+                for p in lista_exibicao_final:
+                    if p == separador:
+                        html_botoes += "<div style='border-bottom: 2px dashed #bdc3c7; margin: 15px 0;'></div>"
+                    else:
+                        p_safe = str(p).replace("'", "\\'").replace('"', '&quot;')
+                        html_botoes += f"<button style='display:block; width:100%; padding:15px; margin-bottom:10px; background:white; border:1px solid #dcdde1; border-radius:8px; font-size:18px; font-weight:bold; color:#2c3e50; text-align:left; cursor:pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.02); line-height: 1.3;' onclick='window.parent.selectProduct(\"{p_safe}\")'>{p}</button>"
+
+                html_botoes = html_botoes.replace('\n', ' ')
+
+                js_modal = f"""
+                <script>
+                    const parentDoc = window.parent.document;
+                    let modal = parentDoc.getElementById('custom-prod-modal');
+                    const botoesHTML = `{html_botoes}`;
+                    
+                    if (!modal) {{
+                        modal = parentDoc.createElement('div');
+                        modal.id = 'custom-prod-modal';
+                        modal.style.display = 'none';
+                        modal.style.position = 'fixed';
+                        modal.style.top = '0';
+                        modal.style.left = '0';
+                        modal.style.width = '100%';
+                        modal.style.height = '100%';
+                        modal.style.backgroundColor = 'rgba(0,0,0,0.6)';
+                        modal.style.zIndex = '999999';
+                        modal.style.justifyContent = 'center';
+                        modal.style.alignItems = 'flex-start';
+                        modal.style.paddingTop = '30px';
+                        modal.style.overflowY = 'auto';
+                        
+                        const content = parentDoc.createElement('div');
+                        content.style.backgroundColor = '#f8f9fa';
+                        content.style.width = '95%';
+                        content.style.maxWidth = '700px';
+                        content.style.borderRadius = '12px';
+                        content.style.padding = '25px';
+                        content.style.marginBottom = '50px';
+                        content.style.boxShadow = '0 10px 25px rgba(0,0,0,0.2)';
+                        
+                        const header = parentDoc.createElement('div');
+                        header.innerHTML = '<h3 style="margin-top:0; color:#2c3e50; font-size:22px;">📦 Catálogo de Produtos</h3><button id="close-prod-modal" style="float:right; margin-top:-45px; background:none; border:none; font-size:28px; cursor:pointer; color:#e74c3c;">❌</button>';
+                        
+                        const btnContainer = parentDoc.createElement('div');
+                        btnContainer.id = 'prod-modal-btn-container';
+                        
+                        content.appendChild(header);
+                        content.appendChild(btnContainer);
+                        modal.appendChild(content);
+                        parentDoc.body.appendChild(modal);
+                        
+                        parentDoc.getElementById('close-prod-modal').onclick = function() {{
+                            modal.style.display = 'none';
+                        }};
+                    }}
+                    
+                    const btnContainer = parentDoc.getElementById('prod-modal-btn-container');
+                    if(btnContainer) {{
+                        btnContainer.innerHTML = botoesHTML;
+                    }}
+                    
+                    window.parent.selectProduct = function(prodName) {{
+                        const m = window.parent.document.getElementById('custom-prod-modal');
+                        if(m) m.style.display = 'none';
+                        
+                        const inputs = parentDoc.querySelectorAll('input');
+                        inputs.forEach(inp => {{
+                            if(inp.getAttribute('aria-label') === 'input_produto_js') {{
+                                let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeSetter.call(inp, prodName);
+                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                setTimeout(() => {{ 
+                                    inp.focus(); 
+                                    inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); 
+                                    inp.blur(); 
+                                }}, 50);
+                            }}
+                        }});
+                    }};
+                    
+                    window.parent.openProdModal = function() {{
+                        const m = window.parent.document.getElementById('custom-prod-modal');
+                        if(m) m.style.display = 'flex';
+                    }};
+                </script>
+                """
+                components.html(js_modal, height=0)
+
+                # =========================================================
+                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS
+                # =========================================================
                 if sel_prod:
-                    df_pecas = df_produtos[df_produtos['produto_formula'] == sel_prod]
-                    lista_pecas_limpa = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
+                    is_in_op = sel_prod in mapa_ops
+                    producao_op_pecas = {}
+                    
+                    # 1. Puxar o histórico da OP para somar a produção
+                    if is_in_op:
+                        op_info = mapa_ops[sel_prod]
+                        data_inicio_op = op_info['data_inicio'].split(" ")[0].split("T")[0]
+                        qtd_op = int(op_info['quantidade_planejada'])
+
+                        if not df_nuvem.empty and 'setor' in df_nuvem.columns:
+                            df_op_prod = df_nuvem[
+                                (df_nuvem['setor'] == setor_selecionado) &
+                                (df_nuvem['data_registro'] >= data_inicio_op) &
+                                (df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')
+                            ]
+                            for _, r in df_op_prod.iterrows():
+                                c = str(r.get('cod_peca', '')).strip()
+                                q = int(float(r.get('quantidade', 0))) if pd.notna(r.get('quantidade')) else 0
+                                producao_op_pecas[c] = producao_op_pecas.get(c, 0) + q
+
+                    # 2. Resgatar as peças matriz do produto
+                    if is_embalagem:
+                        df_caixas = cache_obter_caixas()
+                        if not df_caixas.empty:
+                            df_cx_filtro = df_caixas[df_caixas['produto_formula'] == sel_prod]
+                            lista_pecas_limpa = [f"Caixa {row['num_caixa']} (Cód: {row['cod_caixa']})" for _, row in df_cx_filtro.iterrows() if pd.notna(row['cod_caixa']) and str(row['cod_caixa']).strip() not in ["", "None", "nan"]]
+                        else:
+                            lista_pecas_limpa = []
+                        df_pecas = pd.DataFrame()
+                    else:
+                        df_pecas = df_produtos[df_produtos['produto_formula'] == sel_prod]
+                        lista_pecas_limpa = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
                     
                     if sel_prod == last_prod and last_peca and last_peca not in lista_pecas_limpa:
                         lista_pecas_limpa.append(last_peca)
                         
-                    lista_exibicao_pecas = []
+                    # 3. Classificar e Filtrar Peças (Pendentes vs Concluídas) com Visuais em 3 Linhas
+                    lista_pendentes = []
+                    lista_concluidas = []
                     mapa_exibicao_limpa = {}
                     
                     for peca_limpa in lista_pecas_limpa:
                         codigo_ext = peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
-                        resumo_texto = obter_resumo_peca(codigo_ext)
-                        texto_completo = f"{peca_limpa} {resumo_texto}" if resumo_texto else peca_limpa
-                        lista_exibicao_pecas.append(texto_completo)
+                        
+                        # --- SEGUNDA LINHA: PRODUÇÃO DE HOJE ---
+                        if codigo_ext in producao_hoje_pecas and producao_hoje_pecas[codigo_ext]:
+                            lista_qtds = producao_hoje_pecas[codigo_ext]
+                            resumo_hoje = f"📦 Produzido hoje: {' + '.join(map(str, lista_qtds))}"
+                        else:
+                            resumo_hoje = "📦 Produzido hoje: 0"
+                            
+                        if is_in_op:
+                            qnt_por_produto = 1
+                            if not is_embalagem and not df_pecas.empty:
+                                df_peca_info = df_pecas[df_pecas['cod'].astype(str) == codigo_ext]
+                                if not df_peca_info.empty:
+                                    try: qnt_por_produto = int(float(df_peca_info.iloc[0].get('qnt', 1)))
+                                    except: qnt_por_produto = 1
+
+                            meta = qnt_por_produto * qtd_op
+                            prod = producao_op_pecas.get(codigo_ext, 0)
+                            perc = (prod / meta * 100) if meta > 0 else 0
+                            is_concluida = prod >= meta
+                            
+                            str_perc = str(round(perc, 1)).replace('.', ',')
+
+                            # --- TERCEIRA LINHA: DADOS DA OP ---
+                            linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
+                            
+                            if is_concluida:
+                                texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
+                                lista_concluidas.append(texto_completo)
+                            else:
+                                texto_completo = f"{peca_limpa} *{resumo_hoje}* *{linha_op}*"
+                                lista_pendentes.append(texto_completo)
+                        else:
+                            texto_completo = f"{peca_limpa} *{resumo_hoje}*"
+                            lista_pendentes.append(texto_completo)
+                            
                         mapa_exibicao_limpa[texto_completo] = peca_limpa
+
+                    # Renderização do Checkbox se houver peças concluídas
+                    mostrar_concluidas = False
+                    if lista_concluidas:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        cb_key = f"cb_conc_{setor_selecionado}_{maquina_selecionada}"
+                        mostrar_concluidas = st.checkbox("☑️ Exibir peças já concluídas na OP (Retrabalho/Reposição)", key=cb_key, value=False)
+                        st.markdown("<br>", unsafe_allow_html=True)
+
+                    lista_exibicao_pecas = lista_pendentes.copy()
+                    if mostrar_concluidas:
+                        lista_exibicao_pecas.extend(lista_concluidas)
                         
                     idx_peca = 0
                     if sel_prod == last_prod and last_peca:
@@ -334,56 +580,70 @@ def renderizar(df_nuvem, df_codigos):
                                 idx_peca = i
                                 break
                     
-                    st.markdown("""
-                        <style>
-                        div[data-testid='stRadio'] { width: 100% !important; }
-                        div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label {
-                            background-color: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 16px 20px; width: 100%; cursor: pointer; transition: all 0.2s ease-in-out; margin: 0;
-                        }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) { background-color: #f4f6f7; border-color: #d1d8e0; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] { background-color: #ff4b4b !important; border-color: #ff4b4b !important; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
-                        div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
-                        </style>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown("<h4 style='color: #2c3e50; font-size: 16px; margin-top: 15px;'>2. Toque na peça para selecionar:</h4>", unsafe_allow_html=True)
-                    
-                    sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
-                    
-                    if sel_peca_exibicao and sel_peca_exibicao in mapa_exibicao_limpa:
-                        peca_atual_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
-                        nome_peca_curto = peca_atual_limpa.split("(Cód:")[0].strip()
+                    if not lista_exibicao_pecas:
+                        st.success("🎉 Todas as peças deste produto já atingiram a meta da OP! (Use a caixinha acima se precisar relançar alguma).")
                     else:
-                        nome_peca_curto = "PEÇA"
+                        st.markdown("""
+                            <style>
+                            div[data-testid='stRadio'] { width: 100% !important; }
+                            div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label {
+                                background-color: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 16px 20px; width: 100%; cursor: pointer; transition: all 0.2s ease-in-out; margin: 0;
+                            }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) { background-color: #f4f6f7; border-color: #d1d8e0; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] { background-color: #ff4b4b !important; border-color: #ff4b4b !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
+                            </style>
+                        """, unsafe_allow_html=True)
                         
-                    texto_btn_iniciar = f"▶️ INICIAR: {nome_peca_curto} ({sel_prod})"
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button(texto_btn_iniciar, type="primary", use_container_width=True):
-                        sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
-                        codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
-                        agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
+                        titulo_peca = "2. Toque na embalagem/volume:" if is_embalagem else "2. Toque na peça para selecionar:"
+                        st.markdown(f"<h4 style='color: #2c3e50; font-size: 16px; margin-top: 5px;'>{titulo_peca}</h4>", unsafe_allow_html=True)
                         
-                        supa.table("status_maquinas").update({
-                            "status": "Produzindo", "cod_peca_atual": codigo_peca, 
-                            "hora_inicio": agora, "cod_ocorrencia": "P",
-                            "ultimo_produto_sel": sel_prod,
-                            "ultima_peca_sel": sel_peca_limpa
-                        }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                        sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
                         
-                        sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
-                        if not sucesso:
-                            st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                            st.stop()
+                        if sel_peca_exibicao and sel_peca_exibicao in mapa_exibicao_limpa:
+                            peca_atual_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
+                            nome_peca_curto = peca_atual_limpa.split("(Cód:")[0].strip()
+                        else:
+                            nome_peca_curto = "VOLUME" if is_embalagem else "PEÇA"
+                            
+                        texto_btn_iniciar = f"▶️ INICIAR: {nome_peca_curto}"
                         
-                        if chave_wid_prod in st.session_state: del st.session_state[chave_wid_prod]
-                        st.rerun()
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button(texto_btn_iniciar, type="primary", use_container_width=True):
+                            sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
+                            codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
+                            agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            val_cod_peca_db = codigo_peca if not is_embalagem else None
+                            
+                            dados_update = {
+                                "status": "Produzindo", 
+                                "cod_peca_atual": val_cod_peca_db, 
+                                "hora_inicio": agora, 
+                                "cod_ocorrencia": "P",
+                                "ultimo_produto_sel": sel_prod,
+                                "ultima_peca_sel": sel_peca_limpa
+                            }
+                            
+                            try:
+                                atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, dados_update)
+                                
+                                sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
+                                if not sucesso:
+                                    st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                                    st.stop()
+                                
+                                if chave_wid_prod_js in st.session_state: del st.session_state[chave_wid_prod_js]
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"Erro ao iniciar produção: {e}")
 
             else:
                 st.info("Nenhum produto cadastrado na Matriz.")
@@ -399,6 +659,7 @@ def renderizar(df_nuvem, df_codigos):
                     
                     with tab_tcl:
                         chave_dinamica = f"input_js_{st.session_state['tk_counter']}"
+                        
                         codigo_js = st.text_input("input_codigo_js", key=chave_dinamica, label_visibility="collapsed")
                         
                         html_teclado = f"""
@@ -446,12 +707,15 @@ def renderizar(df_nuvem, df_codigos):
                             function sendCode() {{
                                 if (!validCodes[currentCode]) return;
                                 document.getElementById("btn-start").innerText = "Processando...";
-                                const inputs = window.parent.document.querySelectorAll('input[aria-label="input_codigo_js"]');
-                                if (inputs.length > 0) {{
-                                    const input = inputs[0]; let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                    nativeSetter.call(input, currentCode); input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    setTimeout(() => {{ input.focus(); input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); input.blur(); }}, 50);
-                                }}
+                                const inputs = window.parent.document.querySelectorAll('input');
+                                inputs.forEach(inp => {{
+                                    if(inp.getAttribute('aria-label') === 'input_codigo_js') {{
+                                        let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                        nativeSetter.call(inp, currentCode); 
+                                        inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        setTimeout(() => {{ inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); inp.blur(); }}, 50);
+                                    }}
+                                }});
                             }}
                         </script>
                         """
@@ -468,18 +732,24 @@ def renderizar(df_nuvem, df_codigos):
                         if cod_final:
                             agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                             
-                            supa.table("status_maquinas").update({
+                            dados_parada = {
                                 "status": "Parado", 
                                 "cod_peca_atual": None, "cod_ocorrencia": cod_final, "hora_inicio": agora
-                            }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
+                            }
                             
-                            sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({cod_final})")
-                            if not sucesso:
-                                st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                                st.stop()
-                            
-                            st.session_state['tk_counter'] += 1 
-                            st.rerun()
+                            try:
+                                atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, dados_parada)
+                                
+                                sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({cod_final})")
+                                if not sucesso:
+                                    st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                                    st.stop()
+                                
+                                st.session_state['tk_counter'] += 1 
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao iniciar parada: {e}")
+                                
             else: st.warning(f"⚠️ Não há nenhum código configurado para este setor.")
 
     # ==========================================
@@ -487,12 +757,26 @@ def renderizar(df_nuvem, df_codigos):
     # ==========================================
     elif status_db == 'Produzindo':
         nome_peca = "Peça Desconhecida"
-        if cod_peca_atual and not df_produtos.empty:
-            df_filtro = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca_atual)]
-            if not df_filtro.empty:
-                nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ {df_filtro.iloc[0]['descricao']}"
+        
+        # Recuperar o código da caixa a partir do texto para o funcionamento limpo da UI
+        if not cod_peca_atual and is_embalagem and ultima_peca_sel and "(Cód:" in ultima_peca_sel:
+            cod_peca_atual = ultima_peca_sel.split("(Cód: ")[-1].replace(")", "").strip()
+            
+        if cod_peca_atual:
+            if is_embalagem:
+                df_caixas = cache_obter_caixas()
+                if not df_caixas.empty:
+                    df_filtro = df_caixas[df_caixas['cod_caixa'].astype(str) == str(cod_peca_atual)]
+                    if not df_filtro.empty:
+                        nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ Caixa {df_filtro.iloc[0]['num_caixa']}"
+            else:
+                if not df_produtos.empty:
+                    df_filtro = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca_atual)]
+                    if not df_filtro.empty:
+                        nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ {df_filtro.iloc[0]['descricao']}"
 
         hora_inicio_iso = hora_inicio_str.replace(" ", "T")
+        desc_fab = "Embalando:" if is_embalagem else "Fabricando:"
 
         js_cronometro = f"""
         <style>
@@ -504,7 +788,7 @@ def renderizar(df_nuvem, df_codigos):
             @media (max-width: 768px) {{ .caixa {{ padding: 20px 10px; }} .titulo {{ font-size: 24px; }} .sub {{ font-size: 15px; margin: 10px 0 10px 0; }} .cronometro {{ font-size: 40px; letter-spacing: 0px; }} }}
         </style>
         <div class="caixa">
-            <h1 class="titulo">🟢 EM PRODUÇÃO</h1><p class="sub">Fabricando: <br><b>{nome_peca} (Cód: {cod_peca_atual})</b></p>
+            <h1 class="titulo">🟢 EM PRODUÇÃO</h1><p class="sub">{desc_fab} <br><b>{nome_peca} (Cód: {cod_peca_atual})</b></p>
             <div id="stopwatch" class="cronometro">00:00:00</div>
         </div>
         <script>
@@ -520,11 +804,21 @@ def renderizar(df_nuvem, df_codigos):
                 const btns = window.parent.document.querySelectorAll('button');
                 btns.forEach(btn => {{
                     const txt = btn.innerText ? btn.innerText.toUpperCase() : "";
+                    
                     if(txt.includes('CANCELAR PRODUÇÃO (ERRO DE SELEÇÃO)')) {{
-                        btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'block' : 'none';
+                        if (isLess1Min) {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'block';
+                        }} else {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'none';
+                        }}
                     }}
+                    
                     if(txt === '✅ FINALIZAR (CONCLUÍDO)' || txt === '🔴 INTERROMPER (POR FALHA)') {{
-                        btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'none' : 'block';
+                        if (isLess1Min) {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'none';
+                        }} else {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'block';
+                        }}
                     }}
                 }});
             }}, 500);
@@ -544,19 +838,20 @@ def renderizar(df_nuvem, df_codigos):
             with c2: btn_int_prod = st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary")
                 
             if btn_canc_prod:
-                supa.table("status_maquinas").update({
-                    "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-                }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
-                
-                sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Produção Cancelada (Erro Seleção)")
-                if not sucesso:
-                    st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                    st.stop()
-                
-                chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
-                if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                try:
+                    atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                        "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
+                    })
+                    sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Produção Cancelada (Erro Seleção)")
+                    if not sucesso:
+                        st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                        st.stop()
                     
-                st.rerun()
+                    chave_w_p = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
+                    if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cancelar produção: {e}")
                 
             if btn_fin_prod:
                 st.session_state[chave_estado_fin] = "CONCLUIDO"
@@ -625,33 +920,29 @@ def renderizar(df_nuvem, df_codigos):
                     except Exception as e:
                         st.error(f"⚠️ Aviso: Falha no processamento do recorde. Detalhe técnico: {e}")
                 
-                if codigo_parada_novo:
-                    supa.table("status_maquinas").update({
-                        "status": "Parado", "hora_inicio": hora_fim.strftime("%Y-%m-%d %H:%M:%S"),
-                        "cod_ocorrencia": codigo_parada_novo, "cod_peca_atual": None
-                    }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
-                    
-                    sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Fim de Lote c/ Parada ({codigo_parada_novo})")
-                    if not sucesso:
-                        st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                        st.stop()
-                else:
-                    supa.table("status_maquinas").update({
-                        "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-                    }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
-                    
-                    sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim de Lote (Máquina Livre)")
-                    if not sucesso:
-                        st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                        st.stop()
-                    
-                st.session_state[chave_estado_fin] = None
-                
-                chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
-                if chave_w_p in st.session_state: del st.session_state[chave_w_p]
-                    
-                st.cache_data.clear()
-                st.rerun()
+                try:
+                    if codigo_parada_novo:
+                        atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                            "status": "Parado", "hora_inicio": hora_fim.strftime("%Y-%m-%d %H:%M:%S"),
+                            "cod_ocorrencia": codigo_parada_novo, "cod_peca_atual": None
+                        })
+                        sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Fim de Lote c/ Parada ({codigo_parada_novo})")
+                        if not sucesso: st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                    else:
+                        atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                            "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
+                        })
+                        sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim de Lote (Máquina Livre)")
+                        if not sucesso: st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                        
+                    st.session_state[chave_estado_fin] = None
+                    chave_w_p = f"sel_prod_js_modal_{setor_selecionado}_{maquina_selecionada}"
+                    if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                        
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {e}")
 
             if estado_fin == "CONCLUIDO":
                 with st.form(key=f"form_conc_{setor_selecionado}_{maquina_selecionada}"):
@@ -750,12 +1041,15 @@ def renderizar(df_nuvem, df_codigos):
                                 function sendCode() {{
                                     if (!validCodes[currentCode]) return;
                                     document.getElementById("btn-start").innerText = "Processando...";
-                                    const inputs = window.parent.document.querySelectorAll('input[aria-label="input_codigo_js_int"]');
-                                    if (inputs.length > 0) {{
-                                        const input = inputs[0]; let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                        nativeSetter.call(input, currentCode); input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                        setTimeout(() => {{ input.focus(); input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); input.blur(); }}, 50);
-                                    }}
+                                    const inputs = window.parent.document.querySelectorAll('input');
+                                    inputs.forEach(inp => {{
+                                        if(inp.getAttribute('aria-label') === 'input_codigo_js_int') {{
+                                            let nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                            nativeSetter.call(inp, currentCode); 
+                                            inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                            setTimeout(() => {{ inp.focus(); inp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }})); inp.blur(); }}, 50);
+                                        }}
+                                    }});
                                 }}
                             </script>
                             """
@@ -828,11 +1122,21 @@ def renderizar(df_nuvem, df_codigos):
                 const btns = window.parent.document.querySelectorAll('button');
                 btns.forEach(btn => {{
                     const txt = btn.innerText ? btn.innerText.toUpperCase() : "";
+                    
                     if(txt.includes('CANCELAR PARADA (ERRO DE SELEÇÃO)')) {{
-                        btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'block' : 'none';
+                        if (isLess1Min) {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'block';
+                        }} else {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'none';
+                        }}
                     }}
+                    
                     if(txt === '{texto_botao.upper()}') {{
-                        btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'none' : 'block';
+                        if (isLess1Min) {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'none';
+                        }} else {{
+                            btn.closest('div[data-testid="stButton"]').style.display = 'block';
+                        }}
                     }}
                 }});
             }}, 500);
@@ -845,31 +1149,34 @@ def renderizar(df_nuvem, df_codigos):
         btn_fin_parada = st.button(texto_botao, use_container_width=True, type="primary")
         
         if btn_canc_parada or btn_fin_parada:
-            hora_fim = obter_hora_atual()
-            hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
-            duracao_segundos = (hora_fim - hora_inicio_obj).total_seconds()
-            
-            if duracao_segundos >= 60 and btn_fin_parada:
-                dados_nuvem = {
-                    "data_registro": hora_inicio_obj.strftime("%Y-%m-%d"),
-                    "setor": setor_selecionado, "maquina": maquina_selecionada, 
-                    "tipo": tipo_problema,
-                    "cod_ocorrencia": cod_ocorrencia, "operador": nomes_operadores,
-                    "das": hora_inicio_obj.strftime("%H:%M"), "as_hora": hora_fim.strftime("%H:%M"), "origem": "Chão de Fábrica"
-                }
-                supa.table("producao_diaria").insert(dados_nuvem).execute()
-            
-            supa.table("status_maquinas").update({
-                "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
-            }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
-            
-            texto_acao = "Problema Resolvido (Máquina Livre)" if btn_fin_parada else "Parada Cancelada (Erro Seleção)"
-            sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, texto_acao)
-            if not sucesso:
-                st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
-                st.stop()
-            
-            st.rerun()
+            try:
+                hora_fim = obter_hora_atual()
+                hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
+                duracao_segundos = (hora_fim - hora_inicio_obj).total_seconds()
+                
+                if duracao_segundos >= 60 and btn_fin_parada:
+                    dados_nuvem = {
+                        "data_registro": hora_inicio_obj.strftime("%Y-%m-%d"),
+                        "setor": setor_selecionado, "maquina": maquina_selecionada, 
+                        "tipo": tipo_problema,
+                        "cod_ocorrencia": cod_ocorrencia, "operador": nomes_operadores,
+                        "das": hora_inicio_obj.strftime("%H:%M"), "as_hora": hora_fim.strftime("%H:%M"), "origem": "Chão de Fábrica"
+                    }
+                    supa.table("producao_diaria").insert(dados_nuvem).execute()
+                
+                atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                    "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
+                })
+                
+                texto_acao = "Problema Resolvido (Máquina Livre)" if btn_fin_parada else "Parada Cancelada (Erro Seleção)"
+                sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, texto_acao)
+                if not sucesso:
+                    st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
+                    st.stop()
+                
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao cancelar/finalizar parada: {e}")
 
     # ==========================================
     # 4. HISTÓRICO EXCLUSIVO DO TABLET
@@ -965,22 +1272,68 @@ def renderizar(df_nuvem, df_codigos):
         with cr2: st.selectbox("⚙️ Máquina", lista_maquinas_nuvem, key="cf_maquina")
 
     cfg = banco.obter_configuracoes()
+    permite_troca = cfg.get('permitir_troca_maquina', False)
     titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
     logo_b64 = cfg.get('logo_base64', None)
     
-    c1, c2 = st.columns([7, 3])
+    c1, c2 = st.columns([6, 4])
     with c1:
         if logo_b64: st.markdown(f'<div style="display: flex; align-items: center; gap: 15px;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;"><h3 style="margin:0; color: #2c3e50;">{titulo_app}</h3></div>', unsafe_allow_html=True)
         else: st.markdown(f'<h3 style="margin:0; color: #2c3e50;">🏭 {titulo_app}</h3>', unsafe_allow_html=True)
     with c2:
-        if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
-            st.session_state['usuario_logado'] = None
-            try: st.query_params.clear()
-            except: st.experimental_set_query_params()
-            st.rerun()
+        if is_travado and permite_troca:
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button("🔄 Trocar Máquina", use_container_width=True, key="btn_trocar_maq"):
+                    st.session_state['show_troca_maquina'] = not st.session_state.get('show_troca_maquina', False)
+                    st.rerun()
+            with b2:
+                if st.button("🚪 Sair", use_container_width=True, key="btn_sair_cf"):
+                    st.session_state['usuario_logado'] = None
+                    try: st.query_params.clear()
+                    except: st.experimental_set_query_params()
+                    st.rerun()
+        else:
+            if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
+                st.session_state['usuario_logado'] = None
+                try: st.query_params.clear()
+                except: st.experimental_set_query_params()
+                st.rerun()
+
+    # --- JANELA DE TROCA DE MÁQUINA ---
+    if st.session_state.get('show_troca_maquina'):
+        st.markdown("<div style='background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #ddd; margin-top: 15px;'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color: #2c3e50; margin-top:0;'>🔄 Selecione o seu novo posto de trabalho:</h4>", unsafe_allow_html=True)
+        
+        sel_c1, sel_c2 = st.columns(2)
+        with sel_c1:
+            idx_setor = lista_setores_nuvem.index(setor_selecionado) if setor_selecionado in lista_setores_nuvem else 0
+            novo_setor = st.selectbox("Novo Setor:", lista_setores_nuvem, key="novo_sec_troca", index=idx_setor)
+        with sel_c2:
+            lista_maq_novo = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
+            nova_maq = st.selectbox("Nova Máquina:", lista_maq_novo, key="nova_maq_troca")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        conf_c1, conf_c2 = st.columns(2)
+        with conf_c1:
+            if st.button("✅ Confirmar Mudança", type="primary", use_container_width=True):
+                supa.table("usuarios").update({
+                    "setor": novo_setor,
+                    "maquina": nova_maq
+                }).eq("username", usuario['username']).execute()
+                
+                st.session_state['usuario_logado']['setor'] = novo_setor
+                st.session_state['usuario_logado']['maquina'] = nova_maq
+                st.session_state['show_troca_maquina'] = False
+                st.rerun()
+        with conf_c2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.session_state['show_troca_maquina'] = False
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # ==========================================
-    # SCRIPT PARA INFLAR OS BOTÕES DE AÇÃO 
+    # SCRIPT PARA INFLAR OS BOTÕES E ESCONDER AS ÂNCORAS
     # ==========================================
     js_cores = """
     <script>
@@ -1043,14 +1396,6 @@ def renderizar(df_nuvem, df_codigos):
                     }
                 }
             });
-            
-            // BLOQUEIO DO TECLADO NATIVO NOS MENUS DROP-DOWN
-            const selects = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
-            selects.forEach(sel => {
-                sel.setAttribute('inputmode', 'none');
-                sel.readOnly = true;
-            });
-
         }, 300);
     </script>
     """

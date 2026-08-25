@@ -6,6 +6,7 @@ import streamlit.components.v1 as components
 import json
 import time
 import altair as alt
+import painel_ops  # <-- IMPORTAÇÃO MAGNÍFICA DA LÓGICA (DRY)
 
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
@@ -81,6 +82,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     supa = banco.conectar()
     df_est = banco.obter_estrutura()
+    df_produtos = banco.obter_produtos_matriz() 
     
     total_maq_atual = 0
     if not df_est.empty:
@@ -155,7 +157,22 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     st.altair_chart(chart, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    df_produtos = banco.obter_produtos_matriz() 
+    # ==========================================
+    # 🏁 A CORRIDA DAS OPS (IMPORTAÇÃO INTELIGENTE DRY)
+    # ==========================================
+    try:
+        resp_cx = supa.table("caixas_matriz").select("*").execute()
+        df_caixas = pd.DataFrame(resp_cx.data) if resp_cx.data else pd.DataFrame()
+    except:
+        df_caixas = pd.DataFrame()
+        
+    dados_ops = painel_ops.obter_dados_corrida_ops(supa, df_produtos, df_caixas)
+    if dados_ops and dados_ops['lista_dados_ops']:
+        st.markdown("<div style='background-color: #ffffff; border: 1px solid #e1e8ed; padding: 20px; border-radius: 8px; margin-bottom: 25px; margin-top: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
+        # LIMITE MÁXIMO DE 5 OPS NA TELA DA TV PARA NÃO QUEBRAR O LAYOUT
+        painel_ops.renderizar_corrida_ops(dados_ops['lista_dados_ops'], limite=5)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     usuarios_cadastrados = banco.obter_usuarios_completo() 
     
     if df_est.empty:
@@ -185,6 +202,18 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     resp_status = supa.table("status_maquinas").select("*").execute()
     status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
+    # ==========================================
+    # ⚡ MOTOR DE PROGRESSO DE OPs (MAPA VISUAL)
+    # ==========================================
+    ops_ativas = dados_ops['ops_ativas'] if dados_ops else {}
+    df_nuvem_operacao = pd.DataFrame()
+    if not df_nuvem.empty and 'data_registro' in df_nuvem.columns:
+        if 'tipo' in df_nuvem.columns:
+            df_nuvem_operacao = df_nuvem[df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO'].copy()
+            if not df_nuvem_operacao.empty:
+                df_nuvem_operacao['data_registro_dt'] = pd.to_datetime(df_nuvem_operacao['data_registro'], errors='coerce')
+                df_nuvem_operacao['quantidade_num'] = pd.to_numeric(df_nuvem_operacao['quantidade'], errors='coerce').fillna(0)
+
     maquinas_paradas_criticas = []
     maquinas_pausas = []
     maquinas_produzindo = []
@@ -212,7 +241,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         setor_exibicao = f"{setor} / {' / '.join(operadores_maq)}" if operadores_maq else setor
         info['setor_exibicao'] = setor_exibicao
         
-        # ⚠️ NOME DO OPERADOR PARA O MAPA
         operadores_texto = " / ".join(operadores_maq) if operadores_maq else "Sem Operador"
         
         if status_maq == 'Parado':
@@ -250,6 +278,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo = "Peça Desconhecida"
+            html_progresso = ""
+            
             if cod_peca and not df_produtos.empty:
                 f_peca = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca)]
                 if not f_peca.empty:
@@ -257,7 +287,44 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     desc_peca = f_peca.iloc[0]['descricao']
                     nome_peca_completo = f"{prod_form} ➔ {desc_peca} (Cód: {cod_peca})"
                     
+                    # --- CÁLCULO DE PROGRESSO DA OP ---
+                    if prod_form in ops_ativas:
+                        op_data = ops_ativas[prod_form]
+                        qtd_op = int(op_data['quantidade_planejada'])
+                        try: qnt_peca_mult = int(float(f_peca.iloc[0].get('qnt', 0)))
+                        except: qnt_peca_mult = 0
+                        
+                        meta_peca = qtd_op * qnt_peca_mult
+                        
+                        if meta_peca > 0:
+                            data_inicio_op_str = op_data['data_inicio'].split(" ")[0]
+                            data_inicio_op_dt = pd.to_datetime(data_inicio_op_str, errors='coerce')
+                            
+                            prod_realizada = 0
+                            if not df_nuvem_operacao.empty:
+                                df_filtro = df_nuvem_operacao[
+                                    (df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) &
+                                    (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) &
+                                    (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)
+                                ]
+                                prod_realizada = int(df_filtro['quantidade_num'].sum())
+                                
+                            perc = min(100, (prod_realizada / meta_peca * 100))
+                            
+                            html_progresso = f"""
+                            <div style='background: rgba(255,255,255,0.15); padding: 10px; border-radius: 8px; margin: 10px 0 15px 0;'>
+                                <div style='display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; margin-bottom: 6px; text-transform: uppercase;'>
+                                    <span>Progresso da OP: {prod_realizada} / {meta_peca} peças</span>
+                                    <span>{perc:.1f}%</span>
+                                </div>
+                                <div style='width: 100%; background: rgba(0,0,0,0.2); height: 8px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);'>
+                                    <div style='width: {perc}%; background: #ffffff; height: 100%; transition: width 1s ease;'></div>
+                                </div>
+                            </div>
+                            """
+                    
             info['descricao_completa'] = nome_peca_completo
+            info['html_progresso'] = html_progresso
             maquinas_produzindo.append(info)
         else:
             qtd_livres += 1
@@ -451,7 +518,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             }
             .maq-setor { font-size: 16px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.9; margin-bottom: 8px; font-weight: bold; color: #ffffff; }
             .maq-nome { font-size: 34px; font-weight: 900; margin: 0 0 10px 0; text-transform: uppercase; }
-            .maq-prob { font-size: 18px; margin: 0 0 15px 0; opacity: 0.95; min-height: 45px; }
+            .maq-prob { font-size: 18px; margin: 0 0 5px 0; opacity: 0.95; min-height: 45px; }
             .maq-inicio { font-size: 15px; font-weight: bold; opacity: 0.85; margin-bottom: 5px; }
             .maq-timer { font-size: 60px; font-family: monospace; font-weight: bold; letter-spacing: 2px; background: rgba(0,0,0,0.2); border-radius: 10px; padding: 10px; }
             .alerta-icone { font-size: 30px; vertical-align: middle; margin-right: 10px; display: none; }
@@ -484,6 +551,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             html_cards += f"<div class='maq-setor'>{p.get('setor_exibicao', p['setor'])}</div>"
             html_cards += f"<div class='maq-nome'><span class='alerta-icone'>{icone}</span>{p['maquina']}</div>"
             html_cards += f"<div class='maq-prob'>{p['descricao_completa']}</div>"
+            html_cards += p.get('html_progresso', '') 
             html_cards += f"<div class='maq-inicio'>{texto_inicio}: {hora_formatada}</div>"
             html_cards += f"<div id='timer_{p_id}' class='maq-timer'>00:00:00</div>"
             html_cards += "</div>"

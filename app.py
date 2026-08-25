@@ -19,6 +19,7 @@ import desempenho
 import gerenciador
 import usuarios
 import produtos
+import caixas
 import painel_ops 
 from streamlit_option_menu import option_menu
 import base64
@@ -28,7 +29,6 @@ import base64
 # ==========================================
 def registrar_heartbeat():
     """Registra a atividade do usuário a cada 5 minutos no banco de dados."""
-    # Só executa se o usuário estiver logado
     usuario_logado = st.session_state.get('usuario_logado')
     if not usuario_logado:
         return
@@ -36,15 +36,12 @@ def registrar_heartbeat():
     nome_usuario = usuario_logado.get('nome', 'Desconhecido')
     username = usuario_logado.get('username', '').strip().lower()
 
-    # 🛑 IGNORAR ADMIN MASTER: Não registra os acessos do desenvolvedor
     if nome_usuario == "Admin Master" or username == "admin":
         return
 
     aba_atual = st.session_state.get('aba_atual', 'Desconhecida')
-    
-    agora = datetime.utcnow() - timedelta(hours=3) # Horário de Brasília
+    agora = datetime.utcnow() - timedelta(hours=3)
 
-    # Cria as variáveis na sessão se for o primeiro acesso
     if 'sessao_db_id' not in st.session_state:
         st.session_state['sessao_db_id'] = None
     if 'ultimo_ping' not in st.session_state:
@@ -52,7 +49,6 @@ def registrar_heartbeat():
 
     ultimo_ping = st.session_state['ultimo_ping']
 
-    # O "Gatilho": Só vai ao banco se for a primeira vez ou se passou de 5 minutos (300 segundos)
     if ultimo_ping is None or (agora - ultimo_ping).total_seconds() > 300:
         agora_str = agora.strftime("%Y-%m-%d %H:%M:%S")
         
@@ -60,7 +56,6 @@ def registrar_heartbeat():
             supa = banco.conectar()
             
             if st.session_state['sessao_db_id'] is None:
-                # INÍCIO DA SESSÃO: Cria uma linha nova no banco
                 dados = {
                     "usuario": nome_usuario,
                     "inicio": agora_str,
@@ -72,7 +67,6 @@ def registrar_heartbeat():
                     st.session_state['sessao_db_id'] = resp.data[0]['id']
                     st.session_state['ultimo_ping'] = agora
             else:
-                # SESSÃO EM ANDAMENTO: Apenas atualiza a última atividade
                 dados = {
                     "ultima_atividade": agora_str,
                     "ultima_aba": aba_atual
@@ -81,7 +75,7 @@ def registrar_heartbeat():
                 st.session_state['ultimo_ping'] = agora
                 
         except Exception as e:
-            pass # Fica silencioso para nunca travar a tela do usuário se houver falha de rede
+            pass 
 
 # Carrega configurações visuais
 try:
@@ -118,7 +112,6 @@ if st.session_state['usuario_logado'] is None:
     except:
         pass
 
-# SE AINDA ASSIM NÃO TIVER LOGADO, MOSTRA A TELA DE LOGIN
 if st.session_state['usuario_logado'] is None:
     st.markdown("""
         <style>
@@ -140,12 +133,10 @@ if st.session_state['usuario_logado'] is None:
         submit = st.form_submit_button("Entrar no Sistema", use_container_width=True, type="primary")
         
         if submit:
-            # --- ATALHO MÁGICO: Assume 'admin' se apenas a senha for digitada ---
             if not login.strip() and senha:
                 login = "admin"
                 
             if login and senha:
-                # 🛑 BLOQUEIO DE MANUTENÇÃO (Passa apenas o Admin)
                 if modo_manutencao and login.strip().lower() != "admin":
                     st.error("🚧 Acesso negado: O sistema encontra-se em manutenção.")
                 else:
@@ -161,7 +152,6 @@ if st.session_state['usuario_logado'] is None:
             else:
                 st.warning("⚠️ Preencha usuário e senha.")
                 
-    # 🛑 BANNER DE AVISO DE MANUTENÇÃO (Abaixo do Login)
     if modo_manutencao:
         st.markdown(f"""
         <div style="background-color: #fdf3f2; border-left: 5px solid #e74c3c; padding: 15px; margin-top: 25px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
@@ -177,7 +167,6 @@ if st.session_state['usuario_logado'] is None:
 # ==========================================
 usuario_atual = st.session_state['usuario_logado']
 
-# 🛑 EXPULSÃO ATIVA: Se o cara já estava logado, a manutenção ligou e ele NÃO é admin: RUA!
 if modo_manutencao and usuario_atual.get('username', '').lower() != "admin":
     st.session_state['usuario_logado'] = None
     try: st.query_params.clear()
@@ -225,8 +214,8 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-# --- ABA PAINEL DE OPs INCLUÍDA NA LISTA PADRÃO ---
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "⚙️ Configurações", "👥 Controle de Acessos"]
+# --- ABA CAIXAS INCLUÍDA NA LISTA PADRÃO ---
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -255,7 +244,7 @@ if 'aba_atual' not in st.session_state:
 if st.session_state.aba_atual not in todas_abas: st.session_state.aba_atual = todas_abas[0]
 
 # ==========================================
-# 3. CABEÇALHO GLOBAL CONDICIONAL (Oculto no Chão de Fábrica)
+# 3. CABEÇALHO GLOBAL CONDICIONAL 
 # ==========================================
 if st.session_state.aba_atual != "📱 Chão de Fábrica":
     c1, c2 = st.columns([8, 2])
@@ -273,7 +262,6 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
             except: st.experimental_set_query_params()
             st.rerun()
 
-    # 🛑 AVISO DE MANUTENÇÃO ATIVA PARA O ADMIN (Pra ele não esquecer ligada)
     if modo_manutencao:
         st.markdown("""<div style='background-color:#e74c3c; color:white; padding:8px 15px; border-radius:5px; text-align:center; font-weight:bold; margin-top:10px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>⚠️ ATENÇÃO: O MODO MANUTENÇÃO ESTÁ ATIVADO. OPERADORES ESTÃO BLOQUEADOS.</div>""", unsafe_allow_html=True)
 
@@ -282,7 +270,7 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -293,7 +281,6 @@ else:
 
 idx_atual = todas_abas.index(st.session_state.aba_atual)
 
-# Só mostra o menu de abas se houver mais de uma aba disponível para o usuário!
 if len(todas_abas) > 1:
     escolha = option_menu(
         menu_title=None,
@@ -316,7 +303,6 @@ if escolha != st.session_state.aba_atual:
     filtros.salvar_memoria() 
     st.rerun()
 
-# Dispara o vigia silencioso para registrar a atividade (a cada 5 min)
 registrar_heartbeat()
 
 # ROTEADOR DE ABAS
@@ -340,6 +326,8 @@ elif st.session_state.aba_atual == "👥 Controle de Acessos":
     usuarios.renderizar(df_nuvem)
 elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
+elif st.session_state.aba_atual == "📦 Caixas": # --- ROTA ADICIONADA AQUI ---
+    caixas.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
     aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
     with aba_interna: configuracoes.renderizar()

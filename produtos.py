@@ -30,25 +30,25 @@ def processar_planilha(arquivo_ou_caminho):
         
     df = df.loc[:, df.columns.notnull()]
     
-    # --- ADICIONADO "Furadeira" AQUI ---
-    colunas_esperadas = ["Produto Formula", "Cod", "Descrição", "Qnt", "Comp", "Larg", "Esp.", "LP", "Fita+", "Fita-", "Furadeira"]
+    # --- ADICIONADO "Na Caixa" AQUI ---
+    colunas_esperadas = ["Produto Formula", "Cod", "Descrição", "Qnt", "Comp", "Larg", "Esp.", "LP", "Fita+", "Fita-", "Furadeira", "Na Caixa"]
     cols_presentes = [c for c in colunas_esperadas if c in df.columns]
     df = df[cols_presentes]
     
-    # --- ADICIONADO MAPEAMENTO DA "Furadeira" AQUI ---
+    # --- ADICIONADO MAPEAMENTO DA "Na Caixa" AQUI ---
     mapa = {
         "Produto Formula": "produto_formula", "Cod": "cod", "Descrição": "descricao",
         "Qnt": "qnt", "Comp": "comp", "Larg": "larg", "Esp.": "esp",
-        "LP": "lp", "Fita+": "fita_mais", "Fita-": "fita_menos", "Furadeira": "furadeira"
+        "LP": "lp", "Fita+": "fita_mais", "Fita-": "fita_menos", "Furadeira": "furadeira",
+        "Na Caixa": "na_caixa"
     }
     df = df.rename(columns=mapa)
     
     # --- REGRA DE OBRIGATORIEDADE ---
-    # Apenas a Produto Formula é obrigatória. Descarta se estiver vazia.
     df['produto_formula'] = df['produto_formula'].astype(str).str.strip()
     df = df[~df['produto_formula'].isin(["", "nan", "None", "NaN", "<NA>"])]
     
-    # Prepara os códigos (aceita vazios e permite DUPLICADOS normalmente)
+    # Prepara os códigos
     df['cod'] = df['cod'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
     df['cod'] = df['cod'].replace(["", "nan", "None", "NaN", "<NA>"], None)
     
@@ -137,8 +137,13 @@ def renderizar():
             if produto_selecionado:
                 df_filtrado = df_produtos[df_produtos['produto_formula'] == produto_selecionado].copy()
                 
-                # --- ADICIONADO 'furadeira' AQUI NA EXIBIÇÃO ---
-                colunas_exibicao = ['id', 'cod', 'descricao', 'qnt', 'comp', 'larg', 'esp', 'lp', 'fita_mais', 'fita_menos', 'furadeira']
+                # --- ADICIONADO 'na_caixa' AQUI NA EXIBIÇÃO ---
+                colunas_exibicao = ['id', 'cod', 'descricao', 'qnt', 'comp', 'larg', 'esp', 'lp', 'fita_mais', 'fita_menos', 'furadeira', 'na_caixa']
+                
+                for col in colunas_exibicao:
+                    if col not in df_filtrado.columns:
+                        df_filtrado[col] = None
+                        
                 df_filtrado = df_filtrado[colunas_exibicao]
                 
                 st.markdown(f"<p style='color: #2980b9; font-weight: bold;'>Exibindo {len(df_filtrado)} peças da fórmula: {produto_selecionado}</p>", unsafe_allow_html=True)
@@ -148,7 +153,10 @@ def renderizar():
                     use_container_width=True,
                     disabled=["cod", "id"], 
                     hide_index=True,
-                    column_config={"id": None}, 
+                    column_config={
+                        "id": None,
+                        "na_caixa": "Na Cx."
+                    }, 
                     key="editor_pecas"
                 )
                 
