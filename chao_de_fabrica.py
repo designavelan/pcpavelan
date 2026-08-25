@@ -152,7 +152,7 @@ def obter_html_teclado_qtd(label_input_js):
 def renderizar(df_nuvem, df_codigos):
     if 'tk_counter' not in st.session_state: st.session_state['tk_counter'] = 0
 
-    # CSS GLOBAL BLINDADO: Arranca todos os campos de texto direto do servidor (Anti-Piscar)
+    # CSS GLOBAL BLINDADO: Esconde os campos de texto sem quebrar o estado do React
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
@@ -164,9 +164,16 @@ def renderizar(df_nuvem, df_codigos):
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
         
-        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto mantendo-as na DOM para o JS ler */
+        /* 🔥 A CORREÇÃO MESTRA: Invisível, 0 pixels, mas CONTINUA FUNCIONANDO para o JS! */
         div[data-testid="stTextInput"] {
-            display: none !important;
+            position: absolute !important;
+            opacity: 0 !important;
+            width: 0px !important;
+            height: 0px !important;
+            z-index: -100 !important;
+            pointer-events: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         
         ::-webkit-scrollbar { display: none; }
@@ -239,6 +246,15 @@ def renderizar(df_nuvem, df_codigos):
                 producao_hoje_pecas[c_peca] = []
             if qtd > 0:
                 producao_hoje_pecas[c_peca].append(qtd)
+
+    def obter_resumo_peca(codigo):
+        if codigo in producao_hoje_pecas and producao_hoje_pecas[codigo]:
+            lista_qtds = producao_hoje_pecas[codigo]
+            total = sum(lista_qtds)
+            if len(lista_qtds) > 1:
+                return f"*📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total} un.*"
+            return f"*📦 Produzido hoje: {total} un.*"
+        return ""
 
     response = supa.table("status_maquinas").select("*").eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
     status_db = 'Livre'
@@ -357,7 +373,7 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod = mapa_prod_real.get(sel_prod_display)
 
                 # =========================================================
-                # 🖥️ A MÁGICA DO BOTÃO GIGANTE (Sem Retângulo Vazio)
+                # 🖥️ A MÁGICA DO BOTÃO GIGANTE (Visual Limpo)
                 # =========================================================
                 texto_exibicao = sel_prod_display if sel_prod_display else "Selecione o produto..."
                 html_caixa_produto = f"""
@@ -483,7 +499,7 @@ def renderizar(df_nuvem, df_codigos):
                     is_in_op = sel_prod in mapa_ops
                     producao_op_pecas = {}
                     
-                    # 1. Puxar o histórico da OP para somar a produção
+                    # 1. Puxar o histórico da OP para somar a produção total
                     if is_in_op:
                         op_info = mapa_ops[sel_prod]
                         data_inicio_op = op_info['data_inicio'].split(" ")[0].split("T")[0]
@@ -527,9 +543,13 @@ def renderizar(df_nuvem, df_codigos):
                         # --- SEGUNDA LINHA: PRODUÇÃO DE HOJE ---
                         if codigo_ext in producao_hoje_pecas and producao_hoje_pecas[codigo_ext]:
                             lista_qtds = producao_hoje_pecas[codigo_ext]
-                            resumo_hoje = f"📦 Produzido hoje: {' + '.join(map(str, lista_qtds))}"
+                            total_hoje = sum(lista_qtds)
+                            if len(lista_qtds) > 1:
+                                resumo_hoje = f"📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total_hoje} un."
+                            else:
+                                resumo_hoje = f"📦 Produzido hoje: {total_hoje} un."
                         else:
-                            resumo_hoje = "📦 Produzido hoje: 0"
+                            resumo_hoje = "📦 Produzido hoje: 0 un."
                             
                         if is_in_op:
                             qnt_por_produto = 1
