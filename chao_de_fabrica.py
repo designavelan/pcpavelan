@@ -80,6 +80,17 @@ def registrar_telemetria(supa, setor, maquina, acao):
 # ==========================================
 # COMPONENTES HTML BLINDADOS (SEM F-STRINGS)
 # ==========================================
+@st.dialog("📦 Catálogo de Produtos")
+def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
+    st.markdown("Toque no botão correspondente ao produto:")
+    for p in lista_exibicao:
+        if p == separador:
+            st.markdown("<hr style='margin: 15px 0; border: 1px dashed #ccc;'>", unsafe_allow_html=True)
+        else:
+            if st.button(p, use_container_width=True, key=f"btn_modal_{p}"):
+                st.session_state[chave_memoria] = p
+                st.rerun()
+
 def obter_html_teclado_qtd(label_input_js, titulo="Quantidade"):
     """Teclado HTML exclusivo para quantidades (limpa zeros à esquerda)"""
     html_content = """
@@ -142,7 +153,7 @@ def obter_html_teclado_qtd(label_input_js, titulo="Quantidade"):
     return html_content.replace('LABEL_PLACEHOLDER', label_input_js).replace('TITULO_PLACEHOLDER', titulo)
 
 def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="🔴 CONFIRMAR PARADA"):
-    """Teclado HTML exclusivo para Códigos de Parada (Aceita '00' livremente e sem botões nativos)"""
+    """Teclado HTML exclusivo para Códigos de Parada (Aceita '00' livremente)"""
     html_content = """
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; }
@@ -154,9 +165,6 @@ def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="�
         .btn-key:active { transform: scale(0.95); background: #f1f2f6; }
         .btn-c { color: #e74c3c; }
         .btn-del { color: #e67e22; }
-        .btn-start { width: 100%; background: #e74c3c; color: white; border: none; border-radius: 12px; font-size: 22px; font-weight: 900; text-transform: uppercase; padding: 25px 0; cursor: pointer; opacity: 0.5; -webkit-tap-highlight-color: transparent; }
-        .btn-start.ready { opacity: 1; background: #c0392b; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(231, 76, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); } }
     </style>
     <div class="lcd">
         <h2 id="lcd-val" class="lcd-val">---</h2>
@@ -210,7 +218,6 @@ def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="�
                 statusContainer.style.color = "#c0392b";
             }
             
-            // Envia silenciosamente para o Python
             const inputs = window.parent.document.querySelectorAll('input');
             inputs.forEach(inp => {
                 if(inp.getAttribute('aria-label') === 'LABEL_PLACEHOLDER') {
@@ -226,7 +233,6 @@ def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="�
             else if (k === '<') currentCode = currentCode.slice(0, -1);
             else currentCode += k;
             
-            // Sem cortes de zeros à esquerda! (00 é bem vindo)
             if (currentCode.length > 6) currentCode = currentCode.slice(0, 6);
             updateLCD();
         }
@@ -235,13 +241,10 @@ def obter_html_teclado_parada(label_input_js, valid_codes_json, texto_botao="�
     return html_content.replace('VALID_CODES_PLACEHOLDER', valid_codes_json).replace('LABEL_PLACEHOLDER', label_input_js).replace('TEXTO_BOTAO_PLACEHOLDER', texto_botao)
 
 def renderizar(df_nuvem, df_codigos):
-    # ==========================================
-    # 🛡️ VACINA DO KEYERROR: Inicialização Segura
-    # ==========================================
     if 'tk_counter' not in st.session_state: 
         st.session_state['tk_counter'] = 0
 
-    # CSS GLOBAL BLINDADO: Desliga os campos de texto nativos de forma geral
+    # CSS GLOBAL BLINDADO
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
@@ -253,7 +256,7 @@ def renderizar(df_nuvem, df_codigos):
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
         
-        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto nativas da UI e impede fantasmas na tela */
+        /* 🔥 Esconde caixas de texto nativas da UI */
         div[data-testid="stTextInput"] {
             display: none !important;
         }
@@ -387,7 +390,6 @@ def renderizar(df_nuvem, df_codigos):
                     lista_exibicao.append(last_prod)
                     lista_exibicao = sorted(lista_exibicao)
                 
-                # --- BUSCA INTELIGENTE E NUMERADA DAS OPs ---
                 mapa_ops = {}
                 ops_ativas_unicas = []
                 try:
@@ -420,38 +422,33 @@ def renderizar(df_nuvem, df_codigos):
                         lista_exibicao_final.append(p)
                         mapa_prod_real[p] = p
                 
-                chave_wid_prod = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
-                
-                idx_prod = 0
-                if last_prod:
-                    if last_prod in ops_presentes:
-                        numero_op = ops_presentes.index(last_prod) + 1
-                        display_memoria = f"🔥 [OP {numero_op}] {last_prod}"
-                        try: idx_prod = lista_exibicao_final.index(display_memoria)
-                        except: idx_prod = 0
-                    elif last_prod in lista_exibicao and last_prod not in ops_presentes:
-                        try: idx_prod = lista_exibicao_final.index(last_prod)
-                        except: idx_prod = 0
-                elif ops_presentes and len(lista_exibicao_final) > 1:
-                    idx_prod = 0
-                
-                # --- O MENU RAIZ (O SEU FAVORITO DO BACKUP) ---
-                sel_prod_display = st.selectbox(
-                    "1. Produto:", 
-                    options=lista_exibicao_final, 
-                    index=idx_prod if lista_exibicao_final else None, 
-                    key=chave_wid_prod
-                )
-                
-                if sel_prod_display == separador:
-                    st.warning("⚠️ Você selecionou a linha divisória. Por favor, escolha um produto acima ou abaixo dela.")
-                    sel_prod = None
-                else:
-                    sel_prod = mapa_prod_real.get(sel_prod_display)
+                chave_mem_prod = f"mem_prod_{setor_selecionado}_{maquina_selecionada}"
+                if chave_mem_prod not in st.session_state:
+                    initial_val = ""
+                    if last_prod:
+                        if last_prod in ops_presentes:
+                            numero_op = ops_presentes.index(last_prod) + 1
+                            initial_val = f"🔥 [OP {numero_op}] {last_prod}"
+                        elif last_prod in lista_exibicao and last_prod not in ops_presentes:
+                            initial_val = last_prod
+                    elif ops_presentes and len(lista_exibicao_final) > 1:
+                        initial_val = lista_exibicao_final[0]
+                    st.session_state[chave_mem_prod] = initial_val
 
-                # =========================================================
-                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS EM 3 ANDARES
-                # =========================================================
+                sel_prod_display = st.session_state[chave_mem_prod]
+                sel_prod = mapa_prod_real.get(sel_prod_display)
+
+                texto_exibicao = sel_prod_display if sel_prod_display else "Selecione..."
+                st.markdown(f"""
+                <div style='background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 15px; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
+                    <div style='font-size:14px; color:#7f8c8d; font-weight:bold; text-transform:uppercase;'>Produto da Linha:</div>
+                    <div style='font-size:18px; font-weight:900; color:#2c3e50; margin-top:5px; white-space: normal; word-wrap: break-word;'>{texto_exibicao}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button("🔍 ALTERAR PRODUTO", use_container_width=True):
+                    modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
+
                 if sel_prod:
                     is_in_op = sel_prod in mapa_ops
                     producao_op_pecas = {}
@@ -465,7 +462,6 @@ def renderizar(df_nuvem, df_codigos):
                             df_op_prod = df_nuvem[
                                 (df_nuvem['setor'] == setor_selecionado) &
                                 (df_nuvem['data_registro'] >= data_inicio_op) &
-                                (df_nuvem['cod_peca'].notna()) &
                                 (df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')
                             ]
                             for _, r in df_op_prod.iterrows():
@@ -523,7 +519,6 @@ def renderizar(df_nuvem, df_codigos):
                             # --- LINHA 3: DADOS DA OP ---
                             linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
                             
-                            # O uso de asteriscos formata o texto como <em> no markdown (acionando os 3 andares do CSS)
                             if is_concluida:
                                 texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_concluidas.append(texto_completo)
@@ -559,7 +554,6 @@ def renderizar(df_nuvem, df_codigos):
                     else:
                         st.markdown("""
                             <style>
-                            /* --- ESTILO PARA FORÇAR OS 3 ANDARES --- */
                             div[data-testid='stRadio'] { width: 100% !important; }
                             div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
                             div[data-testid='stRadio'] label {
@@ -627,28 +621,25 @@ def renderizar(df_nuvem, df_codigos):
                 valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
                 valid_codes_json = json.dumps(valid_codes)
                 
-                with st.form(key=f"form_parada_livre_{setor_selecionado}_{maquina_selecionada}"):
-                    tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
+                tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
+                
+                with tab_tcl:
+                    tk_val = st.session_state.get('tk_counter', 0)
+                    chave_din_cod = f"in_cod_livre_{tk_val}"
                     
-                    with tab_tcl:
-                        tk_val = st.session_state.get('tk_counter', 0)
-                        chave_din_cod = f"in_cod_livre_{tk_val}"
-                        
-                        # --- O TECLADO JS RÁPIDO DO BACKUP (AGORA PERMITINDO 00) ---
-                        codigo_digitado = st.text_input("input_cod_livre", key=chave_din_cod, label_visibility="collapsed")
-                        components.html(obter_html_teclado_parada("input_cod_livre", valid_codes_json, "🔴 CONFIRMAR PARADA"), height=650)
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        if codigo_digitado in valid_codes:
-                            # O botão do Python, oculto, que recebe o clique do Javascript
-                            if st.button("🔴 CONFIRMAR PARADA", use_container_width=True, type="primary"):
-                                agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
-                                atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
-                                    "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
-                                })
-                                registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
-                                st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1 
-                                st.rerun()
+                    codigo_digitado = st.text_input("input_cod_livre", key=chave_din_cod, label_visibility="collapsed")
+                    components.html(obter_html_teclado_parada("input_cod_livre", valid_codes_json, "🔴 CONFIRMAR PARADA"), height=650)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if codigo_digitado in valid_codes:
+                        if st.button("🔴 CONFIRMAR PARADA", use_container_width=True, type="primary"):
+                            agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
+                            atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
+                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
+                            })
+                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
+                            st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1 
+                            st.rerun()
 
                 with tab_lst:
                     opcoes_prob = [f"{str(row['descricao']).strip()} ({str(row['codigo']).strip()})" for _, row in df_codigos_parado.iterrows()]
@@ -690,9 +681,6 @@ def renderizar(df_nuvem, df_codigos):
         hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         desc_fab = "Embalando:" if is_embalagem else "Fabricando:"
 
-        # =========================================================================
-        # 🔥 CRONÔMETRO BLINDADO (SANDBOX NATIVO - SEM F-STRINGS)
-        # =========================================================================
         html_cronometro = """
         <style>
             body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -719,7 +707,6 @@ def renderizar(df_nuvem, df_codigos):
         """
         html_cronometro = html_cronometro.replace("DESC_FAB_PLACEHOLDER", desc_fab).replace("NOME_PECA_PLACEHOLDER", nome_peca).replace("COD_PECA_PLACEHOLDER", str(cod_peca_atual)).replace("HORA_INICIO_PLACEHOLDER", hora_inicio_iso)
         components.html(html_cronometro, height=250)
-        # =========================================================================
         
         chave_estado_fin = f"fin_estado_{setor_selecionado}_{maquina_selecionada}"
         estado_fin = st.session_state.get(chave_estado_fin, None)
@@ -735,7 +722,7 @@ def renderizar(df_nuvem, df_codigos):
             st.markdown("<br>", unsafe_allow_html=True)
             
             if duracao_calc < 60:
-                if st.button("❌ CANCELAR PRODUÇÃO (Erro de Seleção)", use_container_width=True):
+                if st.button("❌ CANCELAR PRODUÇÃO (Erro de Seleção)", use_container_width=True, key="btn_canc_erro_prod"):
                     atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
                         "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
                     })
@@ -744,11 +731,11 @@ def renderizar(df_nuvem, df_codigos):
             else:
                 c1, c2 = st.columns(2)
                 with c1: 
-                    if st.button("✅ FINALIZAR (Concluído)", use_container_width=True, type="primary"):
+                    if st.button("✅ FINALIZAR (Concluído)", use_container_width=True, type="primary", key="btn_fin_conc"):
                         st.session_state[chave_estado_fin] = "CONCLUIDO"
                         st.rerun()
                 with c2: 
-                    if st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary"):
+                    if st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary", key="btn_int_falha"):
                         st.session_state[chave_estado_fin] = "INTERROMPIDO"
                         st.rerun()
 
@@ -834,84 +821,81 @@ def renderizar(df_nuvem, df_codigos):
                     st.error(f"Erro ao salvar: {e}")
 
             if estado_fin == "CONCLUIDO":
-                with st.form(key=f"form_conc_{setor_selecionado}_{maquina_selecionada}"):
-                    st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
-                    st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
-                    
-                    tk_val_conc = st.session_state.get('tk_counter', 0)
-                    chave_din_conc = f"in_qtd_conc_{tk_val_conc}"
-                    qtd_str = st.text_input("input_qtd_conc", key=chave_din_conc, label_visibility="collapsed")
-                    components.html(obter_html_teclado_qtd("input_qtd_conc", "Qtd Concluída"), height=530)
-                    
-                    modalidade_escolhida = "Simples"
-                    if permite_dupla:
-                        st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #2c3e50; font-weight: bold; font-size:18px;'>⚙️ Modalidade de Produção</div>", unsafe_allow_html=True)
-                        modalidade_escolhida = st.radio("mod_inv", ["Simples", "Dupla"], horizontal=True, label_visibility="collapsed")
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    cb1, cb2 = st.columns(2)
-                    with cb1:
-                        btn_salvar = st.form_submit_button("💾 CONFIRMAR E SALVAR", type="primary", use_container_width=True)
-                    with cb2:
-                        btn_cancelar = st.form_submit_button("❌ Cancelar Operação", use_container_width=True)
-                        
-                    if btn_salvar:
+                st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
+                st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                
+                tk_val_conc = st.session_state.get('tk_counter', 0)
+                chave_din_conc = f"in_qtd_conc_{tk_val_conc}"
+                
+                qtd_str = st.text_input("input_qtd_conc", key=chave_din_conc, label_visibility="collapsed")
+                components.html(obter_html_teclado_qtd("input_qtd_conc", "Qtd Concluída"), height=530)
+                
+                modalidade_escolhida = "Simples"
+                if permite_dupla:
+                    st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #2c3e50; font-weight: bold; font-size:18px;'>⚙️ Modalidade de Produção</div>", unsafe_allow_html=True)
+                    modalidade_escolhida = st.radio("mod_inv", ["Simples", "Dupla"], horizontal=True, label_visibility="collapsed")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button("💾 CONFIRMAR E SALVAR", type="primary", use_container_width=True, key="btn_sv_conc"):
                         try: qtd_final = int(qtd_str)
                         except: qtd_final = 0
                         salvar_producao_atual(codigo_parada_novo=None, qtd_informada=qtd_final, modalidade_escolhida=modalidade_escolhida)
-                    if btn_cancelar:
+                with cb2:
+                    if st.button("❌ Cancelar Operação", use_container_width=True, key="btn_cc_conc"):
                         st.session_state[chave_estado_fin] = None
                         st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1
                         st.rerun()
                         
             elif estado_fin == "INTERROMPIDO":
-                with st.form(key=f"form_int_{setor_selecionado}_{maquina_selecionada}"):
-                    st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
-                    st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
+                st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                
+                tk_val_int = st.session_state.get('tk_counter', 0)
+                chave_din_int_qtd = f"in_qtd_int_{tk_val_int}"
+                
+                qtd_str = st.text_input("input_qtd_int", key=chave_din_int_qtd, label_visibility="collapsed")
+                components.html(obter_html_teclado_qtd("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
+                
+                modalidade_escolhida = "Simples"
+                if permite_dupla:
+                    st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #2c3e50; font-weight: bold; font-size:18px;'>⚙️ Modalidade de Produção</div>", unsafe_allow_html=True)
+                    modalidade_escolhida = st.radio("mod_inv_int", ["Simples", "Dupla"], horizontal=True, label_visibility="collapsed")
+                
+                st.markdown("<h3 style='margin-top:15px; color:#c0392b;'>Motivo da Interrupção</h3>", unsafe_allow_html=True)
+                
+                if not df_codigos_parado.empty:
+                    valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
+                    valid_codes_json = json.dumps(valid_codes)
                     
-                    tk_val_int = st.session_state.get('tk_counter', 0)
-                    chave_din_int_qtd = f"in_qtd_int_{tk_val_int}"
-                    qtd_str = st.text_input("input_qtd_int", key=chave_din_int_qtd, label_visibility="collapsed")
-                    components.html(obter_html_teclado_qtd("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
+                    tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
-                    modalidade_escolhida = "Simples"
-                    if permite_dupla:
-                        st.markdown("<div style='margin-top: 15px; margin-bottom: 5px; color: #2c3e50; font-weight: bold; font-size:18px;'>⚙️ Modalidade de Produção</div>", unsafe_allow_html=True)
-                        modalidade_escolhida = st.radio("mod_inv_int", ["Simples", "Dupla"], horizontal=True, label_visibility="collapsed")
-                    
-                    st.markdown("<h3 style='margin-top:15px; color:#c0392b;'>Motivo da Interrupção</h3>", unsafe_allow_html=True)
-                    
-                    if not df_codigos_parado.empty:
-                        valid_codes = {str(row['codigo']).strip(): str(row['descricao']).strip() for _, row in df_codigos_parado.iterrows()}
-                        valid_codes_json = json.dumps(valid_codes)
+                    with tab_tcl_int:
+                        chave_din_int_cod = f"in_cod_int_{tk_val_int}"
+                        codigo_digitado_int = st.text_input("input_cod_int", key=chave_din_int_cod, label_visibility="collapsed")
+                        components.html(obter_html_teclado_parada("input_cod_int", valid_codes_json, "🔴 CONFIRMAR INTERRUPÇÃO"), height=650)
                         
-                        tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
-                        
-                        with tab_tcl_int:
-                            chave_din_int_cod = f"in_cod_int_{tk_val_int}"
-                            codigo_digitado_int = st.text_input("input_cod_int", key=chave_din_int_cod, label_visibility="collapsed")
-                            components.html(obter_html_teclado_parada("input_cod_int", valid_codes_json, "🔴 CONFIRMAR INTERRUPÇÃO"), height=650)
-                            
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            if codigo_digitado_int in valid_codes:
-                                if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_tcl"):
-                                    try: qtd_val_int = int(qtd_str)
-                                    except: qtd_val_int = 0
-                                    salvar_producao_atual(codigo_parada_novo=codigo_digitado_int, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if codigo_digitado_int in valid_codes:
+                            if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_tcl"):
+                                try: qtd_val_int = int(qtd_str)
+                                except: qtd_val_int = 0
+                                salvar_producao_atual(codigo_parada_novo=codigo_digitado_int, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
 
-                        with tab_lst_int:
-                            opcoes_prob = [f"{str(row['descricao']).strip()} ({str(row['codigo']).strip()})" for _, row in df_codigos_parado.iterrows()]
-                            problema_selecionado = st.selectbox("Selecione o problema:", [""] + opcoes_prob)
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_lst"):
-                                cod_final = problema_selecionado.split("(")[-1].replace(")", "").strip() if problema_selecionado else None
-                                if cod_final:
-                                    try: qtd_val_int = int(qtd_str)
-                                    except: qtd_val_int = 0
-                                    salvar_producao_atual(codigo_parada_novo=cod_final, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
+                    with tab_lst_int:
+                        opcoes_prob = [f"{str(row['descricao']).strip()} ({str(row['codigo']).strip()})" for _, row in df_codigos_parado.iterrows()]
+                        problema_selecionado = st.selectbox("Selecione o problema:", [""] + opcoes_prob)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_lst"):
+                            cod_final = problema_selecionado.split("(")[-1].replace(")", "").strip() if problema_selecionado else None
+                            if cod_final:
+                                try: qtd_val_int = int(qtd_str)
+                                except: qtd_val_int = 0
+                                salvar_producao_atual(codigo_parada_novo=cod_final, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
                         
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("❌ Cancelar Operação (Voltar)", use_container_width=True):
+                if st.button("❌ Cancelar Operação (Voltar)", use_container_width=True, key="btn_canc_int_all"):
                     st.session_state[chave_estado_fin] = None
                     st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1
                     st.rerun()
@@ -938,9 +922,6 @@ def renderizar(df_nuvem, df_codigos):
         sub_texto = "Pausa em andamento:" if is_pausa else "Problema em andamento:"
         texto_botao = "✅ FINALIZAR INTERVALO" if is_pausa else "✅ PROBLEMA RESOLVIDO (FINALIZAR)"
 
-        # =========================================================================
-        # 🔥 CRONÔMETRO BLINDADO (SANDBOX NATIVO - SEM F-STRINGS)
-        # =========================================================================
         html_cronometro = """
         <style>
             body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -967,7 +948,6 @@ def renderizar(df_nuvem, df_codigos):
         """
         html_cronometro = html_cronometro.replace("COR_FUNDO_PLACEHOLDER", cor_fundo).replace("COR_SOMBRA_PLACEHOLDER", cor_sombra).replace("TITULO_CARD_PLACEHOLDER", titulo_card).replace("SUB_TEXTO_PLACEHOLDER", sub_texto).replace("DESC_PROBLEMA_PLACEHOLDER", desc_problema).replace("COD_OCORRENCIA_PLACEHOLDER", str(cod_ocorrencia)).replace("HORA_INICIO_PLACEHOLDER", hora_inicio_iso)
         components.html(html_cronometro, height=250)
-        # =========================================================================
         
         if hora_inicio_str:
             hora_fim_calc = obter_hora_atual()
@@ -978,14 +958,14 @@ def renderizar(df_nuvem, df_codigos):
             
         st.markdown("<br>", unsafe_allow_html=True)
         if duracao_calc < 60:
-            if st.button("❌ CANCELAR PARADA (Erro de Seleção)", use_container_width=True):
+            if st.button("❌ CANCELAR PARADA (Erro de Seleção)", use_container_width=True, key="btn_canc_erro_parada"):
                 atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
                     "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
                 })
                 registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Parada Cancelada (Erro Seleção)")
                 st.rerun()
         else:
-            if st.button(texto_botao, use_container_width=True, type="primary"):
+            if st.button(texto_botao, use_container_width=True, type="primary", key="btn_fin_parada"):
                 try:
                     hora_fim = obter_hora_atual()
                     hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S") if hora_inicio_str else hora_fim
@@ -1111,13 +1091,11 @@ def renderizar(df_nuvem, df_codigos):
             except: st.experimental_set_query_params()
             st.rerun()
 
-    # --- 🛠️ CAIXA PRETA PARA O ADMINISTRADOR ---
     with st.expander("🛠️ CAIXA PRETA (Apenas Admin) - Monitoramento de Sessão"):
         st.write("Se ocorrer algum erro, tire um print desta área e envie para análise:")
         estado_atual_limpo = {k: v for k, v in st.session_state.items() if k != "df_nuvem"}
         st.json(estado_atual_limpo)
 
-    # --- SCRIPT PARA ESCONDER BARRAS DE ROLAGEM E RECOLORIR BOTÕES ---
     st.markdown("""
         <script>
             document.body.style.overflow = 'hidden';
