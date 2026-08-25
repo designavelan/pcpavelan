@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import banco
+import streamlit.components.v1 as components  # <-- A linha que faltava!
+import json
 
 # ==========================================
 # MOTOR DE CACHE E FUNÇÕES AUXILIARES
@@ -118,14 +120,14 @@ def renderizar_teclado_nativo(chave_estado, titulo="Quantidade"):
     with c3:
         if st.button("3", use_container_width=True, key=f"tk3_{chave_estado}"): st.session_state[chave_estado] += "3"; st.rerun()
         if st.button("6", use_container_width=True, key=f"tk6_{chave_estado}"): st.session_state[chave_estado] += "6"; st.rerun()
-        if st.button("9", use_container_width=True, key=f"tk9_{chave_estado}"): st.session_state[state_key] += "9"; st.rerun()
+        if st.button("9", use_container_width=True, key=f"tk9_{chave_estado}"): st.session_state[chave_estado] += "9"; st.rerun()
         if st.button("⌫", use_container_width=True, key=f"tkDel_{chave_estado}"): st.session_state[chave_estado] = st.session_state[chave_estado][:-1]; st.rerun()
         
     return st.session_state[chave_estado]
 
 
 def renderizar(df_nuvem, df_codigos):
-    # CSS GLOBAL PARA ESTILIZAÇÃO NATIVA (Sem hacks JS)
+    # CSS GLOBAL PARA ESTILIZAÇÃO NATIVA
     st.markdown("""
         <style>
         .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; margin-bottom: 0rem !important; }
@@ -420,13 +422,13 @@ def renderizar(df_nuvem, df_codigos):
                             linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
                             
                             if is_concluida:
-                                texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} \n {resumo_hoje} \n {linha_op}"
+                                texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_concluidas.append(texto_completo)
                             else:
-                                texto_completo = f"{peca_limpa} \n {resumo_hoje} \n {linha_op}"
+                                texto_completo = f"{peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_pendentes.append(texto_completo)
                         else:
-                            texto_completo = f"{peca_limpa} \n {resumo_hoje}"
+                            texto_completo = f"{peca_limpa} *{resumo_hoje}*"
                             lista_pendentes.append(texto_completo)
                             
                         mapa_exibicao_limpa[texto_completo] = peca_limpa
@@ -463,7 +465,10 @@ def renderizar(df_nuvem, df_codigos):
                             div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] { background-color: #ff4b4b !important; border-color: #ff4b4b !important; }
                             div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
                             div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; }
                             div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
+                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
                             </style>
                         """, unsafe_allow_html=True)
                         
@@ -703,7 +708,6 @@ def renderizar(df_nuvem, df_codigos):
                         registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim Lote -> Livre")
                         
                     st.session_state[chave_estado_fin] = None
-                    # Limpa o teclado para o próximo uso
                     if "tk_qtd_conc" in st.session_state: st.session_state["tk_qtd_conc"] = ""
                     if "tk_qtd_int" in st.session_state: st.session_state["tk_qtd_int"] = ""
                         
@@ -891,7 +895,9 @@ def renderizar(df_nuvem, df_codigos):
             if codigo_bd == 'P':
                 cor_borda = "#27ae60"
                 cor_fundo = "#f4fcf7"
+                
                 cod_peca = row.get('cod_peca', 'S/N')
+                
                 qtd_val = row.get('quantidade', 0)
                 try:
                     if float(qtd_val).is_integer(): qtd_peca = str(int(float(qtd_val)))
@@ -909,6 +915,7 @@ def renderizar(df_nuvem, df_codigos):
                     peca_nome = nome_peca_hist
                     
                 modalidade = str(row.get('modalidade_processo', 'Simples'))
+                
                 titulo = produto_nome
             else:
                 desc_oco = "Sem Descrição"
@@ -958,58 +965,22 @@ def renderizar(df_nuvem, df_codigos):
     titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
     logo_b64 = cfg.get('logo_base64', None)
     
-    c1, c2 = st.columns([6, 4])
+    c1, c2 = st.columns([7, 3])
     with c1:
         if logo_b64: st.markdown(f'<div style="display: flex; align-items: center; gap: 15px;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;"><h3 style="margin:0; color: #2c3e50;">{titulo_app}</h3></div>', unsafe_allow_html=True)
         else: st.markdown(f'<h3 style="margin:0; color: #2c3e50;">🏭 {titulo_app}</h3>', unsafe_allow_html=True)
     with c2:
-        if is_travado and permite_troca:
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("🔄 Trocar Máquina", use_container_width=True, key="btn_trocar_maq"):
-                    st.session_state['show_troca_maquina'] = not st.session_state.get('show_troca_maquina', False)
-                    st.rerun()
-            with b2:
-                if st.button("🚪 Sair", use_container_width=True, key="btn_sair_cf"):
-                    st.session_state['usuario_logado'] = None
-                    try: st.query_params.clear()
-                    except: st.experimental_set_query_params()
-                    st.rerun()
-        else:
-            if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
-                st.session_state['usuario_logado'] = None
-                try: st.query_params.clear()
-                except: st.experimental_set_query_params()
-                st.rerun()
+        if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
+            st.session_state['usuario_logado'] = None
+            try: st.query_params.clear()
+            except: st.experimental_set_query_params()
+            st.rerun()
 
-    # --- JANELA DE TROCA DE MÁQUINA ---
-    if st.session_state.get('show_troca_maquina'):
-        st.markdown("<div style='background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #ddd; margin-top: 15px;'>", unsafe_allow_html=True)
-        st.markdown("<h4 style='color: #2c3e50; margin-top:0;'>🔄 Selecione o seu novo posto de trabalho:</h4>", unsafe_allow_html=True)
-        
-        sel_c1, sel_c2 = st.columns(2)
-        with sel_c1:
-            idx_setor = lista_setores_nuvem.index(setor_selecionado) if setor_selecionado in lista_setores_nuvem else 0
-            novo_setor = st.selectbox("Novo Setor:", lista_setores_nuvem, key="novo_sec_troca", index=idx_setor)
-        with sel_c2:
-            lista_maq_novo = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
-            nova_maq = st.selectbox("Nova Máquina:", lista_maq_novo, key="nova_maq_troca")
-            
-        st.markdown("<br>", unsafe_allow_html=True)
-        conf_c1, conf_c2 = st.columns(2)
-        with conf_c1:
-            if st.button("✅ Confirmar Mudança", type="primary", use_container_width=True):
-                supa.table("usuarios").update({
-                    "setor": novo_setor,
-                    "maquina": nova_maq
-                }).eq("username", usuario['username']).execute()
-                
-                st.session_state['usuario_logado']['setor'] = novo_setor
-                st.session_state['usuario_logado']['maquina'] = nova_maq
-                st.session_state['show_troca_maquina'] = False
-                st.rerun()
-        with conf_c2:
-            if st.button("❌ Cancelar", use_container_width=True):
-                st.session_state['show_troca_maquina'] = False
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    # --- SCRIPT PARA ESCONDER OS BOTÕES NATIVOS DE DIALOG DO STREAMLIT ---
+    st.markdown("""
+        <script>
+            // Força remoção de barras de rolagem
+            document.body.style.overflow = 'hidden';
+            setTimeout(() => { document.body.style.overflow = 'auto'; }, 1000);
+        </script>
+    """, unsafe_allow_html=True)
