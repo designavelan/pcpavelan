@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import banco
-import streamlit.components.v1 as components  # <-- A linha que faltava!
+import streamlit.components.v1 as components
 import json
 
 # ==========================================
@@ -125,7 +125,6 @@ def renderizar_teclado_nativo(chave_estado, titulo="Quantidade"):
         
     return st.session_state[chave_estado]
 
-
 def renderizar(df_nuvem, df_codigos):
     # CSS GLOBAL PARA ESTILIZAÇÃO NATIVA
     st.markdown("""
@@ -149,6 +148,11 @@ def renderizar(df_nuvem, df_codigos):
             min-height: 85px;
             font-size: 22px;
             font-weight: 900;
+        }
+        
+        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto */
+        div[data-testid="stTextInput"] {
+            display: none !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -393,7 +397,7 @@ def renderizar(df_nuvem, df_codigos):
                     for peca_limpa in lista_pecas_limpa:
                         codigo_ext = peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                         
-                        # --- LINHA: PRODUÇÃO DE HOJE ---
+                        # --- SEGUNDA LINHA: PRODUÇÃO DE HOJE ---
                         if codigo_ext in producao_hoje_pecas and producao_hoje_pecas[codigo_ext]:
                             lista_qtds = producao_hoje_pecas[codigo_ext]
                             total_hoje = sum(lista_qtds)
@@ -418,9 +422,10 @@ def renderizar(df_nuvem, df_codigos):
                             is_concluida = prod >= meta
                             str_perc = str(round(perc, 1)).replace('.', ',')
 
-                            # --- LINHA: DADOS DA OP ---
+                            # --- TERCEIRA LINHA: DADOS DA OP ---
                             linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
                             
+                            # CSS nativo: Os asteriscos (*) formam os blocos quebrando as linhas
                             if is_concluida:
                                 texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_concluidas.append(texto_completo)
@@ -895,9 +900,7 @@ def renderizar(df_nuvem, df_codigos):
             if codigo_bd == 'P':
                 cor_borda = "#27ae60"
                 cor_fundo = "#f4fcf7"
-                
                 cod_peca = row.get('cod_peca', 'S/N')
-                
                 qtd_val = row.get('quantidade', 0)
                 try:
                     if float(qtd_val).is_integer(): qtd_peca = str(int(float(qtd_val)))
@@ -915,7 +918,6 @@ def renderizar(df_nuvem, df_codigos):
                     peca_nome = nome_peca_hist
                     
                 modalidade = str(row.get('modalidade_processo', 'Simples'))
-                
                 titulo = produto_nome
             else:
                 desc_oco = "Sem Descrição"
@@ -976,11 +978,38 @@ def renderizar(df_nuvem, df_codigos):
             except: st.experimental_set_query_params()
             st.rerun()
 
-    # --- SCRIPT PARA ESCONDER OS BOTÕES NATIVOS DE DIALOG DO STREAMLIT ---
+    # --- SCRIPT PARA ESCONDER BARRAS DE ROLAGEM E RECOLORIR BOTÕES ---
     st.markdown("""
         <script>
-            // Força remoção de barras de rolagem
             document.body.style.overflow = 'hidden';
             setTimeout(() => { document.body.style.overflow = 'auto'; }, 1000);
+            
+            setInterval(() => {
+                const btns = window.parent.document.querySelectorAll('button');
+                btns.forEach(btn => {
+                    const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
+                    if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#27ae60', 'important');
+                            btn.style.setProperty('border-color', '#27ae60', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
+                    }
+                    else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#c0392b', 'important');
+                            btn.style.setProperty('border-color', '#c0392b', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
+                    }
+                    else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#e67e22', 'important');
+                            btn.style.setProperty('border-color', '#e67e22', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
+                    }
+                });
+            }, 300);
         </script>
     """, unsafe_allow_html=True)
