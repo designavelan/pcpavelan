@@ -91,45 +91,13 @@ def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
                 st.session_state[chave_memoria] = p
                 st.rerun()
 
-def renderizar_teclado_nativo(chave_estado, titulo="Quantidade"):
-    """Teclado numérico 100% Python."""
-    if chave_estado not in st.session_state:
-        st.session_state[chave_estado] = ""
-        
-    valor_tela = st.session_state[chave_estado] if st.session_state[chave_estado] else "0"
-    
-    st.markdown(f"""
-    <div style='background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;'>
-        <h2 style='margin: 0; font-family: monospace; font-size: 50px; letter-spacing: 5px; color: #27ae60;'>{valor_tela}</h2>
-        <p style='margin: 5px 0 0 0; font-size: 16px; font-weight: bold; color: #7f8c8d; text-transform: uppercase;'>{titulo}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("1", use_container_width=True, key=f"tk1_{chave_estado}"): st.session_state[chave_estado] += "1"; st.rerun()
-        if st.button("4", use_container_width=True, key=f"tk4_{chave_estado}"): st.session_state[chave_estado] += "4"; st.rerun()
-        if st.button("7", use_container_width=True, key=f"tk7_{chave_estado}"): st.session_state[chave_estado] += "7"; st.rerun()
-        if st.button("C", use_container_width=True, key=f"tkC_{chave_estado}"): st.session_state[chave_estado] = ""; st.rerun()
-    with c2:
-        if st.button("2", use_container_width=True, key=f"tk2_{chave_estado}"): st.session_state[chave_estado] += "2"; st.rerun()
-        if st.button("5", use_container_width=True, key=f"tk5_{chave_estado}"): st.session_state[chave_estado] += "5"; st.rerun()
-        if st.button("8", use_container_width=True, key=f"tk8_{chave_estado}"): st.session_state[chave_estado] += "8"; st.rerun()
-        if st.button("0", use_container_width=True, key=f"tk0_{chave_estado}"): st.session_state[chave_estado] += "0"; st.rerun()
-    with c3:
-        if st.button("3", use_container_width=True, key=f"tk3_{chave_estado}"): st.session_state[chave_estado] += "3"; st.rerun()
-        if st.button("6", use_container_width=True, key=f"tk6_{chave_estado}"): st.session_state[chave_estado] += "6"; st.rerun()
-        if st.button("9", use_container_width=True, key=f"tk9_{chave_estado}"): st.session_state[chave_estado] += "9"; st.rerun()
-        if st.button("⌫", use_container_width=True, key=f"tkDel_{chave_estado}"): st.session_state[chave_estado] = st.session_state[chave_estado][:-1]; st.rerun()
-        
-    return st.session_state[chave_estado]
-
-def obter_html_teclado_qtd(label_input_js):
-    html = """
+def obter_html_teclado(label_input_js, titulo="Quantidade"):
+    """Teclado HTML 100% protegido contra erros na Nuvem (usando replace em vez de f-string)"""
+    html_content = """
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; }
         .lcd { background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        .lcd-val { margin: 0; font-family: monospace; font-size: 50px; letter-spacing: 5px; color: #27ae60; min-height: 60px; font-weight: 900; }
+        .lcd-val { margin: 0; font-family: monospace; font-size: 45px; letter-spacing: 5px; color: #27ae60; min-height: 55px; font-weight: 900; }
         .lcd-desc { margin: 5px 0 0 0; font-size: 16px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
         .btn-key { background: #ffffff; border: 1px solid #dcdde1; border-radius: 12px; font-size: 28px; font-weight: 900; color: #2c3e50; padding: 20px 0; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; }
@@ -139,7 +107,7 @@ def obter_html_teclado_qtd(label_input_js):
     </style>
     <div class="lcd">
         <h2 id="lcd-val" class="lcd-val">0</h2>
-        <p class="lcd-desc">Qtd Produzida / Embalada</p>
+        <p class="lcd-desc">TITULO_PLACEHOLDER</p>
     </div>
     <div class="grid">
         <button type="button" class="btn-key" onclick="pressKey('1')">1</button>
@@ -151,7 +119,7 @@ def obter_html_teclado_qtd(label_input_js):
         <button type="button" class="btn-key" onclick="pressKey('7')">7</button>
         <button type="button" class="btn-key" onclick="pressKey('8')">8</button>
         <button type="button" class="btn-key" onclick="pressKey('9')">9</button>
-        <button type="button" class="btn-key" onclick="pressKey('C')">C</button>
+        <button type="button" class="btn-key btn-c" onclick="pressKey('C')">C</button>
         <button type="button" class="btn-key" onclick="pressKey('0')">0</button>
         <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
     </div>
@@ -173,15 +141,16 @@ def obter_html_teclado_qtd(label_input_js):
             if (k === 'C') currentQty = ""; 
             else if (k === '<') currentQty = currentQty.slice(0, -1); 
             else currentQty += k; 
+            
             if (currentQty.length > 1 && currentQty.startsWith("0")) currentQty = currentQty.substring(1);
             if (currentQty.length > 6) currentQty = currentQty.slice(0, 6);
+            
             updateLCD(); 
         }
         setTimeout(updateLCD, 500);
     </script>
     """
-    return html.replace('LABEL_PLACEHOLDER', label_input_js)
-
+    return html_content.replace('LABEL_PLACEHOLDER', label_input_js).replace('TITULO_PLACEHOLDER', titulo)
 
 def renderizar(df_nuvem, df_codigos):
     # CSS GLOBAL (Ocultação Blindada e Sem FOUC)
@@ -199,6 +168,8 @@ def renderizar(df_nuvem, df_codigos):
         div[data-testid="stButton"] button[kind="primary"] {
             min-height: 85px; font-size: 22px; font-weight: 900;
         }
+        
+        /* 🔥 A OPÇÃO NUCLEAR: Esconde caixas de texto mantendo-as na DOM para o JS ler */
         div[data-testid="stTextInput"] { display: none !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -346,21 +317,25 @@ def renderizar(df_nuvem, df_codigos):
                 mapa_prod_real = {}
                 ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
                 
+                # Bloco 1: Produtos em OP
                 for idx_op, p in enumerate(ops_presentes):
                     numero_op = idx_op + 1
                     display_name = f"🔥 [OP {numero_op}] {p}"
                     lista_exibicao_final.append(display_name)
                     mapa_prod_real[display_name] = p
                     
+                # Bloco 2: Separador
                 if ops_presentes:
                     lista_exibicao_final.append(separador)
                     mapa_prod_real[separador] = None
                     
+                # Bloco 3: Restante
                 for p in lista_base:
                     if p not in ops_presentes:
                         lista_exibicao_final.append(p)
                         mapa_prod_real[p] = p
                 
+                # MEMÓRIA NATIVA DE PRODUTO
                 chave_mem_prod = f"mem_prod_{setor_selecionado}_{maquina_selecionada}"
                 if chave_mem_prod not in st.session_state:
                     initial_val = ""
@@ -377,8 +352,12 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod_display = st.session_state[chave_mem_prod]
                 sel_prod = mapa_prod_real.get(sel_prod_display)
 
-                # BOTÃO NATIVO 
+                # =========================================================
+                # 🖥️ A MÁGICA DA INTERFACE NATIVA 
+                # =========================================================
                 texto_exibicao = sel_prod_display if sel_prod_display else "Selecione..."
+                
+                # Caixa visual de exibição
                 st.markdown(f"""
                 <div style='background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 15px; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
                     <div style='font-size:14px; color:#7f8c8d; font-weight:bold; text-transform:uppercase;'>Produto da Linha:</div>
@@ -386,11 +365,12 @@ def renderizar(df_nuvem, df_codigos):
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Botão nativo para chamar o Modal
                 if st.button("🔍 ALTERAR PRODUTO", use_container_width=True):
                     modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
 
                 # =========================================================
-                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS EM 3 ANDARES
+                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS
                 # =========================================================
                 if sel_prod:
                     is_in_op = sel_prod in mapa_ops
@@ -569,20 +549,22 @@ def renderizar(df_nuvem, df_codigos):
                 tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                 
                 with tab_tcl:
-                    codigo_digitado = renderizar_teclado_nativo("teclado_parada_livre", titulo="CÓDIGO DE PARADA")
+                    chave_dinamica = f"input_js_{st.session_state['tk_counter']}"
+                    codigo_js = st.text_input("input_codigo_js", key=chave_dinamica, label_visibility="collapsed")
+                    components.html(obter_html_teclado("input_codigo_js", "CÓDIGO DE PARADA"), height=530)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if codigo_digitado in valid_codes:
-                        st.success(f"✅ Identificado: **{valid_codes[codigo_digitado]}**")
+                    if codigo_js in valid_codes:
+                        st.success(f"✅ Identificado: **{valid_codes[codigo_js]}**")
                         if st.button("🔴 CONFIRMAR PARADA", use_container_width=True, type="primary"):
                             agora = obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                             atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, {
-                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
+                                "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_js, "hora_inicio": agora
                             })
-                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
-                            st.session_state["teclado_parada_livre"] = ""
+                            registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_js})")
+                            st.session_state['tk_counter'] += 1 
                             st.rerun()
-                    elif codigo_digitado:
+                    elif codigo_js:
                         st.error("❌ Código não encontrado")
 
                 with tab_lst:
@@ -761,9 +743,6 @@ def renderizar(df_nuvem, df_codigos):
                         registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim Lote -> Livre")
                         
                     st.session_state[chave_estado_fin] = None
-                    if "tk_qtd_conc" in st.session_state: st.session_state["tk_qtd_conc"] = ""
-                    if "tk_qtd_int" in st.session_state: st.session_state["tk_qtd_int"] = ""
-                        
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as e:
@@ -773,7 +752,8 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                qtd_final_str = renderizar_teclado_nativo("tk_qtd_conc", titulo="Qtd Concluída")
+                qtd_str = st.text_input("input_qtd_conc", label_visibility="collapsed")
+                components.html(obter_html_teclado("input_qtd_conc", "Qtd Concluída"), height=530)
                 
                 modalidade_escolhida = "Simples"
                 if permite_dupla:
@@ -784,7 +764,7 @@ def renderizar(df_nuvem, df_codigos):
                 cb1, cb2 = st.columns(2)
                 with cb1:
                     if st.button("💾 CONFIRMAR E SALVAR", type="primary", use_container_width=True):
-                        try: qtd_final = int(qtd_final_str)
+                        try: qtd_final = int(qtd_str)
                         except: qtd_final = 0
                         salvar_producao_atual(codigo_parada_novo=None, qtd_informada=qtd_final, modalidade_escolhida=modalidade_escolhida)
                 with cb2:
@@ -796,7 +776,8 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                qtd_final_str = renderizar_teclado_nativo("tk_qtd_int", titulo="Qtd Feita Antes da Falha")
+                qtd_str = st.text_input("input_qtd_int", label_visibility="collapsed")
+                components.html(obter_html_teclado("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
                 
                 modalidade_escolhida = "Simples"
                 if permite_dupla:
@@ -811,12 +792,14 @@ def renderizar(df_nuvem, df_codigos):
                     tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
                     with tab_tcl_int:
-                        codigo_digitado_int = renderizar_teclado_nativo("tk_cod_int", titulo="CÓDIGO DE PARADA")
+                        codigo_digitado_int = st.text_input("input_cod_int", label_visibility="collapsed")
+                        components.html(obter_html_teclado("input_cod_int", "CÓDIGO DE PARADA"), height=530)
+                        
                         st.markdown("<br>", unsafe_allow_html=True)
                         if codigo_digitado_int in valid_codes:
                             st.success(f"✅ Identificado: **{valid_codes[codigo_digitado_int]}**")
                             if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_tcl"):
-                                try: qtd_val_int = int(qtd_final_str)
+                                try: qtd_val_int = int(qtd_str)
                                 except: qtd_val_int = 0
                                 salvar_producao_atual(codigo_parada_novo=codigo_digitado_int, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
                         elif codigo_digitado_int:
@@ -829,7 +812,7 @@ def renderizar(df_nuvem, df_codigos):
                         if st.button("🔴 CONFIRMAR INTERRUPÇÃO", use_container_width=True, type="primary", key="btn_int_lst"):
                             cod_final = problema_selecionado.split("(")[-1].replace(")", "").strip() if problema_selecionado else None
                             if cod_final:
-                                try: qtd_val_int = int(qtd_final_str)
+                                try: qtd_val_int = int(qtd_str)
                                 except: qtd_val_int = 0
                                 salvar_producao_atual(codigo_parada_novo=cod_final, qtd_informada=qtd_val_int, modalidade_escolhida=modalidade_escolhida)
                         
