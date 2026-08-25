@@ -78,7 +78,7 @@ def registrar_telemetria(supa, setor, maquina, acao):
         return False, str(e)
 
 # ==========================================
-# COMPONENTES NATIVOS E BLINDADOS
+# COMPONENTES NATIVOS E HTML BLINDADOS
 # ==========================================
 @st.dialog("📦 Catálogo de Produtos")
 def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
@@ -91,13 +91,13 @@ def modal_selecionar_produto(lista_exibicao, separador, chave_memoria):
                 st.session_state[chave_memoria] = p
                 st.rerun()
 
-def obter_html_teclado(label_input_js, titulo="Quantidade Produzida"):
-    """Teclado 3 colunas em HTML puro blindado contra FOUC e Sandbox"""
+def obter_html_teclado(label_input_js, titulo="Quantidade"):
+    """Teclado 3 colunas em HTML puro blindado contra FOUC e Sandbox na Nuvem"""
     html_content = """
     <style>
         body { font-family: sans-serif; margin: 0; padding: 10px; }
         .lcd { background: #ffffff; padding: 15px; border-radius: 12px; text-align: center; border: 2px solid #dcdde1; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        .lcd-val { margin: 0; font-family: monospace; font-size: 45px; letter-spacing: 5px; color: #27ae60; min-height: 55px; font-weight: 900; }
+        .lcd-val { margin: 0; font-family: monospace; font-size: 50px; letter-spacing: 5px; color: #27ae60; min-height: 60px; font-weight: 900; }
         .lcd-desc { margin: 5px 0 0 0; font-size: 16px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
         .btn-key { background: #ffffff; border: 1px solid #dcdde1; border-radius: 12px; font-size: 28px; font-weight: 900; color: #2c3e50; padding: 20px 0; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; }
@@ -156,7 +156,7 @@ def obter_html_teclado(label_input_js, titulo="Quantidade Produzida"):
 
 def renderizar(df_nuvem, df_codigos):
     # ==========================================
-    # CORREÇÃO DO ERRO KEYERROR DA NUVEM
+    # 🛡️ VACINA DO KEYERROR: Inicialização Segura
     # ==========================================
     if 'tk_counter' not in st.session_state: 
         st.session_state['tk_counter'] = 0
@@ -325,16 +325,19 @@ def renderizar(df_nuvem, df_codigos):
                 mapa_prod_real = {}
                 ops_presentes = [p for p in ops_ativas_unicas if p in lista_todos]
                 
+                # Bloco 1: Produtos em OP
                 for idx_op, p in enumerate(ops_presentes):
                     numero_op = idx_op + 1
                     display_name = f"🔥 [OP {numero_op}] {p}"
                     lista_exibicao_final.append(display_name)
                     mapa_prod_real[display_name] = p
                     
+                # Bloco 2: Separador
                 if ops_presentes:
                     lista_exibicao_final.append(separador)
                     mapa_prod_real[separador] = None
                     
+                # Bloco 3: Restante
                 for p in lista_base:
                     if p not in ops_presentes:
                         lista_exibicao_final.append(p)
@@ -356,8 +359,12 @@ def renderizar(df_nuvem, df_codigos):
                 sel_prod_display = st.session_state[chave_mem_prod]
                 sel_prod = mapa_prod_real.get(sel_prod_display)
 
-                # BOTÃO NATIVO 
+                # =========================================================
+                # 🖥️ A MÁGICA DA INTERFACE NATIVA 
+                # =========================================================
                 texto_exibicao = sel_prod_display if sel_prod_display else "Selecione..."
+                
+                # Caixa visual de exibição
                 st.markdown(f"""
                 <div style='background: #f8f9fa; border: 1px solid #e1e8ed; border-radius: 8px; padding: 15px; margin-bottom: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
                     <div style='font-size:14px; color:#7f8c8d; font-weight:bold; text-transform:uppercase;'>Produto da Linha:</div>
@@ -365,6 +372,7 @@ def renderizar(df_nuvem, df_codigos):
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Botão nativo para chamar o Modal
                 if st.button("🔍 ALTERAR PRODUTO", use_container_width=True):
                     modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
 
@@ -527,6 +535,7 @@ def renderizar(df_nuvem, df_codigos):
                             
                             try:
                                 atualizar_status_maquina(supa, setor_selecionado, maquina_selecionada, dados_update)
+                                
                                 sucesso, erro = registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Iniciou Produção")
                                 if not sucesso:
                                     st.error(f"❌ ERRO AO GRAVAR HISTÓRICO: {erro}")
@@ -547,7 +556,10 @@ def renderizar(df_nuvem, df_codigos):
                 tab_tcl, tab_lst = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                 
                 with tab_tcl:
-                    chave_din_cod = f"in_cod_livre_{st.session_state['tk_counter']}"
+                    # Aplicando a Vacina do KeyError na inicialização da chave:
+                    tk_val = st.session_state.get('tk_counter', 0)
+                    chave_din_cod = f"in_cod_livre_{tk_val}"
+                    
                     codigo_digitado = st.text_input("input_cod_livre", key=chave_din_cod, label_visibility="collapsed")
                     components.html(obter_html_teclado("input_cod_livre", "CÓDIGO DE PARADA"), height=530)
                     
@@ -560,7 +572,7 @@ def renderizar(df_nuvem, df_codigos):
                                 "status": "Parado", "cod_peca_atual": None, "cod_ocorrencia": codigo_digitado, "hora_inicio": agora
                             })
                             registrar_telemetria(supa, setor_selecionado, maquina_selecionada, f"Parada Iniciada ({codigo_digitado})")
-                            st.session_state['tk_counter'] += 1 
+                            st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1 
                             st.rerun()
                     elif codigo_digitado:
                         st.error("❌ Código não encontrado")
@@ -741,7 +753,7 @@ def renderizar(df_nuvem, df_codigos):
                         registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Fim Lote -> Livre")
                         
                     st.session_state[chave_estado_fin] = None
-                    st.session_state['tk_counter'] += 1
+                    st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1
                         
                     st.cache_data.clear()
                     st.rerun()
@@ -752,7 +764,8 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>📊 Fechamento da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                chave_din_conc = f"in_qtd_conc_{st.session_state['tk_counter']}"
+                tk_val_conc = st.session_state.get('tk_counter', 0)
+                chave_din_conc = f"in_qtd_conc_{tk_val_conc}"
                 qtd_str = st.text_input("input_qtd_conc", key=chave_din_conc, label_visibility="collapsed")
                 components.html(obter_html_teclado("input_qtd_conc", "Qtd Concluída"), height=530)
                 
@@ -771,14 +784,15 @@ def renderizar(df_nuvem, df_codigos):
                 with cb2:
                     if st.button("❌ Cancelar Operação", use_container_width=True):
                         st.session_state[chave_estado_fin] = None
-                        st.session_state['tk_counter'] += 1
+                        st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1
                         st.rerun()
                         
             elif estado_fin == "INTERROMPIDO":
                 st.markdown("<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>🚨 Interrupção da Produção</div>", unsafe_allow_html=True)
                 st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
-                chave_din_int_qtd = f"in_qtd_int_{st.session_state['tk_counter']}"
+                tk_val_int = st.session_state.get('tk_counter', 0)
+                chave_din_int_qtd = f"in_qtd_int_{tk_val_int}"
                 qtd_str = st.text_input("input_qtd_int", key=chave_din_int_qtd, label_visibility="collapsed")
                 components.html(obter_html_teclado("input_qtd_int", "Qtd Feita Antes da Falha"), height=530)
                 
@@ -795,7 +809,7 @@ def renderizar(df_nuvem, df_codigos):
                     tab_tcl_int, tab_lst_int = st.tabs(["🔢 Teclado Numérico", "📄 Selecionar na Lista"])
                     
                     with tab_tcl_int:
-                        chave_din_int_cod = f"in_cod_int_{st.session_state['tk_counter']}"
+                        chave_din_int_cod = f"in_cod_int_{tk_val_int}"
                         codigo_digitado_int = st.text_input("input_cod_int", key=chave_din_int_cod, label_visibility="collapsed")
                         components.html(obter_html_teclado("input_cod_int", "CÓDIGO DE PARADA"), height=530)
                         
@@ -823,7 +837,7 @@ def renderizar(df_nuvem, df_codigos):
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("❌ Cancelar Operação (Voltar)", use_container_width=True):
                     st.session_state[chave_estado_fin] = None
-                    st.session_state['tk_counter'] += 1
+                    st.session_state['tk_counter'] = st.session_state.get('tk_counter', 0) + 1
                     st.rerun()
 
     # ==========================================
@@ -994,7 +1008,7 @@ def renderizar(df_nuvem, df_codigos):
         st.markdown(html_cards_hist, unsafe_allow_html=True)
 
     # ==========================================
-    # 5. RODAPÉ DO TERMINAL
+    # 5. RODAPÉ DO TERMINAL E CAIXA PRETA
     # ==========================================
     st.markdown("<hr style='opacity: 0.2; margin-top: 30px;'>", unsafe_allow_html=True)
     texto_rodape = f"{setor_selecionado} &nbsp;|&nbsp; {maquina_selecionada} &nbsp;|&nbsp; {nomes_operadores}"
@@ -1007,7 +1021,6 @@ def renderizar(df_nuvem, df_codigos):
         with cr2: st.selectbox("⚙️ Máquina", lista_maquinas_nuvem, key="cf_maquina")
 
     cfg = banco.obter_configuracoes()
-    permite_troca = cfg.get('permitir_troca_maquina', False)
     titulo_app = cfg.get('titulo_programa', 'PCP Avelan')
     logo_b64 = cfg.get('logo_base64', None)
     
@@ -1016,122 +1029,50 @@ def renderizar(df_nuvem, df_codigos):
         if logo_b64: st.markdown(f'<div style="display: flex; align-items: center; gap: 15px;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;"><h3 style="margin:0; color: #2c3e50;">{titulo_app}</h3></div>', unsafe_allow_html=True)
         else: st.markdown(f'<h3 style="margin:0; color: #2c3e50;">🏭 {titulo_app}</h3>', unsafe_allow_html=True)
     with c2:
-        if is_travado and permite_troca:
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("🔄 Trocar Máquina", use_container_width=True, key="btn_trocar_maq"):
-                    st.session_state['show_troca_maquina'] = not st.session_state.get('show_troca_maquina', False)
-                    st.rerun()
-            with b2:
-                if st.button("🚪 Sair", use_container_width=True, key="btn_sair_cf"):
-                    st.session_state['usuario_logado'] = None
-                    try: st.query_params.clear()
-                    except: st.experimental_set_query_params()
-                    st.rerun()
-        else:
-            if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
-                st.session_state['usuario_logado'] = None
-                try: st.query_params.clear()
-                except: st.experimental_set_query_params()
-                st.rerun()
+        if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
+            st.session_state['usuario_logado'] = None
+            try: st.query_params.clear()
+            except: st.experimental_set_query_params()
+            st.rerun()
 
-    # --- JANELA DE TROCA DE MÁQUINA ---
-    if st.session_state.get('show_troca_maquina'):
-        st.markdown("<div style='background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #ddd; margin-top: 15px;'>", unsafe_allow_html=True)
-        st.markdown("<h4 style='color: #2c3e50; margin-top:0;'>🔄 Selecione o seu novo posto de trabalho:</h4>", unsafe_allow_html=True)
-        
-        sel_c1, sel_c2 = st.columns(2)
-        with sel_c1:
-            idx_setor = lista_setores_nuvem.index(setor_selecionado) if setor_selecionado in lista_setores_nuvem else 0
-            novo_setor = st.selectbox("Novo Setor:", lista_setores_nuvem, key="novo_sec_troca", index=idx_setor)
-        with sel_c2:
-            lista_maq_novo = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
-            nova_maq = st.selectbox("Nova Máquina:", lista_maq_novo, key="nova_maq_troca")
+    # --- 🛠️ CAIXA PRETA PARA O ADMINISTRADOR ---
+    with st.expander("🛠️ CAIXA PRETA (Apenas Admin) - Monitoramento de Sessão"):
+        st.write("Se ocorrer algum erro, tire um print desta área e envie para análise:")
+        estado_atual_limpo = {k: v for k, v in st.session_state.items() if k != "df_nuvem"}
+        st.json(estado_atual_limpo)
+
+    # --- SCRIPT PARA ESCONDER BARRAS DE ROLAGEM E RECOLORIR BOTÕES ---
+    st.markdown("""
+        <script>
+            document.body.style.overflow = 'hidden';
+            setTimeout(() => { document.body.style.overflow = 'auto'; }, 1000);
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        conf_c1, conf_c2 = st.columns(2)
-        with conf_c1:
-            if st.button("✅ Confirmar Mudança", type="primary", use_container_width=True):
-                supa.table("usuarios").update({
-                    "setor": novo_setor,
-                    "maquina": nova_maq
-                }).eq("username", usuario['username']).execute()
-                
-                st.session_state['usuario_logado']['setor'] = novo_setor
-                st.session_state['usuario_logado']['maquina'] = nova_maq
-                st.session_state['show_troca_maquina'] = False
-                st.rerun()
-        with conf_c2:
-            if st.button("❌ Cancelar", use_container_width=True):
-                st.session_state['show_troca_maquina'] = False
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ==========================================
-    # SCRIPT PARA INFLAR OS BOTÕES E ESCONDER AS ÂNCORAS
-    # ==========================================
-    js_cores = """
-    <script>
-        setInterval(() => {
-            const btns = window.parent.document.querySelectorAll('button');
-            btns.forEach(btn => {
-                const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
-                
-                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
-                    btn.style.setProperty('min-height', '90px', 'important');
-                    btn.style.setProperty('height', 'auto', 'important');
-                    btn.style.setProperty('padding', '15px 10px', 'important');
-                    btn.style.setProperty('font-size', '22px', 'important');
-                    btn.style.setProperty('font-weight', '900', 'important');
-                    btn.style.setProperty('border-radius', '12px', 'important');
-                    btn.style.setProperty('white-space', 'normal', 'important');
-                    btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
-                        btn.style.setProperty('background-color', '#27ae60', 'important');
-                        btn.style.setProperty('border-color', '#27ae60', 'important');
-                        btn.style.setProperty('color', 'white', 'important');
-                    } else {
-                        btn.style.setProperty('background-color', '#ecf0f1', 'important');
-                        btn.style.setProperty('border-color', '#bdc3c7', 'important');
-                        btn.style.setProperty('color', '#95a5a6', 'important');
+            setInterval(() => {
+                const btns = window.parent.document.querySelectorAll('button');
+                btns.forEach(btn => {
+                    const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
+                    if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#27ae60', 'important');
+                            btn.style.setProperty('border-color', '#27ae60', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
                     }
-                }
-                else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
-                    btn.style.setProperty('min-height', '90px', 'important');
-                    btn.style.setProperty('height', 'auto', 'important');
-                    btn.style.setProperty('padding', '15px 10px', 'important');
-                    btn.style.setProperty('font-size', '22px', 'important');
-                    btn.style.setProperty('font-weight', '900', 'important');
-                    btn.style.setProperty('border-radius', '12px', 'important');
-                    btn.style.setProperty('white-space', 'normal', 'important');
-                    btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
-                        btn.style.setProperty('background-color', '#c0392b', 'important');
-                        btn.style.setProperty('border-color', '#c0392b', 'important');
-                        btn.style.setProperty('color', 'white', 'important');
-                    } else {
-                        btn.style.setProperty('background-color', '#ecf0f1', 'important');
-                        btn.style.setProperty('border-color', '#bdc3c7', 'important');
-                        btn.style.setProperty('color', '#95a5a6', 'important');
+                    else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#c0392b', 'important');
+                            btn.style.setProperty('border-color', '#c0392b', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
                     }
-                }
-                else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
-                    btn.style.setProperty('min-height', '90px', 'important');
-                    btn.style.setProperty('height', 'auto', 'important');
-                    btn.style.setProperty('padding', '15px 10px', 'important');
-                    btn.style.setProperty('font-size', '22px', 'important');
-                    btn.style.setProperty('font-weight', '900', 'important');
-                    btn.style.setProperty('border-radius', '12px', 'important');
-                    btn.style.setProperty('white-space', 'normal', 'important');
-                    btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
-                        btn.style.setProperty('background-color', '#e67e22', 'important');
-                        btn.style.setProperty('border-color', '#e67e22', 'important');
-                        btn.style.setProperty('color', 'white', 'important');
+                    else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
+                        if (!btn.disabled) {
+                            btn.style.setProperty('background-color', '#e67e22', 'important');
+                            btn.style.setProperty('border-color', '#e67e22', 'important');
+                            btn.style.setProperty('color', 'white', 'important');
+                        }
                     }
-                }
-            });
-        }, 300);
-    </script>
-    """
-    components.html(js_cores, height=0)
+                });
+            }, 300);
+        </script>
+    """, unsafe_allow_html=True)
