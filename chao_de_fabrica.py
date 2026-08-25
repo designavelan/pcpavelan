@@ -150,7 +150,7 @@ def renderizar(df_nuvem, df_codigos):
             font-weight: 900;
         }
         
-        /* 🔥 A OPÇÃO NUCLEAR: Esconde as caixas de texto */
+        /* Oculta apenas as inputs indesejadas (sem quebrar lógica do Streamlit) */
         div[data-testid="stTextInput"] {
             display: none !important;
         }
@@ -353,7 +353,7 @@ def renderizar(df_nuvem, df_codigos):
                     modal_selecionar_produto(lista_exibicao_final, separador, chave_mem_prod)
 
                 # =========================================================
-                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS
+                # ⚙️ LÓGICA DE PRODUÇÃO PUXADA (KANBAN) E METAS EM 3 ANDARES
                 # =========================================================
                 if sel_prod:
                     is_in_op = sel_prod in mapa_ops
@@ -397,7 +397,7 @@ def renderizar(df_nuvem, df_codigos):
                     for peca_limpa in lista_pecas_limpa:
                         codigo_ext = peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                         
-                        # --- SEGUNDA LINHA: PRODUÇÃO DE HOJE ---
+                        # --- LINHA 2: PRODUÇÃO DE HOJE ---
                         if codigo_ext in producao_hoje_pecas and producao_hoje_pecas[codigo_ext]:
                             lista_qtds = producao_hoje_pecas[codigo_ext]
                             total_hoje = sum(lista_qtds)
@@ -422,10 +422,10 @@ def renderizar(df_nuvem, df_codigos):
                             is_concluida = prod >= meta
                             str_perc = str(round(perc, 1)).replace('.', ',')
 
-                            # --- TERCEIRA LINHA: DADOS DA OP ---
+                            # --- LINHA 3: DADOS DA OP ---
                             linha_op = f"🎯 OP — Necessidade: {meta} | Produzido: {prod} | {str_perc}%"
                             
-                            # CSS nativo: Os asteriscos (*) formam os blocos quebrando as linhas
+                            # O uso de asteriscos formata o texto como <em> no markdown (para a quebra de linha do CSS)
                             if is_concluida:
                                 texto_completo = f"✅ [CONCLUÍDA] {peca_limpa} *{resumo_hoje}* *{linha_op}*"
                                 lista_concluidas.append(texto_completo)
@@ -461,19 +461,21 @@ def renderizar(df_nuvem, df_codigos):
                     else:
                         st.markdown("""
                             <style>
+                            /* --- ESTILO PARA FORÇAR OS 3 ANDARES (QUEBRA DE LINHA NATIVA) --- */
                             div[data-testid='stRadio'] { width: 100% !important; }
                             div[data-testid='stRadio'] > div { width: 100% !important; gap: 12px; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label {
+                            div[data-testid='stRadio'] label {
                                 background-color: #ffffff; border: 1px solid #bdc3c7; border-radius: 8px; padding: 16px 20px; width: 100%; cursor: pointer; transition: all 0.2s ease-in-out; margin: 0;
                             }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label:has(em) { background-color: #f4f6f7; border-color: #d1d8e0; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] { background-color: #ff4b4b !important; border-color: #ff4b4b !important; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label > div:first-child { display: none !important; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label p em { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p { color: #ffffff !important; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p em { color: #fcebeb !important; }
-                            div[data-testid='stRadio']:has(div[aria-orientation='vertical']) label[data-checked="true"] p::before { content: '✅ '; }
+                            div[data-testid='stRadio'] em { 
+                                display: block; margin-top: 6px; font-size: 14px; font-weight: 500; color: #7f8c8d; font-style: normal; 
+                            }
+                            div[data-testid='stRadio'] label[data-checked="true"] { background-color: #f4f6f7; border-color: #d1d8e0; }
+                            div[data-testid='stRadio'] label > div:first-child { display: none !important; }
+                            div[data-testid='stRadio'] label p { font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; text-align: left !important; width: 100%; display: block; }
+                            div[data-testid='stRadio'] label[data-checked="true"] p { color: #ff4b4b !important; }
+                            div[data-testid='stRadio'] label[data-checked="true"] em { color: #fcebeb !important; }
+                            div[data-testid='stRadio'] label[data-checked="true"] p::before { content: '✅ '; }
                             </style>
                         """, unsafe_allow_html=True)
                         
@@ -583,42 +585,49 @@ def renderizar(df_nuvem, df_codigos):
                     if not df_filtro.empty:
                         nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ {df_filtro.iloc[0]['descricao']}"
 
-        hora_inicio_iso = hora_inicio_str.replace(" ", "T")
+        hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         desc_fab = "Embalando:" if is_embalagem else "Fabricando:"
 
-        js_cronometro = f"""
+        # =========================================================================
+        # 🔥 CRONÔMETRO BLINDADO CONTRA NAME-ERRORS NA NUVEM (SEM F-STRINGS AQUI)
+        # =========================================================================
+        html_cronometro = """
         <style>
-            body {{ margin: 0; padding: 0; font-family: sans-serif; }}
-            .caixa {{ background-color: #27ae60; color: white; padding: 25px 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); box-sizing: border-box; margin: 0; }}
-            .titulo {{ margin: 0; font-size: 34px; text-transform: uppercase; font-weight: 900; }}
-            .sub {{ margin: 10px 0 15px 0; font-size: 18px; opacity: 0.95; }}
-            .cronometro {{ font-size: 60px; font-weight: 900; font-family: monospace; letter-spacing: 2px; }}
-            @media (max-width: 768px) {{ .caixa {{ padding: 20px 10px; }} .titulo {{ font-size: 24px; }} .sub {{ font-size: 15px; margin: 10px 0 10px 0; }} .cronometro {{ font-size: 40px; letter-spacing: 0px; }} }}
+            body { margin: 0; padding: 0; font-family: sans-serif; }
+            .caixa { background-color: #27ae60; color: white; padding: 25px 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); box-sizing: border-box; margin: 0; }
+            .titulo { margin: 0; font-size: 34px; text-transform: uppercase; font-weight: 900; }
+            .sub { margin: 10px 0 15px 0; font-size: 18px; opacity: 0.95; }
+            .cronometro { font-size: 60px; font-weight: 900; font-family: monospace; letter-spacing: 2px; }
+            @media (max-width: 768px) { .caixa { padding: 20px 10px; } .titulo { font-size: 24px; } .sub { font-size: 15px; margin: 10px 0 10px 0; } .cronometro { font-size: 40px; letter-spacing: 0px; } }
         </style>
         <div class="caixa">
-            <h1 class="titulo">🟢 EM PRODUÇÃO</h1><p class="sub">{desc_fab} <br><b>{nome_peca} (Cód: {cod_peca_atual})</b></p>
+            <h1 class="titulo">🟢 EM PRODUÇÃO</h1><p class="sub">DESC_FAB_PLACEHOLDER <br><b>NOME_PECA_PLACEHOLDER (Cód: COD_PECA_PLACEHOLDER)</b></p>
             <div id="stopwatch" class="cronometro">00:00:00</div>
         </div>
         <script>
-            const startTime = new Date("{hora_inicio_iso}").getTime();
-            setInterval(function() {{
+            const startTime = new Date("HORA_INICIO_PLACEHOLDER").getTime();
+            setInterval(function() {
                 const now = new Date().getTime(); const distance = now - startTime;
-                if (distance > 0) {{
+                if (distance > 0) {
                     const h = Math.floor(distance / (1000 * 60 * 60)); const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)); const s = Math.floor((distance % (1000 * 60)) / 1000);
                     document.getElementById("stopwatch").innerHTML = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-                }}
-            }}, 500);
+                }
+            }, 500);
         </script>
         """
-        components.html(js_cronometro, height=250)
+        html_cronometro = html_cronometro.replace("DESC_FAB_PLACEHOLDER", desc_fab).replace("NOME_PECA_PLACEHOLDER", nome_peca).replace("COD_PECA_PLACEHOLDER", str(cod_peca_atual)).replace("HORA_INICIO_PLACEHOLDER", hora_inicio_iso)
+        components.html(html_cronometro, height=250)
+        # =========================================================================
         
         chave_estado_fin = f"fin_estado_{setor_selecionado}_{maquina_selecionada}"
         estado_fin = st.session_state.get(chave_estado_fin, None)
         
-        # Bloqueio de 1 minuto para o botão de finalizar
-        hora_fim_calc = obter_hora_atual()
-        hora_inicio_calc = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
-        duracao_calc = (hora_fim_calc - hora_inicio_calc).total_seconds()
+        if hora_inicio_str:
+            hora_fim_calc = obter_hora_atual()
+            hora_inicio_calc = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
+            duracao_calc = (hora_fim_calc - hora_inicio_calc).total_seconds()
+        else:
+            duracao_calc = 999
         
         if not estado_fin:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -643,6 +652,8 @@ def renderizar(df_nuvem, df_codigos):
 
         else:
             def salvar_producao_atual(codigo_parada_novo, qtd_informada, modalidade_escolhida):
+                if not hora_inicio_str: return
+                
                 hora_fim = obter_hora_atual()
                 hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
                 duracao_segundos = (hora_fim - hora_inicio_obj).total_seconds()
@@ -803,7 +814,7 @@ def renderizar(df_nuvem, df_codigos):
                 desc_problema = str(filtro_desc.iloc[0]['descricao']).strip()
                 if 'tipo' in filtro_desc.columns: tipo_problema = str(filtro_desc.iloc[0]['tipo']).strip().upper()
 
-        hora_inicio_iso = hora_inicio_str.replace(" ", "T")
+        hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         is_pausa = (tipo_problema == 'NÃO CONTA' or 'DESCONSIDERAR' in tipo_problema)
         
         cor_fundo = "#f39c12" if is_pausa else "#c0392b"
@@ -812,36 +823,44 @@ def renderizar(df_nuvem, df_codigos):
         sub_texto = "Pausa em andamento:" if is_pausa else "Problema em andamento:"
         texto_botao = "✅ FINALIZAR INTERVALO" if is_pausa else "✅ PROBLEMA RESOLVIDO (FINALIZAR)"
 
-        js_cronometro = f"""
+        # =========================================================================
+        # 🔥 CRONÔMETRO BLINDADO CONTRA NAME-ERRORS NA NUVEM (SEM F-STRINGS AQUI)
+        # =========================================================================
+        html_cronometro = """
         <style>
-            body {{ margin: 0; padding: 0; font-family: sans-serif; }}
-            .caixa-vermelha {{ background-color: {cor_fundo}; color: white; padding: 25px 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px {cor_sombra}; box-sizing: border-box; margin: 0; transition: background-color 0.3s; }}
-            .titulo-vermelho {{ margin: 0; font-size: 34px; text-transform: uppercase; font-weight: 900; }}
-            .sub-vermelho {{ margin: 10px 0 15px 0; font-size: 18px; opacity: 0.95; }}
-            .cronometro {{ font-size: 60px; font-weight: 900; font-family: monospace; letter-spacing: 2px; }}
-            @media (max-width: 768px) {{ .caixa-vermelha {{ padding: 20px 10px; }} .titulo-vermelho {{ font-size: 24px; }} .sub-vermelho {{ font-size: 15px; margin: 10px 0 10px 0; }} .cronometro {{ font-size: 40px; letter-spacing: 0px; }} }}
+            body { margin: 0; padding: 0; font-family: sans-serif; }
+            .caixa-vermelha { background-color: COR_FUNDO_PLACEHOLDER; color: white; padding: 25px 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px COR_SOMBRA_PLACEHOLDER; box-sizing: border-box; margin: 0; transition: background-color 0.3s; }
+            .titulo-vermelho { margin: 0; font-size: 34px; text-transform: uppercase; font-weight: 900; }
+            .sub-vermelho { margin: 10px 0 15px 0; font-size: 18px; opacity: 0.95; }
+            .cronometro { font-size: 60px; font-weight: 900; font-family: monospace; letter-spacing: 2px; }
+            @media (max-width: 768px) { .caixa-vermelha { padding: 20px 10px; } .titulo-vermelho { font-size: 24px; } .sub-vermelho { font-size: 15px; margin: 10px 0 10px 0; } .cronometro { font-size: 40px; letter-spacing: 0px; } }
         </style>
         <div class="caixa-vermelha">
-            <h1 class="titulo-vermelho">{titulo_card}</h1><p class="sub-vermelho">{sub_texto} <br><b>{desc_problema} ({cod_ocorrencia})</b></p>
+            <h1 class="titulo-vermelho">TITULO_CARD_PLACEHOLDER</h1><p class="sub-vermelho">SUB_TEXTO_PLACEHOLDER <br><b>DESC_PROBLEMA_PLACEHOLDER (COD_OCORRENCIA_PLACEHOLDER)</b></p>
             <div id="stopwatch" class="cronometro">00:00:00</div>
         </div>
         <script>
-            const startTime = new Date("{hora_inicio_iso}").getTime();
-            setInterval(function() {{
+            const startTime = new Date("HORA_INICIO_PLACEHOLDER").getTime();
+            setInterval(function() {
                 const now = new Date().getTime(); const distance = now - startTime;
-                if (distance > 0) {{
+                if (distance > 0) {
                     const h = Math.floor(distance / (1000 * 60 * 60)); const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)); const s = Math.floor((distance % (1000 * 60)) / 1000);
                     document.getElementById("stopwatch").innerHTML = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-                }}
-            }}, 500);
+                }
+            }, 500);
         </script>
         """
-        components.html(js_cronometro, height=250)
+        html_cronometro = html_cronometro.replace("COR_FUNDO_PLACEHOLDER", cor_fundo).replace("COR_SOMBRA_PLACEHOLDER", cor_sombra).replace("TITULO_CARD_PLACEHOLDER", titulo_card).replace("SUB_TEXTO_PLACEHOLDER", sub_texto).replace("DESC_PROBLEMA_PLACEHOLDER", desc_problema).replace("COD_OCORRENCIA_PLACEHOLDER", str(cod_ocorrencia)).replace("HORA_INICIO_PLACEHOLDER", hora_inicio_iso)
+        components.html(html_cronometro, height=250)
+        # =========================================================================
         
-        hora_fim_calc = obter_hora_atual()
-        hora_inicio_calc = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
-        duracao_calc = (hora_fim_calc - hora_inicio_calc).total_seconds()
-        
+        if hora_inicio_str:
+            hora_fim_calc = obter_hora_atual()
+            hora_inicio_calc = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
+            duracao_calc = (hora_fim_calc - hora_inicio_calc).total_seconds()
+        else:
+            duracao_calc = 999
+            
         st.markdown("<br>", unsafe_allow_html=True)
         if duracao_calc < 60:
             if st.button("❌ CANCELAR PARADA (Erro de Seleção)", use_container_width=True):
@@ -854,7 +873,7 @@ def renderizar(df_nuvem, df_codigos):
             if st.button(texto_botao, use_container_width=True, type="primary"):
                 try:
                     hora_fim = obter_hora_atual()
-                    hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S")
+                    hora_inicio_obj = datetime.strptime(hora_inicio_str, "%Y-%m-%d %H:%M:%S") if hora_inicio_str else hora_fim
                     dados_nuvem = {
                         "data_registro": hora_inicio_obj.strftime("%Y-%m-%d"),
                         "setor": setor_selecionado, "maquina": maquina_selecionada, 
@@ -977,39 +996,3 @@ def renderizar(df_nuvem, df_codigos):
             try: st.query_params.clear()
             except: st.experimental_set_query_params()
             st.rerun()
-
-    # --- SCRIPT PARA ESCONDER BARRAS DE ROLAGEM E RECOLORIR BOTÕES ---
-    st.markdown("""
-        <script>
-            document.body.style.overflow = 'hidden';
-            setTimeout(() => { document.body.style.overflow = 'auto'; }, 1000);
-            
-            setInterval(() => {
-                const btns = window.parent.document.querySelectorAll('button');
-                btns.forEach(btn => {
-                    const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
-                    if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#27ae60', 'important');
-                            btn.style.setProperty('border-color', '#27ae60', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
-                    }
-                    else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#c0392b', 'important');
-                            btn.style.setProperty('border-color', '#c0392b', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
-                    }
-                    else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
-                        if (!btn.disabled) {
-                            btn.style.setProperty('background-color', '#e67e22', 'important');
-                            btn.style.setProperty('border-color', '#e67e22', 'important');
-                            btn.style.setProperty('color', 'white', 'important');
-                        }
-                    }
-                });
-            }, 300);
-        </script>
-    """, unsafe_allow_html=True)
