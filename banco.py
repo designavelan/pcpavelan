@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 import hashlib
+from datetime import datetime, timedelta
 
 try:
     URL_SUPABASE = st.secrets["SUPABASE_URL"]
@@ -148,17 +149,13 @@ def atualizar_estrutura_cascata(id_est, setor_antigo, maquina_antiga, setor_novo
 # ==========================================
 def obter_produtos_matriz():
     supa = conectar()
-    # Adicionamos .limit(10000) para forçar o Supabase a entregar todas as 2.900+ peças, 
-    # ignorando o bloqueio padrão de 1.000 linhas.
     resp = supa.table("produtos_matriz").select("*").limit(10000).execute()
     return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
 
 def sincronizar_produtos(lista_dicionarios):
     supa = conectar()
-    # 1. Substituição total (A Única Fonte de Verdade)
     supa.table("produtos_matriz").delete().neq("id", 0).execute()
     
-    # 2. Inserção em lotes (Para não travar o banco com 2.900 linhas)
     tamanho_lote = 500
     for i in range(0, len(lista_dicionarios), tamanho_lote):
         lote = lista_dicionarios[i:i+tamanho_lote]
@@ -166,5 +163,66 @@ def sincronizar_produtos(lista_dicionarios):
 
 def atualizar_peca_individual(id_peca, dados):
     supa = conectar()
-    # Agora salva a edição manual baseada no ID invisível do banco (funciona mesmo sem código!)
     supa.table("produtos_matriz").update(dados).eq("id", id_peca).execute()
+
+# ==========================================
+# FUNÇÕES DE CORREÇÃO DE QUANTIDADES (AUDITORIA)
+# ==========================================
+def obter_solicitacoes_pendentes():
+    supa = conectar()
+    resp = supa.table("solicitacoes_correcao").select("*, producao_diaria(nome_peca, setor, maquina)").eq("status", "Pendente").execute()
+    return resp.data if resp.data else []
+
+def enviar_solicitacao_correcao(id_producao, operador, qtd_antiga, qtd_nova, motivo):
+    supa = conectar()
+    # Verifica se o operador já clicou e há uma pendente
+    resp = supa.table("solicitacoes_correcao").select("id").eq("id_producao", id_producao).eq("status", "Pendente").execute()
+    if resp.data: return False, "Já existe uma solicitação pendente para este registro."
+        
+    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    dados = {
+        "id_producao": id_producao, "operador_solicitante": operador,
+        "data_solicitacao": agora, "qtd_antiga": qtd_antiga, "qtd_nova": qtd_nova, 
+        "motivo": motivo, "status": "Pendente"
+    }
+    supa.table("solicitacoes_correcao").insert(dados).execute()
+    return True, ""
+
+def aprovar_solicitacao(id_solic, id_prod, nova_qtd, admin_nome):
+    supa = conectar()
+    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    # Atualiza o registro original na fábrica
+    supa.table("producao_diaria").update({"quantidade": nova_qtd}).eq("id", id_prod).execute()
+    # Registra a auditoria da aprovação
+    supa.table("solicitacoes_correcao").update({
+        "status": "Aprovada", "aprovado_por": admin_nome, "data_decisao": agora
+    }).eq("id", id_solic).execute()
+
+def recusar_solicitacao(id_solic, admin_nome):
+    supa = conectar()
+    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    supa.table("solicitacoes_correcao").update({
+        "status": "Recusada", "aprovado_por": admin_nome, "data_decisao": agora
+    }).eq("id", id_solic).execute()
+
+def corrigir_registro_manual(id_prod, nova_qtd, motivo, admin_nome):
+    supa = conectar()
+    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Puxa a quantidade antiga para o histórico
+    resp = supa.table("producao_diaria").select("quantidade").eq("id", id_prod).execute()
+    if not resp.data: return False, "ID não encontrado na tabela de produção."
+    qtd_antiga = int(float(resp.data[0]['quantidade']))
+    
+    # Altera diretamente a produção
+    supa.table("producao_diaria").update({"quantidade": nova_qtd}).eq("id", id_prod).execute()
+    
+    # Salva a ação na caixa preta
+    dados = {
+        "id_producao": id_prod, "operador_solicitante": admin_nome,
+        "data_solicitacao": agora, "qtd_antiga": qtd_antiga, "qtd_nova": nova_qtd,
+        "motivo": motivo, "status": "Aprovada Direta", 
+        "aprovado_por": admin_nome, "data_decisao": agora
+    }
+    supa.table("solicitacoes_correcao").insert(dados).execute()
+    return True, ""

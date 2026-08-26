@@ -214,7 +214,6 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-# --- ABA CAIXAS INCLUÍDA NA LISTA PADRÃO ---
 todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
@@ -244,8 +243,61 @@ if 'aba_atual' not in st.session_state:
 if st.session_state.aba_atual not in todas_abas: st.session_state.aba_atual = todas_abas[0]
 
 # ==========================================
-# 3. CABEÇALHO GLOBAL CONDICIONAL 
+# 3. CABEÇALHO GLOBAL CONDICIONAL E POP-UP ADMIN
 # ==========================================
+@st.dialog("⚖️ Central de Correções", width="large")
+def abrir_central_correcoes(admin_nome):
+    st.markdown("### ⚖️ Gestão de Correções de Produção")
+    tab_pend, tab_manual = st.tabs(["Fila de Aprovações", "Correção Direta por ID"])
+    
+    with tab_pend:
+        pendentes = banco.obter_solicitacoes_pendentes()
+        if not pendentes:
+            st.success("🎉 Nenhuma solicitação pendente no momento.")
+        else:
+            for p in pendentes:
+                prod_info = p.get('producao_diaria', {})
+                if isinstance(prod_info, list) and len(prod_info) > 0: prod_info = prod_info[0]
+                nome_peca = prod_info.get('nome_peca', 'Desconhecida')
+                setor = prod_info.get('setor', '')
+                maq = prod_info.get('maquina', '')
+                
+                try: data_f = datetime.strptime(p['data_solicitacao'], "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y %H:%M")
+                except: data_f = p['data_solicitacao']
+                
+                st.markdown(f"**Registro #ID:** {p['id_producao']} | **Peça:** {nome_peca} ({setor} - {maq})")
+                st.markdown(f"**Operador:** {p['operador_solicitante']} | **Data do Pedido:** {data_f}")
+                st.markdown(f"<h4 style='color:#e74c3c; margin:0; font-size:16px;'>Quantidade Atual: {p['qtd_antiga']}</h4>", unsafe_allow_html=True)
+                st.markdown(f"<h4 style='color:#27ae60; margin:0 0 10px 0; font-size:16px;'>Quantidade Solicitada: {p['qtd_nova']}</h4>", unsafe_allow_html=True)
+                
+                if p.get('motivo'):
+                    st.info(f"**Motivo:** {p['motivo']}")
+                
+                c1, c2 = st.columns(2)
+                if c1.button("✅ Aprovar e Corrigir", key=f"apr_{p['id']}", type="primary", use_container_width=True):
+                    banco.aprovar_solicitacao(p['id'], p['id_producao'], p['qtd_nova'], admin_nome)
+                    st.rerun()
+                if c2.button("❌ Recusar Pedido", key=f"rec_{p['id']}", use_container_width=True):
+                    banco.recusar_solicitacao(p['id'], admin_nome)
+                    st.rerun()
+                st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+                
+    with tab_manual:
+        st.markdown("Busque um ID de produção e altere o valor diretamente. A alteração será auditada.")
+        id_busca = st.number_input("Digite o ID do Registro:", min_value=1, step=1)
+        nova_qtd_m = st.number_input("Nova Quantidade:", min_value=0, step=1)
+        motivo_m = st.text_input("Motivo da Alteração:")
+        if st.button("Corrigir Imediatamente", type="primary"):
+            if motivo_m:
+                sucesso, msg = banco.corrigir_registro_manual(id_busca, nova_qtd_m, motivo_m, admin_nome)
+                if sucesso:
+                    st.success("✅ Registro corrigido com sucesso!")
+                    st.rerun()
+                else:
+                    st.error(msg)
+            else:
+                st.warning("⚠️ Informe um motivo para a auditoria.")
+
 if st.session_state.aba_atual != "📱 Chão de Fábrica":
     c1, c2 = st.columns([8, 2])
     with c1:
@@ -255,7 +307,18 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
         else:
             st.markdown(f'<div class="logo-container"><h1 class="titulo-responsivo">🏭 {titulo_app}</h1></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-bottom: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
+        col_ola, col_sino = st.columns([7, 3])
+        with col_ola:
+            st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-top: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
+        with col_sino:
+            if is_admin:
+                pendentes = banco.obter_solicitacoes_pendentes()
+                if pendentes:
+                    if st.button(f"🔔 {len(pendentes)}", key="btn_sino_pendentes", help="Correções Pendentes"):
+                        abrir_central_correcoes(usuario_atual['nome'])
+                else:
+                    st.button("🔔 0", key="btn_sino_vazio", disabled=True)
+
         if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state['usuario_logado'] = None
             try: st.query_params.clear()
@@ -326,7 +389,7 @@ elif st.session_state.aba_atual == "👥 Controle de Acessos":
     usuarios.renderizar(df_nuvem)
 elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
-elif st.session_state.aba_atual == "📦 Caixas": # --- ROTA ADICIONADA AQUI ---
+elif st.session_state.aba_atual == "📦 Caixas": 
     caixas.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
     aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
