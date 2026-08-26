@@ -217,16 +217,9 @@ def renderizar_config_abas():
     ao_vivo_ref = int(cfg.get('ao_vivo_refresh', 60))
     ao_vivo_crit = int(cfg.get('ao_vivo_critico', 15))
     vel_atual = int(cfg.get('ao_vivo_vel_barra', 8))
-    
-    perm_troca = cfg.get('permitir_troca_maquina', False)
 
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    with st.expander("📱 Aba: Chão de Fábrica"):
-        st.markdown("Controle as permissões do terminal de apontamento do operador:")
-        novo_perm_troca = st.checkbox("Permitir que o operador troque de máquina ativamente", value=perm_troca)
-        st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o operador terá um botão no rodapé para mudar sua máquina e setor. A alteração refletirá instantaneamente na aba Controle de Acessos.</p>", unsafe_allow_html=True)
     
     with st.expander("📦 Aba: Produtos (Integração com Excel)", expanded=True):
         st.markdown("Defina o caminho local da sua planilha **Matriz** para permitir a sincronização automática nos computadores da fábrica.")
@@ -286,8 +279,7 @@ def renderizar_config_abas():
             dados = {
                 "meta_disponibilidade": nova_meta, "mostrar_cronico": novo_cronico, "mostrar_especifico": novo_especifico,
                 "top_gerais": novo_top_g, "top_individuais": novo_top_i, "perc_individual": novo_perc_i,
-                "ao_vivo_refresh": novo_ref, "ao_vivo_critico": novo_crit, "ao_vivo_vel_barra": novo_vel,
-                "permitir_troca_maquina": novo_perm_troca
+                "ao_vivo_refresh": novo_ref, "ao_vivo_critico": novo_crit, "ao_vivo_vel_barra": novo_vel
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
             salvar_breakpoints(novo_cel, novo_tab)
@@ -460,6 +452,9 @@ def renderizar_produtos_linha():
                         st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
+# ==========================================
+# NOVO MÓDULO: REGISTRO DE ACESSOS 
+# ==========================================
 def renderizar_registro_acessos():
     st.markdown("### 📡 Registro de Acessos")
     st.markdown("Acompanhe o histórico de sessões e a utilização do sistema pelos usuários de forma centralizada.")
@@ -469,11 +464,11 @@ def renderizar_registro_acessos():
     
     try:
         resp = supa.table("registro_sessoes").select("*").order("ultima_atividade", desc=True).execute()
-        df_sessoes_raw = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+        df_sessoes = pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
     except Exception as e:
-        df_sessoes_raw = pd.DataFrame()
+        df_sessoes = pd.DataFrame()
 
-    if df_sessoes_raw.empty:
+    if df_sessoes.empty:
         st.info("ℹ️ Nenhum registro de sessão encontrado ainda. Comece a utilizar o sistema para gerar os primeiros dados.")
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -499,51 +494,9 @@ def renderizar_registro_acessos():
             """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 📋 Histórico Detalhado de Sessões")
-        st.dataframe(pd.DataFrame(columns=["ID da Sessão", "Usuário", "Perfil", "Início", "Última Atividade", "Última Aba Visitada", "Status", "Duração"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(columns=["ID da Sessão", "Usuário", "Início", "Última Atividade", "Última Aba Visitada", "Status", "Duração"]), use_container_width=True, hide_index=True)
         return
 
-    # --- MAPEAMENTO INTELIGENTE DE PERFIS ---
-    usuarios_cadastrados = banco.obter_usuarios_completo()
-    mapa_perfis = {}
-    if usuarios_cadastrados:
-        for u in usuarios_cadastrados:
-            nome = u.get('nome', '')
-            login = u.get('username', '')
-            p_data = u.get('perfis_acesso', {})
-            nome_perfil = p_data.get('nome_perfil', 'Desconhecido') if isinstance(p_data, dict) else 'Desconhecido'
-            
-            if nome: mapa_perfis[nome] = nome_perfil
-            if login: mapa_perfis[login] = nome_perfil
-            
-    df_sessoes_raw['Perfil'] = df_sessoes_raw['usuario'].map(mapa_perfis).fillna('Desconhecido')
-
-    # --- NOVOS FILTROS DUPLOS ---
-    usuarios_unicos = sorted(df_sessoes_raw['usuario'].dropna().unique().tolist())
-    opcoes_filtro_user = ["Todos os Usuários"] + usuarios_unicos
-    
-    perfis_unicos = sorted(df_sessoes_raw['Perfil'].dropna().unique().tolist())
-    opcoes_filtro_perfil = ["Todos os Perfis"] + perfis_unicos
-
-    c_filtro_user, c_filtro_perfil = st.columns(2)
-    with c_filtro_user:
-        usuario_selecionado = st.selectbox("🔍 Filtrar por Usuário:", opcoes_filtro_user)
-    with c_filtro_perfil:
-        perfil_selecionado = st.selectbox("🛡️ Filtrar por Perfil:", opcoes_filtro_perfil)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Aplica os filtros
-    df_sessoes = df_sessoes_raw.copy()
-    if usuario_selecionado != "Todos os Usuários":
-        df_sessoes = df_sessoes[df_sessoes['usuario'] == usuario_selecionado]
-    if perfil_selecionado != "Todos os Perfis":
-        df_sessoes = df_sessoes[df_sessoes['Perfil'] == perfil_selecionado]
-
-    if df_sessoes.empty:
-        st.warning(f"Nenhum dado encontrado para os filtros selecionados.")
-        return
-
-    # --- PROCESSAMENTO DOS DADOS ---
     df_sessoes['inicio_dt'] = pd.to_datetime(df_sessoes['inicio'])
     df_sessoes['ultima_atividade_dt'] = pd.to_datetime(df_sessoes['ultima_atividade'])
     
@@ -603,8 +556,7 @@ def renderizar_registro_acessos():
     df_sessoes['Início'] = df_sessoes['inicio_dt'].dt.strftime('%d/%m/%Y %H:%M')
     df_sessoes['Última Ativ.'] = df_sessoes['ultima_atividade_dt'].dt.strftime('%d/%m/%Y %H:%M')
     
-    # Atualiza a exibição da tabela incluindo o Perfil
-    df_exibicao = df_sessoes[['id', 'usuario', 'Perfil', 'Início', 'Última Ativ.', 'ultima_aba', 'Status', 'Duração']].copy()
-    df_exibicao.columns = ['ID', 'Usuário', 'Perfil', 'Início', 'Última Atividade', 'Última Aba Visitada', 'Status', 'Duração']
+    df_exibicao = df_sessoes[['id', 'usuario', 'Início', 'Última Ativ.', 'ultima_aba', 'Status', 'Duração']].copy()
+    df_exibicao.columns = ['ID', 'Usuário', 'Início', 'Última Atividade', 'Última Aba Visitada', 'Status', 'Duração']
     
     st.dataframe(df_exibicao, use_container_width=True, hide_index=True)

@@ -5,7 +5,7 @@ from datetime import datetime, date
 import time
 
 # ==========================================
-# FUNÇÕES GERAIS E EXPORTÁVEIS (DRY)
+# FUNÇÕES DE TABELA E FORMATAÇÃO
 # ==========================================
 def formatar_valor(valor):
     return valor if valor > 0 else ""
@@ -14,146 +14,6 @@ def formatar_numero(valor):
     """Adiciona ponto separador de milhar no padrão brasileiro."""
     return f"{int(valor):,}".replace(",", ".")
 
-def renderizar_barra_inline(label, meta, prod):
-    perc = (prod / meta * 100) if meta > 0 else 0
-    perc_disp = min(100, perc)
-    
-    if perc_disp < 40: cor = "#e74c3c"
-    elif perc_disp < 80: cor = "#f1c40f"
-    else: cor = "#27ae60"
-    
-    prod_fmt = formatar_numero(prod)
-    meta_fmt = formatar_numero(meta)
-    
-    html = f"""<div style="display: flex; align-items: center; margin-bottom: 18px;">
-    <div style="flex: 0 0 320px; font-weight: bold; color: #2c3e50; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px;">📦 {label}</div>
-    <div style="flex-grow: 1; background-color: #ecf0f1; border-radius: 8px; height: 22px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
-        <div style="background-color: {cor}; width: {perc_disp}%; height: 100%; transition: width 0.5s ease;"></div>
-    </div>
-    <div style="flex: 0 0 140px; font-size: 13px; color: #7f8c8d; text-align: right; padding-left: 15px;"><b>{perc:.1f}%</b> <span style="font-size:11px;">({prod_fmt}/{meta_fmt})</span></div>
-</div>"""
-    st.markdown(html, unsafe_allow_html=True)
-
-def obter_dados_corrida_ops(supa, df_produtos, df_caixas):
-    """Função centralizada para calcular o progresso das OPs ativas."""
-    resp_ops = supa.table("planejamento_ops").select("*").eq("status", "Em Andamento").order('ordem_prioridade', desc=False).order('id', desc=True).execute()
-    ops_ativas = resp_ops.data if resp_ops.data else []
-    produtos_em_op = [op['produto_formula'] for op in ops_ativas]
-
-    lista_dados_ops = []
-    df_todas_producoes = pd.DataFrame()
-    
-    if ops_ativas:
-        datas_brutas = [op['data_inicio'] for op in ops_ativas]
-        menor_data_str = min(datas_brutas).split(" ")[0].split("T")[0]
-        
-        resp_prod = supa.table("producao_diaria").select("setor, cod_peca, quantidade, data_registro").eq("tipo", "PRODUÇÃO").gte("data_registro", menor_data_str).execute()
-        if resp_prod.data:
-            df_todas_producoes = pd.DataFrame(resp_prod.data)
-            df_todas_producoes['data_registro_dt'] = pd.to_datetime(df_todas_producoes['data_registro'])
-            df_todas_producoes['cod_peca'] = df_todas_producoes['cod_peca'].astype(str).str.strip()
-            df_todas_producoes['setor'] = df_todas_producoes['setor'].astype(str).str.strip().str.upper()
-            df_todas_producoes['quantidade'] = pd.to_numeric(df_todas_producoes['quantidade'], errors='coerce').fillna(0)
-
-        for idx_op, op in enumerate(ops_ativas):
-            num_prioridade = idx_op + 1
-            nome_op = op['produto_formula']
-            qtd_plan = op['quantidade_planejada']
-            
-            data_bruta_limpa = op['data_inicio'].split(" ")[0].split("T")[0]
-            data_op_dt = pd.to_datetime(data_bruta_limpa)
-            try: data_formatada = datetime.strptime(data_bruta_limpa, "%Y-%m-%d").strftime("%d/%m/%Y")
-            except: data_formatada = data_bruta_limpa
-                
-            df_filtrado = df_produtos[df_produtos['produto_formula'] == nome_op]
-            
-            mapa_prod = {}
-            if not df_todas_producoes.empty:
-                df_op_prod = df_todas_producoes[df_todas_producoes['data_registro_dt'] >= data_op_dt]
-                agrup = df_op_prod.groupby(['setor', 'cod_peca'])['quantidade'].sum().reset_index()
-                for _, r in agrup.iterrows(): mapa_prod[(r['setor'], r['cod_peca'])] = int(r['quantidade'])
-            
-            meta_setor = {'Corte': 0, 'Coladeira': 0, 'Furadeira': 0, 'Pintura': 0, 'Embalagem': 0}
-            prod_setor = {'Corte': 0, 'Coladeira': 0, 'Furadeira': 0, 'Pintura': 0, 'Embalagem': 0}
-            
-            codigos_desta_op = []
-            
-            for _, row in df_filtrado.iterrows():
-                try: qnt_peca = int(float(row.get('qnt', 0)))
-                except: qnt_peca = 0
-                qtd_total = qnt_peca * qtd_plan
-                cod = str(row.get('cod', '')).strip()
-                codigos_desta_op.append(cod)
-                
-                def get_p(s): return mapa_prod.get((s.upper(), cod), 0)
-                
-                meta_setor['Corte'] += qtd_total
-                prod_setor['Corte'] += min(qtd_total, get_p('Corte'))
-                
-                f_m = str(row.get('fita_mais', '')).replace('.0', '').strip()
-                f_mn = str(row.get('fita_menos', '')).replace('.0', '').strip()
-                if f_m in ['1', '2', '*'] or f_mn in ['1', '2', '*']:
-                    meta_setor['Coladeira'] += qtd_total
-                    prod_setor['Coladeira'] += min(qtd_total, get_p('Coladeira'))
-                    
-                if str(row.get('furadeira', '')).strip().upper() == 'SIM':
-                    meta_setor['Furadeira'] += qtd_total
-                    prod_setor['Furadeira'] += min(qtd_total, get_p('Furadeira'))
-                    
-                lp = str(row.get('lp', '')).replace('.0', '').strip()
-                if lp in ['1', '2']:
-                    meta_setor['Pintura'] += qtd_total
-                    prod_setor['Pintura'] += min(qtd_total, get_p('Pintura'))
-
-            if not df_caixas.empty:
-                df_cx_filtrado = df_caixas[df_caixas['produto_formula'] == nome_op]
-                for _, row_cx in df_cx_filtrado.iterrows():
-                    cod_cx = str(row_cx.get('cod_caixa', '')).strip()
-                    if cod_cx and cod_cx not in ["", "None", "nan"]:
-                        codigos_desta_op.append(cod_cx) 
-                        meta_setor['Embalagem'] += qtd_plan
-                        prod_cx_real = mapa_prod.get(('EMBALAGEM', cod_cx), 0)
-                        prod_setor['Embalagem'] += min(qtd_plan, prod_cx_real)
-
-            meta_global = sum(meta_setor.values())
-            prod_global = sum(prod_setor.values())
-            
-            rotulo_com_prioridade = f"{num_prioridade} — {nome_op}"
-            
-            lista_dados_ops.append({
-                'op_dict': op,
-                'id': op['id'],
-                'nome': nome_op,
-                'label': rotulo_com_prioridade,
-                'qtd_plan': qtd_plan,
-                'inicio': data_formatada, 
-                'inicio_dt_original': data_op_dt,
-                'meta_global': meta_global,
-                'prod_global': prod_global,
-                'setores': meta_setor,
-                'produzidos': prod_setor,
-                'codigos': codigos_desta_op
-            })
-            
-    return {
-        'ops_ativas': ops_ativas,
-        'produtos_em_op': produtos_em_op,
-        'df_todas_producoes': df_todas_producoes,
-        'lista_dados_ops': lista_dados_ops
-    }
-
-def renderizar_corrida_ops(lista_filtrada, limite=None):
-    """Componente visual isolado para ser importado em outras telas."""
-    st.markdown("<h4 style='color:#2c3e50; font-size: 18px; margin-bottom: 25px;'>🏁 A Corrida das OPs (Produtos)</h4>", unsafe_allow_html=True)
-    if limite:
-        lista_filtrada = lista_filtrada[:limite]
-    for d in lista_filtrada:
-        label_completo = f"{d['label']} — {formatar_numero(d['qtd_plan'])} unidades"
-        renderizar_barra_inline(label_completo, d['meta_global'], d['prod_global'])
-
-# ==========================================
-# FUNÇÕES DE TABELA DETALHADA
-# ==========================================
 def gerar_tabela_necessidades(df_produtos, df_apontamentos, produto, qtd_op):
     df_filtrado = df_produtos[df_produtos['produto_formula'] == produto].copy()
     linhas_tabela = []
@@ -259,43 +119,61 @@ def gerar_tabela_caixas(df_caixas, df_apontamentos, produto, qtd_op):
 
 def estilizar_tabela_pecas(df):
     if df.empty: return df
+    
     def aplicar_estilos(row):
         styles = []
         for col in row.index:
             estilo = "text-align: center; vertical-align: middle;"
-            if col == ("", "Peça"): estilo = "text-align: left; vertical-align: middle;"
-            if col[1] == "Prod.": estilo += " color: #27ae60; font-weight: bold;"
+            
+            if col == ("", "Peça"):
+                estilo = "text-align: left; vertical-align: middle;"
+                
+            if col[1] == "Prod.":
+                estilo += " color: #27ae60; font-weight: bold;"
             elif col[1] == "Necess.":
                 setor = col[0]
                 val_nec = row[col]
                 val_prod = row.get((setor, "Prod."), "")
+                
                 try: nec_num = float(val_nec) if val_nec != "" else 0
                 except: nec_num = 0
+                    
                 try: prod_num = float(val_prod) if val_prod != "" else 0
                 except: prod_num = 0
+                
                 if nec_num > 0:
-                    if prod_num >= nec_num: estilo += " color: #27ae60; font-weight: bold;" 
-                    else: estilo += " color: #e74c3c; font-weight: bold;" 
+                    if prod_num >= nec_num:
+                        estilo += " color: #27ae60; font-weight: bold;" 
+                    else:
+                        estilo += " color: #e74c3c; font-weight: bold;" 
+                        
             styles.append(estilo)
         return styles
+        
     return df.style.apply(aplicar_estilos, axis=1)
 
 def estilizar_tabela_caixas(df):
     if df.empty: return df
+    
     def aplicar_estilos_cx(row):
         styles = ["text-align: center; vertical-align: middle;"] * len(row)
         styles[0] = "text-align: left; font-weight: bold; color: #2c3e50;" 
+        
         val_nec = row["Meta"]
         val_prod = row["Produzido"]
         try: nec_num = float(val_nec) if val_nec != "" else 0
         except: nec_num = 0
         try: prod_num = float(val_prod) if val_prod != "" else 0
         except: prod_num = 0
+        
         idx_prod = df.columns.get_loc("Produzido")
         if nec_num > 0:
-            if prod_num >= nec_num: styles[idx_prod] += " color: #27ae60; font-weight: bold;"
-            else: styles[idx_prod] += " color: #e74c3c; font-weight: bold;"
+            if prod_num >= nec_num:
+                styles[idx_prod] += " color: #27ae60; font-weight: bold;"
+            else:
+                styles[idx_prod] += " color: #e74c3c; font-weight: bold;"
         return styles
+        
     return df.style.apply(aplicar_estilos_cx, axis=1)
 
 # ==========================================
@@ -334,8 +212,28 @@ def renderizar_barra_progresso(label, meta, prod, altura_fina=False, unidade="Pe
 </div>"""
     st.markdown(html, unsafe_allow_html=True)
 
+def renderizar_barra_inline(label, meta, prod):
+    perc = (prod / meta * 100) if meta > 0 else 0
+    perc_disp = min(100, perc)
+    
+    if perc_disp < 40: cor = "#e74c3c"
+    elif perc_disp < 80: cor = "#f1c40f"
+    else: cor = "#27ae60"
+    
+    prod_fmt = formatar_numero(prod)
+    meta_fmt = formatar_numero(meta)
+    
+    html = f"""<div style="display: flex; align-items: center; margin-bottom: 18px;">
+    <div style="flex: 0 0 320px; font-weight: bold; color: #2c3e50; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 15px;">📦 {label}</div>
+    <div style="flex-grow: 1; background-color: #ecf0f1; border-radius: 8px; height: 22px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+        <div style="background-color: {cor}; width: {perc_disp}%; height: 100%; transition: width 0.5s ease;"></div>
+    </div>
+    <div style="flex: 0 0 140px; font-size: 13px; color: #7f8c8d; text-align: right; padding-left: 15px;"><b>{perc:.1f}%</b> <span style="font-size:11px;">({prod_fmt}/{meta_fmt})</span></div>
+</div>"""
+    st.markdown(html, unsafe_allow_html=True)
+
 # ==========================================
-# RENDERIZAÇÃO PRINCIPAL DA TELA
+# RENDERIZAÇÃO PRINCIPAL
 # ==========================================
 def renderizar():
     container_cabecalho = st.container()
@@ -364,16 +262,114 @@ def renderizar():
         
     lista_produtos = sorted(df_produtos['produto_formula'].dropna().unique().tolist())
     
-    # CHAMA A FUNÇÃO CENTRALIZADA (DRY)
-    dados_ops = obter_dados_corrida_ops(supa, df_produtos, df_caixas)
-    ops_ativas = dados_ops['ops_ativas']
-    produtos_em_op = dados_ops['produtos_em_op']
-    df_todas_producoes = dados_ops['df_todas_producoes']
-    lista_dados_ops = dados_ops['lista_dados_ops']
+    resp_ops = supa.table("planejamento_ops").select("*").eq("status", "Em Andamento").order('ordem_prioridade', desc=False).order('id', desc=True).execute()
+    ops_ativas = resp_ops.data if resp_ops.data else []
+    produtos_em_op = [op['produto_formula'] for op in ops_ativas]
 
     if not ops_ativas:
         with container_cabecalho: st.info("Nenhuma ordem de produção ativa no momento para gerar os gráficos.")
         
+    # ==========================================
+    # CÁLCULO GERAL E MOTOR DE DADOS
+    # ==========================================
+    lista_dados_ops = []
+    df_todas_producoes = pd.DataFrame()
+    
+    if ops_ativas:
+        datas_brutas = [op['data_inicio'] for op in ops_ativas]
+        menor_data_str = min(datas_brutas).split(" ")[0].split("T")[0]
+        
+        resp_prod = supa.table("producao_diaria").select("setor, cod_peca, quantidade, data_registro").eq("tipo", "PRODUÇÃO").gte("data_registro", menor_data_str).execute()
+        if resp_prod.data:
+            df_todas_producoes = pd.DataFrame(resp_prod.data)
+            df_todas_producoes['data_registro_dt'] = pd.to_datetime(df_todas_producoes['data_registro'])
+            df_todas_producoes['cod_peca'] = df_todas_producoes['cod_peca'].astype(str).str.strip()
+            df_todas_producoes['setor'] = df_todas_producoes['setor'].astype(str).str.strip().str.upper()
+            df_todas_producoes['quantidade'] = pd.to_numeric(df_todas_producoes['quantidade'], errors='coerce').fillna(0)
+
+        for idx_op, op in enumerate(ops_ativas):
+            num_prioridade = idx_op + 1
+            nome_op = op['produto_formula']
+            qtd_plan = op['quantidade_planejada']
+            
+            data_bruta_limpa = op['data_inicio'].split(" ")[0].split("T")[0]
+            data_op_dt = pd.to_datetime(data_bruta_limpa)
+            try: data_formatada = datetime.strptime(data_bruta_limpa, "%Y-%m-%d").strftime("%d/%m/%Y")
+            except: data_formatada = data_bruta_limpa
+                
+            df_filtrado = df_produtos[df_produtos['produto_formula'] == nome_op]
+            
+            mapa_prod = {}
+            if not df_todas_producoes.empty:
+                df_op_prod = df_todas_producoes[df_todas_producoes['data_registro_dt'] >= data_op_dt]
+                agrup = df_op_prod.groupby(['setor', 'cod_peca'])['quantidade'].sum().reset_index()
+                for _, r in agrup.iterrows(): mapa_prod[(r['setor'], r['cod_peca'])] = int(r['quantidade'])
+            
+            meta_setor = {'Corte': 0, 'Coladeira': 0, 'Furadeira': 0, 'Pintura': 0, 'Embalagem': 0}
+            prod_setor = {'Corte': 0, 'Coladeira': 0, 'Furadeira': 0, 'Pintura': 0, 'Embalagem': 0}
+            
+            codigos_desta_op = []
+            
+            # --- LOOP 1: PEÇAS (Madeira) ---
+            for _, row in df_filtrado.iterrows():
+                try: qnt_peca = int(float(row.get('qnt', 0)))
+                except: qnt_peca = 0
+                qtd_total = qnt_peca * qtd_plan
+                cod = str(row.get('cod', '')).strip()
+                codigos_desta_op.append(cod)
+                
+                def get_p(s): return mapa_prod.get((s.upper(), cod), 0)
+                
+                # 🛑 AQUI ESTÁ A "TELA MAGNÉTICA": min(qtd_total, get_p)
+                meta_setor['Corte'] += qtd_total
+                prod_setor['Corte'] += min(qtd_total, get_p('Corte'))
+                
+                f_m = str(row.get('fita_mais', '')).replace('.0', '').strip()
+                f_mn = str(row.get('fita_menos', '')).replace('.0', '').strip()
+                if f_m in ['1', '2', '*'] or f_mn in ['1', '2', '*']:
+                    meta_setor['Coladeira'] += qtd_total
+                    prod_setor['Coladeira'] += min(qtd_total, get_p('Coladeira'))
+                    
+                if str(row.get('furadeira', '')).strip().upper() == 'SIM':
+                    meta_setor['Furadeira'] += qtd_total
+                    prod_setor['Furadeira'] += min(qtd_total, get_p('Furadeira'))
+                    
+                lp = str(row.get('lp', '')).replace('.0', '').strip()
+                if lp in ['1', '2']:
+                    meta_setor['Pintura'] += qtd_total
+                    prod_setor['Pintura'] += min(qtd_total, get_p('Pintura'))
+
+            # --- LOOP 2: CAIXAS (Embalagem) ---
+            if not df_caixas.empty:
+                df_cx_filtrado = df_caixas[df_caixas['produto_formula'] == nome_op]
+                for _, row_cx in df_cx_filtrado.iterrows():
+                    cod_cx = str(row_cx.get('cod_caixa', '')).strip()
+                    if cod_cx and cod_cx not in ["", "None", "nan"]:
+                        codigos_desta_op.append(cod_cx) 
+                        meta_setor['Embalagem'] += qtd_plan
+                        prod_cx_real = mapa_prod.get(('EMBALAGEM', cod_cx), 0)
+                        prod_setor['Embalagem'] += min(qtd_plan, prod_cx_real)
+
+            meta_global = sum(meta_setor.values())
+            prod_global = sum(prod_setor.values())
+            
+            rotulo_com_prioridade = f"{num_prioridade} — {nome_op}"
+            
+            lista_dados_ops.append({
+                'op_dict': op,
+                'id': op['id'],
+                'nome': nome_op,
+                'label': rotulo_com_prioridade,
+                'qtd_plan': qtd_plan,
+                'inicio': data_formatada, 
+                'inicio_dt_original': data_op_dt,
+                'meta_global': meta_global,
+                'prod_global': prod_global,
+                'setores': meta_setor,
+                'produzidos': prod_setor,
+                'codigos': codigos_desta_op
+            })
+
     # ==========================================
     # ÁREA ADMINISTRATIVA
     # ==========================================
@@ -387,10 +383,7 @@ def renderizar():
             with st.expander("➕ NOVA ORDEM DE PRODUÇÃO", expanded=False):
                 with st.form("form_nova_op"):
                     produto_sel = st.selectbox("Produto:", [""] + lista_produtos)
-                    
-                    # --- ATUALIZAÇÃO DO PULO DO BOTÃO DE QTD PARA 50 ---
-                    qtd_op = st.number_input("Qtd (Unid.):", min_value=1, value=500, step=50)
-                    
+                    qtd_op = st.number_input("Qtd (Unid.):", min_value=1, value=500, step=1)
                     data_inicio = st.date_input("Início:", value=date.today())
                     st.markdown("<br>", unsafe_allow_html=True)
                     btn_abrir = st.form_submit_button("🚀 Iniciar Produção", type="primary", use_container_width=True)
@@ -481,8 +474,10 @@ def renderizar():
         # DASHBOARDS GRÁFICOS OTIMIZADOS
         # ==========================================
         with container_graficos:
-            # CHAMADA DRY DA CORRIDA
-            renderizar_corrida_ops(lista_filtrada)
+            st.markdown("<h4 style='color:#2c3e50; font-size: 18px; margin-bottom: 25px;'>🏁 A Corrida das OPs (Produtos)</h4>", unsafe_allow_html=True)
+            for d in lista_filtrada:
+                label_completo = f"{d['label']} — {formatar_numero(d['qtd_plan'])} unidades"
+                renderizar_barra_inline(label_completo, d['meta_global'], d['prod_global'])
 
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -545,6 +540,7 @@ def renderizar():
 </div>"""
                         st.markdown(html_tabela, unsafe_allow_html=True)
                     
+                    # --- NOVA TABELA: CAIXAS (EMBALAGEM) ---
                     df_caixas_tabela = gerar_tabela_caixas(df_caixas, df_op_prod, nome_prod, qtd_plan)
                     if not df_caixas_tabela.empty:
                         df_cx_estilizado = estilizar_tabela_caixas(df_caixas_tabela)

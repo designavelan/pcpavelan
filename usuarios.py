@@ -15,23 +15,16 @@ def renderizar(df_nuvem):
     supa = banco.conectar()
     df_perfis = banco.obter_perfis()
     
-    # --- CORREÇÃO: BUSCAR DA ESTRUTURA OFICIAL DA FÁBRICA ---
-    df_est = banco.obter_estrutura()
-    if not df_est.empty:
-        lista_setores = sorted(df_est['setor'].dropna().unique().tolist())
-        lista_maquinas_geral = sorted(df_est['maquina'].dropna().unique().tolist())
-    else:
-        lista_setores = []
-        lista_maquinas_geral = []
-    
-    # ⚠️ LISTA ATUALIZADA com a aba de Caixas
+    # ⚠️ LISTA ATUALIZADA: Painel de OPs, Desempenho e Produtos incluídos
     todas_abas_sistema = [
         "📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", 
         "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", 
-        "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", 
+        "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", 
         "⚙️ Configurações", "👥 Controle de Acessos"
     ]
     
+    lista_setores = sorted(df_nuvem['setor'].dropna().unique().tolist()) if not df_nuvem.empty else []
+    lista_maquinas_geral = sorted(df_nuvem['maquina'].dropna().unique().tolist()) if not df_nuvem.empty else []
     opcoes_perfis = df_perfis['nome_perfil'].tolist() if not df_perfis.empty else []
 
     # ==========================================
@@ -116,12 +109,7 @@ def renderizar(df_nuvem):
                 n_perfil = st.selectbox("Perfil de Permissão", opcoes_perfis)
                 n_setor = st.selectbox("Setor Vinculado", ["[ Todos ]"] + lista_setores)
                 
-                # --- CORREÇÃO: USAR df_est PARA FILTRAR AS MÁQUINAS ---
-                if n_setor == "[ Todos ]":
-                    opcoes_maq = ["[ Todas ]"] + lista_maquinas_geral
-                else:
-                    opcoes_maq = ["[ Todas ]"] + sorted(df_est[df_est['setor'] == n_setor]['maquina'].dropna().unique().tolist())
-                    
+                opcoes_maq = ["[ Todas ]"] + lista_maquinas_geral if n_setor == "[ Todos ]" else ["[ Todas ]"] + sorted(df_nuvem[df_nuvem['setor'] == n_setor]['maquina'].dropna().unique().tolist())
                 n_maquina = st.selectbox("Máquina Vinculada", opcoes_maq)
                 
             if st.button("💾 Cadastrar Usuário", type="primary"):
@@ -162,12 +150,7 @@ def renderizar(df_nuvem):
                         idx_setor = get_idx(opcoes_setor, dados_u['setor'])
                         ed_setor = st.selectbox("Alterar Setor Vinculado", opcoes_setor, index=idx_setor)
                         
-                        # --- CORREÇÃO: USAR df_est PARA FILTRAR AS MÁQUINAS ---
-                        if ed_setor == "[ Todos ]":
-                            opcoes_maq = ["[ Todas ]"] + lista_maquinas_geral
-                        else:
-                            opcoes_maq = ["[ Todas ]"] + sorted(df_est[df_est['setor'] == ed_setor]['maquina'].dropna().unique().tolist())
-                            
+                        opcoes_maq = ["[ Todas ]"] + lista_maquinas_geral if ed_setor == "[ Todos ]" else ["[ Todas ]"] + sorted(df_nuvem[df_nuvem['setor'] == ed_setor]['maquina'].dropna().unique().tolist())
                         idx_maq = get_idx(opcoes_maq, dados_u['maquina'])
                         ed_maquina = st.selectbox("Alterar Máquina Vinculada", opcoes_maq, index=idx_maq)
                         

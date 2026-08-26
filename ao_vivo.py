@@ -6,7 +6,6 @@ import streamlit.components.v1 as components
 import json
 import time
 import altair as alt
-import painel_ops  # <-- IMPORTAÇÃO MAGNÍFICA DA LÓGICA (DRY)
 
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
@@ -82,7 +81,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     supa = banco.conectar()
     df_est = banco.obter_estrutura()
-    df_produtos = banco.obter_produtos_matriz() 
     
     total_maq_atual = 0
     if not df_est.empty:
@@ -157,22 +155,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     st.altair_chart(chart, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ==========================================
-    # 🏁 A CORRIDA DAS OPS (IMPORTAÇÃO INTELIGENTE DRY)
-    # ==========================================
-    try:
-        resp_cx = supa.table("caixas_matriz").select("*").execute()
-        df_caixas = pd.DataFrame(resp_cx.data) if resp_cx.data else pd.DataFrame()
-    except:
-        df_caixas = pd.DataFrame()
-        
-    dados_ops = painel_ops.obter_dados_corrida_ops(supa, df_produtos, df_caixas)
-    if dados_ops and dados_ops['lista_dados_ops']:
-        st.markdown("<div style='background-color: #ffffff; border: 1px solid #e1e8ed; padding: 20px; border-radius: 8px; margin-bottom: 25px; margin-top: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
-        # LIMITE MÁXIMO DE 5 OPS NA TELA DA TV PARA NÃO QUEBRAR O LAYOUT
-        painel_ops.renderizar_corrida_ops(dados_ops['lista_dados_ops'], limite=5)
-        st.markdown("</div>", unsafe_allow_html=True)
-
+    df_produtos = banco.obter_produtos_matriz() 
     usuarios_cadastrados = banco.obter_usuarios_completo() 
     
     if df_est.empty:
@@ -203,9 +186,11 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
     # ==========================================
-    # ⚡ MOTOR DE PROGRESSO DE OPs (MAPA VISUAL)
+    # ⚡ MOTOR DE PROGRESSO DE OPs (Pré-Processamento)
     # ==========================================
-    ops_ativas = dados_ops['ops_ativas'] if dados_ops else {}
+    resp_ops = supa.table("planejamento_ops").select("produto_formula, quantidade_planejada, data_inicio").eq("status", "Em Andamento").execute()
+    ops_ativas = {op['produto_formula']: op for op in (resp_ops.data if resp_ops.data else [])}
+    
     df_nuvem_operacao = pd.DataFrame()
     if not df_nuvem.empty and 'data_registro' in df_nuvem.columns:
         if 'tipo' in df_nuvem.columns:
