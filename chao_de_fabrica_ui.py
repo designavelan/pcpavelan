@@ -260,15 +260,23 @@ def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso)
                 document.getElementById("stopwatch").innerHTML = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
             }}
             
+            // --- CORREÇÃO BUG 2: Transição Mágica (Automática após 60 seg) ---
             const isLess1Min = distance < 60000;
             const btns = window.parent.document.querySelectorAll('button');
             btns.forEach(btn => {{
                 const txt = btn.innerText ? btn.innerText.toUpperCase() : "";
                 if(txt.includes('CANCELAR PRODUÇÃO (ERRO DE SELEÇÃO)')) {{
-                    btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'block' : 'none';
+                    let divBtn = btn.closest('div[data-testid="stButton"]');
+                    if (divBtn) divBtn.style.display = isLess1Min ? 'block' : 'none';
                 }}
                 if(txt === '✅ FINALIZAR (CONCLUÍDO)' || txt === '🔴 INTERROMPER (POR FALHA)') {{
-                    btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'none' : 'block';
+                    let colContainer = btn.closest('div[data-testid="column"]');
+                    if (colContainer) {{
+                        colContainer.style.display = isLess1Min ? 'none' : 'block';
+                    }} else {{
+                        let divBtn2 = btn.closest('div[data-testid="stButton"]');
+                        if (divBtn2) divBtn2.style.display = isLess1Min ? 'none' : 'block';
+                    }}
                 }}
             }});
         }}, 500);
@@ -303,10 +311,12 @@ def obter_html_cronometro_parado(titulo_card, sub_texto, desc_problema, cod_ocor
             btns.forEach(btn => {{
                 const txt = btn.innerText ? btn.innerText.toUpperCase() : "";
                 if(txt.includes('CANCELAR PARADA (ERRO DE SELEÇÃO)')) {{
-                    btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'block' : 'none';
+                    let divBtn = btn.closest('div[data-testid="stButton"]');
+                    if (divBtn) divBtn.style.display = isLess1Min ? 'block' : 'none';
                 }}
                 if(txt === '{texto_botao.upper()}') {{
-                    btn.closest('div[data-testid="stButton"]').style.display = isLess1Min ? 'none' : 'block';
+                    let divBtn2 = btn.closest('div[data-testid="stButton"]');
+                    if (divBtn2) divBtn2.style.display = isLess1Min ? 'none' : 'block';
                 }}
             }});
         }}, 500);

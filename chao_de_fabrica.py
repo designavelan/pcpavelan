@@ -38,7 +38,7 @@ def cache_obter_estrutura():
     return banco.obter_estrutura()
 
 # ==========================================
-# JANELA FLUTUANTE (POP-UP DO OPERADOR)
+# JANELAS FLUTUANTES (POP-UPS)
 # ==========================================
 @st.dialog("📝 Solicitar Correção de Quantidade")
 def abrir_dialog_correcao(id_reg, qtd_atual, nomes_operadores):
@@ -62,11 +62,49 @@ def abrir_dialog_correcao(id_reg, qtd_atual, nomes_operadores):
             else:
                 st.error(msg)
 
+@st.dialog("🔄 Trocar de Máquina")
+def abrir_dialog_troca_maquina(status_atual, df_est, usuario):
+    if status_atual != 'Livre':
+        st.error("⚠️ Operação Bloqueada!")
+        st.warning(f"Sua máquina atual está **{status_atual}**. Você precisa finalizar a ação em andamento e deixá-la 'Livre' antes de assumir outro equipamento.")
+        if st.button("Entendi", use_container_width=True):
+            st.rerun()
+        return
+        
+    st.markdown("Selecione o novo local de trabalho:")
+    lista_setores = sorted(df_est['setor'].dropna().unique().tolist())
+    
+    idx_setor = lista_setores.index(usuario.get('setor')) if usuario.get('setor') in lista_setores else 0
+    novo_setor = st.selectbox("🏭 Novo Setor:", lista_setores, index=idx_setor)
+    
+    lista_maq = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
+    
+    idx_maq = lista_maq.index(usuario.get('maquina')) if usuario.get('maquina') in lista_maq else 0
+    nova_maq = st.selectbox("⚙️ Nova Máquina:", lista_maq, index=idx_maq)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Confirmar Troca ✅", type="primary", use_container_width=True):
+        try:
+            supa = banco.conectar()
+            supa.table("usuarios").update({
+                "setor": novo_setor,
+                "maquina": nova_maq
+            }).eq("id", usuario['id']).execute()
+            
+            st.session_state['usuario_logado']['setor'] = novo_setor
+            st.session_state['usuario_logado']['maquina'] = nova_maq
+            
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao trocar de máquina: {e}")
+
+# ==========================================
+# RENDERIZAÇÃO PRINCIPAL
+# ==========================================
 def renderizar(df_nuvem, df_codigos):
     if 'tk_counter' not in st.session_state: 
         st.session_state['tk_counter'] = 0
 
-    # Injeta o CSS Global blindado da UI
     ui.injetar_css_global()
 
     supa = banco.conectar()
@@ -136,21 +174,11 @@ def renderizar(df_nuvem, df_codigos):
             if qtd > 0:
                 producao_hoje_pecas[c_peca].append(qtd)
 
-    def obter_resumo_peca(codigo):
-        if codigo in producao_hoje_pecas and producao_hoje_pecas[codigo]:
-            lista_qtds = producao_hoje_pecas[codigo]
-            total = sum(lista_qtds)
-            if len(lista_qtds) > 1:
-                return f"*📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total} peças*"
-            return f"*📦 Produzido hoje: {total} peças*"
-        return ""
-
     response = supa.table("status_maquinas").select("*").eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
     status_db = 'Livre'
     hora_inicio_str = None
     cod_ocorrencia = None
     cod_peca_atual = None
-    
     ultimo_produto_sel = ""
     ultima_peca_sel = ""
     
@@ -164,6 +192,17 @@ def renderizar(df_nuvem, df_codigos):
         
         ultimo_produto_sel = dados_maq.get('ultimo_produto_sel', "")
         ultima_peca_sel = dados_maq.get('ultima_peca_sel', "")
+    else:
+        # --- A SOLUÇÃO: AUTO-CURA DA MÁQUINA ---
+        # Se a máquina não existir na tabela de status, o sistema cria o registro agora mesmo.
+        try:
+            supa.table("status_maquinas").insert({
+                "setor": setor_selecionado, 
+                "maquina": maquina_selecionada, 
+                "status": "Livre"
+            }).execute()
+        except:
+            pass
 
     if not df_codigos.empty:
         if 'exibir_na_lista' in df_codigos.columns:
@@ -177,14 +216,6 @@ def renderizar(df_nuvem, df_codigos):
             if 'tipo' in df_codigos.columns: df_codigos_parado = df_codigos[(df_codigos['tipo'].astype(str).str.strip().str.upper() != 'PRODUÇÃO') & (df_codigos['codigo'].astype(str).str.strip().str.upper() != 'P')]
             else: df_codigos_parado = pd.DataFrame()
     else: df_codigos_parado = pd.DataFrame()
-
-    # ==========================================
-    # GATILHO FANTASMA DOS 60 SEGUNDOS (COM CALLBACK SEGURO)
-    # ==========================================
-    def limpar_gatilho():
-        st.session_state["trigger_60s"] = ""
-
-    st.text_input("trigger_60s_js", key="trigger_60s", label_visibility="collapsed", on_change=limpar_gatilho)
 
     # ==========================================
     # ESTADO 1: MÁQUINA LIVRE
@@ -259,7 +290,6 @@ def renderizar(df_nuvem, df_codigos):
                     st.session_state[chave_mem_prod] = initial_val
 
                 sel_prod_display = st.session_state[chave_mem_prod]
-                
                 chave_wid_prod = f"sel_prod_{setor_selecionado}_{maquina_selecionada}_{st.session_state.get('prod_counter', 0)}"
                 
                 idx_prod = 0
@@ -275,12 +305,7 @@ def renderizar(df_nuvem, df_codigos):
                 elif ops_presentes and len(lista_exibicao_final) > 1:
                     idx_prod = 0
                 
-                sel_prod_display = st.selectbox(
-                    "1. Produto:", 
-                    options=lista_exibicao_final, 
-                    index=idx_prod if lista_exibicao_final else None, 
-                    key=chave_wid_prod
-                )
+                sel_prod_display = st.selectbox("1. Produto:", options=lista_exibicao_final, index=idx_prod if lista_exibicao_final else None, key=chave_wid_prod)
                 
                 if sel_prod_display == separador:
                     st.warning("⚠️ Você selecionou a linha divisória. Por favor, escolha um produto acima ou abaixo dela.")
@@ -334,10 +359,7 @@ def renderizar(df_nuvem, df_codigos):
                         if codigo_ext in producao_hoje_pecas and producao_hoje_pecas[codigo_ext]:
                             lista_qtds = producao_hoje_pecas[codigo_ext]
                             total_hoje = sum(lista_qtds)
-                            if len(lista_qtds) > 1:
-                                resumo_hoje = f"📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total_hoje} un."
-                            else:
-                                resumo_hoje = f"📦 Produzido hoje: {total_hoje} un."
+                            resumo_hoje = f"📦 Produzido hoje: {' + '.join(map(str, lista_qtds))} = {total_hoje} un." if len(lista_qtds) > 1 else f"📦 Produzido hoje: {total_hoje} un."
                         else:
                             resumo_hoje = "📦 Produzido hoje: 0 un."
                             
@@ -394,7 +416,8 @@ def renderizar(df_nuvem, df_codigos):
                         titulo_peca = "2. Toque na embalagem/volume:" if is_embalagem else "2. Toque na peça para selecionar:"
                         st.markdown(f"<h4 style='color: #2c3e50; font-size: 16px; margin-top: 15px;'>{titulo_peca}</h4>", unsafe_allow_html=True)
                         
-                        sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed")
+                        chave_radio_peca = f"radio_peca_{setor_selecionado}_{maquina_selecionada}"
+                        sel_peca_exibicao = st.radio("Selecione a Peça", lista_exibicao_pecas, index=idx_peca, label_visibility="collapsed", key=chave_radio_peca)
                         
                         if sel_peca_exibicao and sel_peca_exibicao in mapa_exibicao_limpa:
                             peca_atual_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
@@ -405,7 +428,10 @@ def renderizar(df_nuvem, df_codigos):
                         texto_btn_iniciar = f"▶️ INICIAR: {nome_peca_curto}"
                         
                         st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button(texto_btn_iniciar, type="primary", use_container_width=True):
+                        
+                        chave_btn_iniciar = f"btn_ini_{maquina_selecionada}_{st.session_state.get('prod_counter', 0)}"
+                        
+                        if st.button(texto_btn_iniciar, type="primary", use_container_width=True, key=chave_btn_iniciar):
                             sel_peca_limpa = mapa_exibicao_limpa[sel_peca_exibicao]
                             codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                             agora = logica.obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
@@ -503,8 +529,16 @@ def renderizar(df_nuvem, df_codigos):
         if not estado_fin:
             st.markdown("<br>", unsafe_allow_html=True)
             
-            if duracao_calc < 60:
-                if st.button("❌ CANCELAR PRODUÇÃO (Erro de Seleção)", use_container_width=True, key="btn_canc_prod_erro"):
+            btn_canc = st.button("❌ CANCELAR PRODUÇÃO (Erro de Seleção)", use_container_width=True, key=f"btn_canc_{maquina_selecionada}")
+            
+            c1, c2 = st.columns(2)
+            with c1: 
+                btn_fin = st.button("✅ FINALIZAR (Concluído)", use_container_width=True, type="primary", key=f"btn_fin_{maquina_selecionada}")
+            with c2: 
+                btn_int = st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary", key=f"btn_int_{maquina_selecionada}")
+
+            if btn_canc:
+                if duracao_calc < 60:
                     supa.table("status_maquinas").update({
                         "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
                     }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
@@ -512,16 +546,22 @@ def renderizar(df_nuvem, df_codigos):
                     sucesso, erro = logica.registrar_telemetria(supa, setor_selecionado, maquina_selecionada, "Produção Cancelada", df_est)
                     st.session_state['prod_counter'] = st.session_state.get('prod_counter', 0) + 1
                     st.rerun()
-            else:
-                c1, c2 = st.columns(2)
-                with c1: 
-                    if st.button("✅ FINALIZAR (Concluído)", use_container_width=True, type="primary", key="btn_fin_prod_ok"):
-                        st.session_state[chave_estado_fin] = "CONCLUIDO"
-                        st.rerun()
-                with c2: 
-                    if st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary", key="btn_int_prod_falha"):
-                        st.session_state[chave_estado_fin] = "INTERROMPIDO"
-                        st.rerun()
+                else:
+                    st.error("⚠️ O período de cancelamento (1 minuto) já foi encerrado.")
+                    
+            if btn_fin:
+                if duracao_calc >= 60:
+                    st.session_state[chave_estado_fin] = "CONCLUIDO"
+                    st.rerun()
+                else:
+                    st.error("⚠️ Aguarde o período inicial de 1 minuto para finalizar.")
+                    
+            if btn_int:
+                if duracao_calc >= 60:
+                    st.session_state[chave_estado_fin] = "INTERROMPIDO"
+                    st.rerun()
+                else:
+                    st.error("⚠️ Aguarde o período inicial de 1 minuto para interromper.")
 
         elif estado_fin == "CONCLUIDO":
             with st.form(key=f"form_conc_{setor_selecionado}_{maquina_selecionada}"):
@@ -765,7 +805,6 @@ def renderizar(df_nuvem, df_codigos):
             
             st.markdown(html_card, unsafe_allow_html=True)
             
-            # --- INJEÇÃO DO BOTÃO "SOLICITAR CORREÇÃO" ---
             if codigo_bd == 'P' and id_reg != 'S/ID':
                 col_vazia, col_btn = st.columns([5, 5])
                 with col_btn:
@@ -799,6 +838,10 @@ def renderizar(df_nuvem, df_codigos):
         if logo_b64: st.markdown(f'<div style="display: flex; align-items: center; gap: 15px;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;"><h3 style="margin:0; color: #2c3e50;">{titulo_app}</h3></div>', unsafe_allow_html=True)
         else: st.markdown(f'<h3 style="margin:0; color: #2c3e50;">🏭 {titulo_app}</h3>', unsafe_allow_html=True)
     with c2:
+        if is_travado:
+            if st.button("🔄 Trocar de Máquina", use_container_width=True, key="btn_trocar_maq"):
+                abrir_dialog_troca_maquina(status_db, df_est, usuario)
+        
         if st.button("🚪 Sair do Sistema", use_container_width=True, key="btn_sair_cf"):
             st.session_state['usuario_logado'] = None
             try: st.query_params.clear()
