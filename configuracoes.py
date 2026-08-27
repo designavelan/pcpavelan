@@ -560,3 +560,43 @@ def renderizar_registro_acessos():
     df_exibicao.columns = ['ID', 'Usuário', 'Início', 'Última Atividade', 'Última Aba Visitada', 'Status', 'Duração']
     
     st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+
+# ==========================================
+# NOVO MÓDULO: IDENTIFICAÇÃO POR CORES
+# ==========================================
+def renderizar_cores():
+    st.markdown("### 🎨 Identificação por Cores")
+    st.markdown("Defina as cores globais do sistema para cada Tipo de registro. Essas cores serão aplicadas automaticamente no Chão de Fábrica, Telas Ao Vivo, Gráficos e Relatórios.")
+    st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    
+    # 1. Obter todos os tipos da tabela de códigos
+    import banco # Garantir o import local
+    df_codigos = banco.obter_codigos()
+    tipos_descobertos = []
+    if not df_codigos.empty and 'tipo' in df_codigos.columns:
+        tipos_descobertos = df_codigos['tipo'].dropna().unique().tolist()
+        tipos_descobertos = [t.strip().upper() for t in tipos_descobertos if t.strip()]
+        
+    # 2. Garantir que os tipos virtuais existam na lista
+    tipos_base = ['PRODUÇÃO', 'PARADA', 'NÃO CONTA', 'LIVRE', 'RETRABALHO']
+    para_exibir = list(set(tipos_descobertos + tipos_base))
+    para_exibir.sort()
+    
+    # 3. Puxar o mapa de cores atual
+    mapa_cores = banco.obter_mapa_cores()
+    
+    # 4. Desenhar o UI em grade (3 colunas)
+    colunas = st.columns(3)
+    
+    for idx, tipo_nome in enumerate(para_exibir):
+        col_atual = colunas[idx % 3]
+        with col_atual:
+            st.markdown(f"<div style='margin-top: 15px; margin-bottom: 5px; font-size: 15px; font-weight: bold; color: #2c3e50;'>{tipo_nome}</div>", unsafe_allow_html=True)
+            cor_atual = mapa_cores.get(tipo_nome, '#cccccc') # Cinza se não houver cor
+            
+            # O color picker salva instantaneamente
+            nova_cor = st.color_picker(f"Cor {tipo_nome}", value=cor_atual, key=f"color_{tipo_nome}", label_visibility="collapsed")
+            
+            if nova_cor != cor_atual:
+                banco.atualizar_cor(tipo_nome, nova_cor)
+                st.rerun()

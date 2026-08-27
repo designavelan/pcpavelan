@@ -205,6 +205,12 @@ def recusar_solicitacao(id_solic, admin_nome):
         "status": "Recusada", "aprovado_por": admin_nome, "data_decisao": agora
     }).eq("id", id_solic).execute()
 
+def obter_registro_por_id(id_producao):
+    """Busca os dados completos de um apontamento pelo seu ID."""
+    supa = conectar()
+    resp = supa.table("producao_diaria").select("*").eq("id", id_producao).execute()
+    return resp.data[0] if resp.data else None
+
 def corrigir_registro_manual(id_prod, nova_qtd, motivo, admin_nome):
     supa = conectar()
     agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
@@ -226,3 +232,23 @@ def corrigir_registro_manual(id_prod, nova_qtd, motivo, admin_nome):
     }
     supa.table("solicitacoes_correcao").insert(dados).execute()
     return True, ""
+
+# ==========================================
+# FUNÇÕES DE IDENTIFICAÇÃO POR CORES
+# ==========================================
+@st.cache_data(ttl=60, show_spinner=False)
+def obter_mapa_cores():
+    supa = conectar()
+    resp = supa.table("config_cores").select("*").execute()
+    if resp.data:
+        return {row['tipo'].strip().upper(): row['cor_hex'] for row in resp.data}
+    return {}
+
+def atualizar_cor(tipo, cor_hex):
+    supa = conectar()
+    resp = supa.table("config_cores").select("id").eq("tipo", tipo).execute()
+    if resp.data:
+        supa.table("config_cores").update({"cor_hex": cor_hex}).eq("tipo", tipo).execute()
+    else:
+        supa.table("config_cores").insert({"tipo": tipo, "cor_hex": cor_hex}).execute()
+    st.cache_data.clear() # Limpa a memória para espalhar a cor pelo sistema todo na hora

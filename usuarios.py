@@ -15,12 +15,12 @@ def renderizar(df_nuvem):
     supa = banco.conectar()
     df_perfis = banco.obter_perfis()
     
-    # ⚠️ LISTA ATUALIZADA: Painel de OPs, Desempenho e Produtos incluídos
+    # ⚠️ LISTA ATUALIZADA: Painel de OPs, Desempenho, Produtos, Caixas e Permissão Virtual da Central
     todas_abas_sistema = [
         "📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", 
         "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", 
-        "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", 
-        "⚙️ Configurações", "👥 Controle de Acessos"
+        "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas",
+        "⚙️ Configurações", "👥 Controle de Acessos", "🔔 Central de Correções"
     ]
     
     lista_setores = sorted(df_nuvem['setor'].dropna().unique().tolist()) if not df_nuvem.empty else []

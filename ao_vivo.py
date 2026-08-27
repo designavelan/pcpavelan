@@ -547,9 +547,33 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     json_timers = json.dumps(lista_js_timers)
 
     # ==========================================
-    # HISTÓRICO INDIVIDUAL (OCULTA OCIOSAS NO DIA)
+    # HISTÓRICO INDIVIDUAL (CORES DINÂMICAS + % OEE)
     # ==========================================
     st.markdown("<hr style='opacity:0.2; margin: 30px 0 20px 0;'>", unsafe_allow_html=True)
+
+    mapa_cores = banco.obter_mapa_cores()
+    
+    def get_color(tipo):
+        t = str(tipo).strip().upper()
+        if t in mapa_cores: return mapa_cores[t]
+        if t == 'PRODUÇÃO': return '#27ae60'
+        if t == 'PARADA': return '#e74c3c'
+        if t == 'NÃO CONTA': return '#f39c12'
+        if t == 'LIVRE': return '#3498db'
+        if t == 'RETRABALHO': return '#00ff00'
+        if t == 'A REALIZAR': return '#ecf0f1'
+        if t == 'INTERVALO PREVISTO': return '#bdc3c7'
+        return '#95a5a6'
+
+    def get_friendly_name(tipo):
+        t = str(tipo).strip().upper()
+        if t == 'NÃO CONTA': return 'Pausa Registrada'
+        if t == 'PRODUÇÃO': return 'Produzindo'
+        if t == 'PARADA': return 'Indisponível (Parada)'
+        if t == 'LIVRE': return 'Disponível (Livre)'
+        if t == 'A REALIZAR': return 'A Realizar (Futuro)'
+        if t == 'INTERVALO PREVISTO': return 'Intervalo Previsto'
+        return t.title()
 
     total_timeline_min = t_as_min - m_das_min
     if total_timeline_min <= 0: total_timeline_min = 600 
@@ -585,8 +609,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     else:
         html_timelines = "<div style='max-width: 1200px; margin: 0 auto;'>"
         st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 30px;'>📊 Histórico Individual das Máquinas</h3>", unsafe_allow_html=True)
-        
-        color_map = {0: "#ecf0f1", 1: "#27ae60", 2: "#e74c3c", 3: "#336699", 4: "#f39c12", 5: "#bdc3c7"}
 
         for setor in sorted(setores_dict_timeline.keys(), key=lambda s: (ordem_setores.get(s, 999), s)):
             html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
@@ -616,15 +638,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             html_timelines += "</div>"
             
             for maq in setores_dict_timeline[setor]:
-                timeline = [0] * total_timeline_min
+                timeline = ['A REALIZAR'] * total_timeline_min
                 
                 for i in range(total_timeline_min):
                     curr = m_das_min + i
-                    if curr >= m_as_min and curr < t_das_min: timeline[i] = 5
-                    elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = 5
-                    elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = 5
-                    elif curr > agora_min: timeline[i] = 0 
-                    elif (curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min): timeline[i] = 3
+                    if curr >= m_as_min and curr < t_das_min: timeline[i] = 'INTERVALO PREVISTO'
+                    elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = 'INTERVALO PREVISTO'
+                    elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = 'INTERVALO PREVISTO'
+                    elif curr > agora_min: timeline[i] = 'A REALIZAR' 
+                    elif (curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min): timeline[i] = 'LIVRE'
                         
                 if not df_hoje.empty:
                     maq_records = df_hoje[(df_hoje['maquina'] == maq) & (df_hoje['setor'] == setor)]
@@ -632,15 +654,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         if pd.notna(row.get('das')) and pd.notna(row.get('as_hora')):
                             inicio = calcular_minutos_str(row['das'])
                             fim = calcular_minutos_str(row['as_hora'])
-                            tipo_reg = str(row.get('tipo')).strip().upper()
-                            
-                            if tipo_reg == 'PRODUÇÃO': cor_linha = 1
-                            elif tipo_reg == 'NÃO CONTA' or 'DESCONSIDERAR' in tipo_reg: cor_linha = 4
-                            else: cor_linha = 2 
+                            tipo_reg = str(row.get('tipo', 'PARADA')).strip().upper()
+                            if 'DESCONSIDERAR' in tipo_reg: tipo_reg = 'NÃO CONTA'
                             
                             for m in range(inicio, fim):
                                 idx = m - m_das_min
-                                if 0 <= idx < total_timeline_min: timeline[idx] = cor_linha
+                                if 0 <= idx < total_timeline_min: timeline[idx] = tipo_reg
                                 
                 info_maq = status_dict.get((setor, maq), {})
                 status_atual = info_maq.get('status', 'Livre')
@@ -652,14 +671,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                             inicio = h_ini_obj.hour * 60 + h_ini_obj.minute
                             fim = agora_min + 1 
                             
-                            if status_atual == 'Produzindo': cor_linha = 1
+                            if status_atual == 'Produzindo': 
+                                tipo_linha = 'PRODUÇÃO'
                             else:
                                 c_oco = str(info_maq.get('cod_ocorrencia')).strip()
-                                cor_linha = 4 if c_oco in codigos_pausa else 2
+                                tipo_linha = 'PARADA'
+                                if c_oco and not df_codigos.empty:
+                                    f_cod = df_codigos[df_codigos['codigo'].astype(str) == c_oco]
+                                    if not f_cod.empty and 'tipo' in f_cod.columns:
+                                        tipo_linha = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                        if 'DESCONSIDERAR' in tipo_linha: tipo_linha = 'NÃO CONTA'
                                 
                             for m in range(inicio, fim):
                                 idx = m - m_das_min
-                                if 0 <= idx < total_timeline_min: timeline[idx] = cor_linha
+                                if 0 <= idx < total_timeline_min: timeline[idx] = tipo_linha
                     except: pass
 
                 segments = []
@@ -672,28 +697,85 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                             curr_type, curr_len = timeline[i], 1
                     segments.append((curr_type, curr_len))
                     
-                html_timelines += "<div style='margin-bottom: 12px; display: flex; flex-direction: column;'>"
+                html_timelines += "<div style='margin-bottom: 25px; display: flex; flex-direction: column;'>"
                 html_timelines += f"<div style='font-size: 14px; font-weight: bold; color: #34495e; margin-bottom: 4px; text-transform: uppercase;'>{maq}</div>"
-                html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);'>"
+                html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15); margin-bottom: 6px;'>"
                 
+                counts_minutos = {}
                 for stype, slen in segments:
                     pct = (slen / total_timeline_min) * 100
-                    color = color_map.get(stype, "#000")
-                    html_timelines += f"<div style='width: {pct}%; background-color: {color};'></div>"
+                    color = get_color(stype)
+                    html_timelines += f"<div style='width: {pct}%; background-color: {color};' title='{get_friendly_name(stype)}'></div>"
+                    counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
                 
-                html_timelines += "</div></div>"
+                html_timelines += "</div>"
+                
+                # --- CÁLCULO INTELIGENTE OEE (JORNADA ÚTIL) ---
+                minutos_nao_conta = 0
+                for stype, slen in counts_minutos.items():
+                    if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype:
+                        minutos_nao_conta += slen
+                        
+                base_100_util = total_timeline_min - minutos_nao_conta
+                if base_100_util <= 0: base_100_util = 1 # Trava de segurança
+                
+                itens_conta = []
+                itens_nao_conta = []
+                
+                for stype, slen in counts_minutos.items():
+                    if slen > 0:
+                        h = slen // 60
+                        m = slen % 60
+                        tempo_str = f"{h:02d}:{m:02d}h"
+                        
+                        color = get_color(stype)
+                        fname = get_friendly_name(stype)
+                        border = "border: 1px solid #ccc;" if color.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
+                        
+                        is_nao_conta = (stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype)
+                        
+                        if is_nao_conta:
+                            itens_nao_conta.append(
+                                f"<div style='display: flex; align-items: center; gap: 4px;'>"
+                                f"<div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> "
+                                f"<b style='color: #7f8c8d;'>{fname}:</b> <span style='color: #7f8c8d;'>{tempo_str}</span></div>"
+                            )
+                        else:
+                            pct_val = (slen / base_100_util) * 100
+                            itens_conta.append((slen, 
+                                f"<div style='display: flex; align-items: center; gap: 4px;'>"
+                                f"<div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> "
+                                f"<b>{fname}:</b> {tempo_str} ({pct_val:.1f}%)</div>"
+                            ))
+                            
+                itens_conta.sort(key=lambda x: x[0], reverse=True)
+                
+                html_timelines += "<div style='display: flex; flex-wrap: wrap; gap: 15px; font-size: 12px; color: #2c3e50;'>"
+                
+                for _, html_item in itens_conta:
+                    html_timelines += html_item
+                    
+                if itens_nao_conta:
+                    html_timelines += "<div style='border-left: 2px solid #bdc3c7; margin: 0 5px;'></div>"
+                    for html_item in itens_nao_conta:
+                        html_timelines += html_item
+                        
+                html_timelines += "</div></div>" 
             
             html_timelines += "</div>" 
         
-        html_timelines += "</div>" 
+        # --- MONTAGEM DA LEGENDA GLOBAL INTELIGENTE ---
+        tipos_exibicao_legenda = set(['LIVRE', 'PRODUÇÃO', 'PARADA', 'NÃO CONTA', 'INTERVALO PREVISTO', 'A REALIZAR'])
+        for k in mapa_cores.keys(): tipos_exibicao_legenda.add(k)
         
-        html_timelines += "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: 10px; font-size: 13px; font-weight: bold; color: #555;'>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#336699; border-radius:3px;'></div> Disponível (Livre)</div>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#27ae60; border-radius:3px;'></div> Produzindo</div>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#e74c3c; border-radius:3px;'></div> Indisponível (Parada)</div>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#f39c12; border-radius:3px;'></div> Pausa Registrada</div>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#bdc3c7; border-radius:3px;'></div> Intervalo Previsto</div>"
-        html_timelines += "<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:#ecf0f1; border-radius:3px; border: 1px solid #ccc;'></div> A Realizar (Futuro)</div>"
+        html_timelines += "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; font-size: 13px; font-weight: bold; color: #555; padding-top: 10px; margin-bottom: 20px;'>"
+        
+        for stype in sorted(tipos_exibicao_legenda):
+            c_hex = get_color(stype)
+            f_name = get_friendly_name(stype)
+            border = "border: 1px solid #ccc;" if c_hex.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
+            html_timelines += f"<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:{c_hex}; border-radius:3px; {border}'></div> {f_name}</div>"
+            
         html_timelines += "</div></div>"
 
         st.markdown(html_timelines, unsafe_allow_html=True)

@@ -283,20 +283,82 @@ def abrir_central_correcoes(admin_nome):
                 st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
                 
     with tab_manual:
-        st.markdown("Busque um ID de produção e altere o valor diretamente. A alteração será auditada.")
-        id_busca = st.number_input("Digite o ID do Registro:", min_value=1, step=1)
-        nova_qtd_m = st.number_input("Nova Quantidade:", min_value=0, step=1)
-        motivo_m = st.text_input("Motivo da Alteração:")
-        if st.button("Corrigir Imediatamente", type="primary"):
-            if motivo_m:
-                sucesso, msg = banco.corrigir_registro_manual(id_busca, nova_qtd_m, motivo_m, admin_nome)
-                if sucesso:
-                    st.success("✅ Registro corrigido com sucesso!")
-                    st.rerun()
+        st.markdown("Busque um ID de produção para conferir os dados antes de fazer a alteração.")
+        
+        # Variável de estado para guardar o registro encontrado na busca
+        if "registro_busca_manual" not in st.session_state:
+            st.session_state.registro_busca_manual = None
+
+        col_busca1, col_busca2 = st.columns([7, 3])
+        with col_busca1:
+            id_busca_str = st.text_input("Digite o ID do Registro:", value="", placeholder="Ex: 15482", key="input_id_busca")
+        with col_busca2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔍 Buscar Registro", use_container_width=True):
+                if id_busca_str.strip().isdigit():
+                    id_busca = int(id_busca_str.strip())
+                    reg_encontrado = banco.obter_registro_por_id(id_busca)
+                    if reg_encontrado:
+                        st.session_state.registro_busca_manual = reg_encontrado
+                    else:
+                        st.session_state.registro_busca_manual = None
+                        st.error("❌ Registro não encontrado. Verifique o ID.")
                 else:
-                    st.error(msg)
-            else:
-                st.warning("⚠️ Informe um motivo para a auditoria.")
+                    st.error("⚠️ Por favor, digite um ID numérico válido.")
+
+        # Se encontrou o registro, exibe a "Ficha Cadastral" e libera os campos de alteração
+        if st.session_state.registro_busca_manual:
+            reg = st.session_state.registro_busca_manual
+            
+            # Converte a data para padrão brasileiro, se possível
+            data_reg = reg.get('data_registro', '')
+            try: data_reg_br = datetime.strptime(data_reg, "%Y-%m-%d").strftime("%d/%m/%Y")
+            except: data_reg_br = data_reg
+
+            st.markdown("<hr style='opacity: 0.2; margin: 15px 0;'>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #2980b9; margin-bottom: 10px;'>📄 Dados do Registro Encontrado</h4>", unsafe_allow_html=True)
+            
+            # Caixa de informações com quebra de linha para cada informação (Mais legível)
+            html_info = f"""
+            <div style="background-color: #eaf2f8; padding: 15px; border-radius: 8px; border: 1px solid #bce0fd; color: #2c3e50; font-size: 15px; line-height: 1.8; margin-bottom: 15px;">
+                <b>ID:</b> {reg.get('id')}<br>
+                <b>Setor:</b> {reg.get('setor')}<br>
+                <b>Máquina:</b> {reg.get('maquina')}<br>
+                <b>Peça:</b> {reg.get('nome_peca')}<br>
+                <b>Código da Peça:</b> {reg.get('cod_peca')}<br>
+                <b>Operador:</b> {reg.get('operador')}<br>
+                <b>Data:</b> {data_reg_br}<br>
+                <b>Horário:</b> {reg.get('das')} às {reg.get('as_hora')}<br>
+                <b>Quantidade Registrada:</b> <span style="color: #e74c3c; font-weight: bold;">{reg.get('quantidade')}</span>
+            </div>
+            """
+            st.markdown(html_info, unsafe_allow_html=True)
+            
+            st.markdown("#### ✏️ Alteração e Auditoria")
+            
+            # Puxa a quantidade atual e a coloca em um campo de texto limpo
+            qtd_atual = ""
+            try: qtd_atual = str(int(float(reg.get('quantidade', 0))))
+            except: pass
+
+            nova_qtd_m_str = st.text_input("Nova Quantidade Correta:", value=qtd_atual)
+            motivo_m = st.text_input("Motivo da Alteração:")
+            
+            if st.button("✅ Corrigir Imediatamente", type="primary", use_container_width=True):
+                if nova_qtd_m_str.strip().isdigit():
+                    nova_qtd_m = int(nova_qtd_m_str.strip())
+                    if motivo_m:
+                        sucesso, msg = banco.corrigir_registro_manual(reg['id'], nova_qtd_m, motivo_m, admin_nome)
+                        if sucesso:
+                            st.success("✅ Registro corrigido com sucesso!")
+                            st.session_state.registro_busca_manual = None  # Limpa a tela após o sucesso
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.warning("⚠️ Informe um motivo para a auditoria antes de confirmar.")
+                else:
+                    st.error("⚠️ A quantidade precisa ser um número inteiro válido.")
 
 if st.session_state.aba_atual != "📱 Chão de Fábrica":
     c1, c2 = st.columns([8, 2])
@@ -311,13 +373,16 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
         with col_ola:
             st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-top: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
         with col_sino:
-            if is_admin:
+            tem_acesso_correcoes = is_admin or "🔔 Central de Correções" in abas_permitidas_str
+            
+            if tem_acesso_correcoes:
                 pendentes = banco.obter_solicitacoes_pendentes()
-                if pendentes:
-                    if st.button(f"🔔 {len(pendentes)}", key="btn_sino_pendentes", help="Correções Pendentes"):
-                        abrir_central_correcoes(usuario_atual['nome'])
-                else:
-                    st.button("🔔 0", key="btn_sino_vazio", disabled=True)
+                qtd_pendentes = len(pendentes) if pendentes else 0
+                
+                tipo_botao = "primary" if qtd_pendentes > 0 else "secondary"
+                
+                if st.button(f"🔔 {qtd_pendentes}", key="btn_sino_correcoes", help="Central de Correções", type=tipo_botao):
+                    abrir_central_correcoes(usuario_atual['nome'])
 
         if st.button("🚪 Sair do Sistema", use_container_width=True):
             st.session_state['usuario_logado'] = None
@@ -392,7 +457,8 @@ elif st.session_state.aba_atual == "📦 Produtos":
 elif st.session_state.aba_atual == "📦 Caixas": 
     caixas.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
+    
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
     with aba_estrutura: configuracoes.renderizar_estrutura()
@@ -401,6 +467,7 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
         importacao.renderizar_producao()
         st.markdown("<br>", unsafe_allow_html=True)
         importacao.renderizar_codigos()
+    with aba_cores: configuracoes.renderizar_cores()
     with aba_backup: backups.renderizar()
     with aba_gerenciador: gerenciador.renderizar(df_nuvem)
     with aba_acessos: configuracoes.renderizar_registro_acessos()
