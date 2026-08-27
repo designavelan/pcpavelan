@@ -144,7 +144,6 @@ header[data-testid="stHeader"] { display: none !important; }
             df_nuvem_operacao['data_registro_dt'] = pd.to_datetime(df_nuvem_operacao['data_registro'], errors='coerce')
             df_nuvem_operacao['quantidade_num'] = pd.to_numeric(df_nuvem_operacao['quantidade'], errors='coerce').fillna(0)
 
-    # --- INÍCIO DA PREPARAÇÃO DOS DADOS PARA O ETA E CORRIDA DAS OPS (LÓGICA CORRETA IMPORTADA) ---
     try:
         resp_cx = supa.table("caixas_matriz").select("*").execute()
         df_caixas = pd.DataFrame(resp_cx.data) if resp_cx.data else pd.DataFrame()
@@ -219,7 +218,6 @@ header[data-testid="stHeader"] { display: none !important; }
                                 mask_todas_op = (df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) & (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) & (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)
                                 prod_realizada = int(df_nuvem_operacao[mask_todas_op]['quantidade_num'].sum())
                             
-                            # Trava de segurança (min) para não deixar a barra individual passar de 100%
                             prod_realizada = min(meta_peca, prod_realizada)
                             perc = (prod_realizada / meta_peca * 100)
                             
@@ -399,7 +397,7 @@ header[data-testid="stHeader"] { display: none !important; }
         ).properties(height=180)
         st.altair_chart(chart, use_container_width=True)
 
-    # 2️⃣ COLUNA DO MEIO: MAPA VISUAL E CARDS CRONÔMETRO
+    # 2️⃣ COLUNA DO MEIO: MAPA VISUAL, CARDS CRONÔMETRO E FEED DE ATIVIDADES
     with col_meio:
         st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🗺️ Chão de Fábrica</h3>", unsafe_allow_html=True)
         
@@ -449,6 +447,58 @@ header[data-testid="stHeader"] { display: none !important; }
                 html_cards += "</div>"
             html_cards += "</div>"
             st.markdown(html_cards, unsafe_allow_html=True)
+
+        if not df_nuvem_operacao.empty:
+            df_feed = df_nuvem_operacao.copy()
+            if 'id' in df_feed.columns:
+                df_feed = df_feed.sort_values('id', ascending=False).head(10)
+            else:
+                df_feed = df_feed.tail(10).iloc[::-1]
+                
+            if not df_feed.empty:
+                html_feed = "<h4 style='color: #2c3e50; font-size: 14px; text-transform: uppercase; font-weight: 900; margin-top: 25px; margin-bottom: 12px; text-align: center;'>⚡ Últimas Produções</h4>"
+                
+                html_feed += "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                
+                for _, row in df_feed.iterrows():
+                    peca_raw = str(row.get('nome_peca', 'Desconhecida')).strip()
+                    if '➔' in peca_raw: peca_nome = peca_raw.split('➔')[-1].strip()
+                    elif '->' in peca_raw: peca_nome = peca_raw.split('->')[-1].strip()
+                    else: peca_nome = peca_raw
+                    
+                    cod_peca = str(row.get('cod_peca', '')).strip()
+                    qtd = int(pd.to_numeric(row.get('quantidade', 0), errors='coerce'))
+                    das = str(row.get('das', '00:00')).strip()
+                    as_hora = str(row.get('as_hora', '00:00')).strip()
+                    maquina_nome = str(row.get('maquina', 'Máquina')).strip()
+                    operador_nome = str(row.get('operador', 'Sem Operador')).strip()
+                    
+                    das_f = das[:5] if len(das) >= 5 else das
+                    as_hora_f = as_hora[:5] if len(as_hora) >= 5 else as_hora
+                    
+                    produto_nome = "Produto Desconhecido"
+                    if not df_produtos.empty and cod_peca:
+                        f_prod = df_produtos[df_produtos['cod'].astype(str) == cod_peca]
+                        if not f_prod.empty:
+                            produto_nome = str(f_prod.iloc[0].get('produto_formula', 'Produto Desconhecido'))
+                            
+                    # --- CORREÇÃO NO CÓDIGO HTML DO CARD ---
+                    html_feed += f"""<div style='background: #fff; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #27ae60; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #f1f2f6; display: flex; flex-direction: column;'>
+<div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 5px;'>
+<div style='overflow: hidden;'>
+<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #2c3e50;'><b>{produto_nome}</b></div>
+<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: #7f8c8d; margin-top: 1px;'>{peca_nome}</div>
+</div>
+<div style='font-size: 12px; font-weight: 900; color: #27ae60; white-space: nowrap; background: #eafaf1; padding: 3px 6px; border-radius: 4px; flex-shrink: 0;'>
++{qtd} pçs
+</div>
+</div>
+<div style='font-size: 10px; color: #95a5a6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-top: 1px dashed #eee; padding-top: 4px;'>
+{das_f} ➔ {as_hora_f} &nbsp;•&nbsp; 🛠️ {maquina_nome} / {operador_nome}
+</div>
+</div>"""
+                html_feed += "</div>"
+                st.markdown(html_feed, unsafe_allow_html=True)
 
     # 3️⃣ COLUNA DA DIREITA: HISTÓRICO INDIVIDUAL & CORRIDA DAS OPS
     with col_dir:
@@ -573,7 +623,6 @@ header[data-testid="stHeader"] { display: none !important; }
             html_legenda += "</div>"
             st.markdown(html_legenda, unsafe_allow_html=True)
             
-        # --- A CORRIDA DAS OPS (AGORA COM A MATEMÁTICA CORRETA IMPORTADA DO PAINEL) ---
         if ops_ativas:
             st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🏁 A Corrida das OPs</h3>", unsafe_allow_html=True)
             html_ops = "<div>"
@@ -594,7 +643,6 @@ header[data-testid="stHeader"] { display: none !important; }
                 meta_global = 0
                 prod_global = 0
                 
-                # LOOP DAS PEÇAS (Com trava de proteção antimáscara)
                 for _, row in df_filtrado.iterrows():
                     try: qnt_peca = int(float(row.get('qnt', 0)))
                     except: qnt_peca = 0
@@ -603,29 +651,24 @@ header[data-testid="stHeader"] { display: none !important; }
                     
                     def get_p(s): return mapa_prod.get((s.upper(), cod), 0)
                     
-                    # Corte
                     meta_global += qtd_total
                     prod_global += min(qtd_total, get_p('Corte'))
                     
-                    # Coladeira
                     f_m = str(row.get('fita_mais', '')).replace('.0', '').strip()
                     f_mn = str(row.get('fita_menos', '')).replace('.0', '').strip()
                     if f_m in ['1', '2', '*'] or f_mn in ['1', '2', '*']:
                         meta_global += qtd_total
                         prod_global += min(qtd_total, get_p('Coladeira'))
                         
-                    # Furadeira
                     if str(row.get('furadeira', '')).strip().upper() == 'SIM':
                         meta_global += qtd_total
                         prod_global += min(qtd_total, get_p('Furadeira'))
                         
-                    # Pintura
                     lp = str(row.get('lp', '')).replace('.0', '').strip()
                     if lp in ['1', '2']:
                         meta_global += qtd_total
                         prod_global += min(qtd_total, get_p('Pintura'))
 
-                # LOOP DAS CAIXAS
                 if not df_caixas.empty:
                     df_cx_filtrado = df_caixas[df_caixas['produto_formula'] == nome_op]
                     for _, row_cx in df_cx_filtrado.iterrows():
