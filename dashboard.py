@@ -14,8 +14,22 @@ def calcular_minutos_str(hora_str):
     try: return int(hora_str.split(':')[0]) * 60 + int(hora_str.split(':')[1])
     except: return 0
 
+def calcular_eta(min_restantes, agora_dt, m_das_min, m_as_min, t_das_min, t_as_min):
+    if min_restantes <= 0: return agora_dt
+    if min_restantes > 14400: return None 
+    curr = agora_dt
+    min_left = int(min_restantes)
+    while min_left > 0:
+        c_min = curr.hour * 60 + curr.minute
+        if (m_das_min <= c_min < m_as_min) or (t_das_min <= c_min < t_as_min):
+            min_left -= 1
+        curr += timedelta(minutes=1)
+        if curr.hour * 60 + curr.minute >= t_as_min:
+            curr += timedelta(days=1)
+            curr = curr.replace(hour=m_das_min//60, minute=m_das_min%60, second=0)
+    return curr
+
 def renderizar(df_nuvem, df_codigos, filtros_selecionados):
-    # CSS focado em TV: sem scrollbar, otimização extrema de espaço
     st.markdown("""
 <style>
 ::-webkit-scrollbar { display: none; }
@@ -68,7 +82,6 @@ header[data-testid="stHeader"] { display: none !important; }
     perc_turno = (min_passados / total_min_turno) * 100
     if perc_turno > 100: perc_turno = 100
 
-    # Barra de Jornada no topo
     st.markdown(f"""<div style="width: 100%; background-color: #e0e0e0; height: 6px; overflow: hidden; margin-bottom: 15px; border-radius: 3px;">
 <div style="width: {perc_turno:.1f}%; background-color: #2980b9; height: 100%;"></div>
 </div>""", unsafe_allow_html=True)
@@ -120,8 +133,9 @@ header[data-testid="stHeader"] { display: none !important; }
     resp_status = supa.table("status_maquinas").select("*").execute()
     status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
-    resp_ops = supa.table("planejamento_ops").select("produto_formula, quantidade_planejada, data_inicio").eq("status", "Em Andamento").execute()
-    ops_ativas = {op['produto_formula']: op for op in (resp_ops.data if resp_ops.data else [])}
+    resp_ops = supa.table("planejamento_ops").select("id, produto_formula, quantidade_planejada, data_inicio").eq("status", "Em Andamento").execute()
+    ops_ativas = resp_ops.data if resp_ops.data else []
+    ops_dict = {op['produto_formula']: op for op in ops_ativas}
     
     df_nuvem_operacao = pd.DataFrame()
     if not df_nuvem.empty and 'data_registro' in df_nuvem.columns and 'tipo' in df_nuvem.columns:
@@ -129,6 +143,25 @@ header[data-testid="stHeader"] { display: none !important; }
         if not df_nuvem_operacao.empty:
             df_nuvem_operacao['data_registro_dt'] = pd.to_datetime(df_nuvem_operacao['data_registro'], errors='coerce')
             df_nuvem_operacao['quantidade_num'] = pd.to_numeric(df_nuvem_operacao['quantidade'], errors='coerce').fillna(0)
+
+    # --- INÍCIO DA PREPARAÇÃO DOS DADOS PARA O ETA E CORRIDA DAS OPS (LÓGICA CORRETA IMPORTADA) ---
+    try:
+        resp_cx = supa.table("caixas_matriz").select("*").execute()
+        df_caixas = pd.DataFrame(resp_cx.data) if resp_cx.data else pd.DataFrame()
+    except:
+        df_caixas = pd.DataFrame()
+
+    df_todas_producoes = pd.DataFrame()
+    if ops_ativas:
+        datas_brutas = [op['data_inicio'] for op in ops_ativas]
+        menor_data_str = min(datas_brutas).split(" ")[0].split("T")[0]
+        resp_prod = supa.table("producao_diaria").select("setor, cod_peca, quantidade, data_registro").eq("tipo", "PRODUÇÃO").gte("data_registro", menor_data_str).execute()
+        if resp_prod.data:
+            df_todas_producoes = pd.DataFrame(resp_prod.data)
+            df_todas_producoes['data_registro_dt'] = pd.to_datetime(df_todas_producoes['data_registro'])
+            df_todas_producoes['cod_peca'] = df_todas_producoes['cod_peca'].astype(str).str.strip()
+            df_todas_producoes['setor'] = df_todas_producoes['setor'].astype(str).str.strip().str.upper()
+            df_todas_producoes['quantidade'] = pd.to_numeric(df_todas_producoes['quantidade'], errors='coerce').fillna(0)
 
     maquinas_paradas_criticas = []
     maquinas_pausas = []
@@ -176,17 +209,54 @@ header[data-testid="stHeader"] { display: none !important; }
                 if not f_peca.empty:
                     prod_form = f_peca.iloc[0]['produto_formula']
                     nome_peca_completo = f"{prod_form} ➔ {f_peca.iloc[0]['descricao']}"
-                    if prod_form in ops_ativas:
-                        op_data = ops_ativas[prod_form]
+                    if prod_form in ops_dict:
+                        op_data = ops_dict[prod_form]
                         meta_peca = int(op_data['quantidade_planejada']) * int(float(f_peca.iloc[0].get('qnt', 0)))
                         if meta_peca > 0:
                             prod_realizada = 0
                             if not df_nuvem_operacao.empty:
                                 data_inicio_op_dt = pd.to_datetime(op_data['data_inicio'].split(" ")[0], errors='coerce')
-                                df_filtro = df_nuvem_operacao[(df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) & (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) & (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)]
-                                prod_realizada = int(df_filtro['quantidade_num'].sum())
-                            perc = min(100, (prod_realizada / meta_peca * 100))
-                            html_progresso = f"<div style='background: rgba(255,255,255,0.15); padding: 5px 10px; border-radius: 5px; margin-bottom: 5px;'><div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 4px;'><span>{prod_realizada}/{meta_peca}</span><span>{perc:.1f}%</span></div><div style='width: 100%; background: rgba(0,0,0,0.2); height: 6px; border-radius: 3px;'><div style='width: {perc}%; background: #ffffff; height: 100%;'></div></div></div>"
+                                mask_todas_op = (df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) & (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) & (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)
+                                prod_realizada = int(df_nuvem_operacao[mask_todas_op]['quantidade_num'].sum())
+                            
+                            # Trava de segurança (min) para não deixar a barra individual passar de 100%
+                            prod_realizada = min(meta_peca, prod_realizada)
+                            perc = (prod_realizada / meta_peca * 100)
+                            
+                            eta_str = "ETA: Calculando..."
+                            if not df_nuvem_operacao.empty:
+                                mask_maq_hoje = mask_todas_op & (df_nuvem_operacao['maquina'] == maq) & (df_nuvem_operacao['data_registro'] == hoje_str)
+                                df_maq_hoje = df_nuvem_operacao[mask_maq_hoje]
+                                prod_realizada_hoje = int(df_maq_hoje['quantidade_num'].sum())
+                                minutos_prod_hoje = 0
+                                for _, r in df_maq_hoje.iterrows():
+                                    min_i = calcular_minutos_str(r.get('das', '00:00'))
+                                    min_f = calcular_minutos_str(r.get('as_hora', '00:00'))
+                                    minutos_prod_hoje += max(0, min_f - min_i)
+                                
+                                if minutos_prod_hoje >= 20 or perc >= 5.0:
+                                    if minutos_prod_hoje > 0:
+                                        vel_minuto = prod_realizada_hoje / minutos_prod_hoje
+                                        if vel_minuto > 0:
+                                            faltam = max(0, meta_peca - prod_realizada)
+                                            min_restantes = faltam / vel_minuto
+                                            eta_dt = calcular_eta(min_restantes, agora, m_das_min, m_as_min, t_das_min, t_as_min)
+                                            if eta_dt:
+                                                if eta_dt.date() == agora.date(): eta_str = f"ETA: Hoje às {eta_dt.strftime('%H:%M')}"
+                                                elif eta_dt.date() == (agora + timedelta(days=1)).date(): eta_str = f"ETA: Amanhã às {eta_dt.strftime('%H:%M')}"
+                                                else: eta_str = f"ETA: {eta_dt.strftime('%d/%m %H:%M')}"
+
+                            html_progresso = f"""
+                            <div style='background: rgba(255,255,255,0.15); padding: 5px 10px; border-radius: 5px; margin-bottom: 5px;'>
+                                <div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 4px;'>
+                                    <span>{prod_realizada}/{meta_peca}</span><span>{perc:.1f}%</span>
+                                </div>
+                                <div style='width: 100%; background: rgba(0,0,0,0.2); height: 6px; border-radius: 3px;'>
+                                    <div style='width: {perc}%; background: #ffffff; height: 100%;'></div>
+                                </div>
+                                <div style='font-size: 10px; color: #e1f5fe; text-align: right; margin-top: 3px; font-style: italic;'>{eta_str}</div>
+                            </div>
+                            """
             info['descricao_completa'] = nome_peca_completo
             info['html_progresso'] = html_progresso
             maquinas_produzindo.append(info)
@@ -224,6 +294,21 @@ header[data-testid="stHeader"] { display: none !important; }
     total_perdido_hoje = minutos_finalizados + minutos_ativos_perdidos
     h_perdido, m_perdido = int(total_perdido_hoje // 60), int(total_perdido_hoje % 60)
     
+    vol_corte_un = 0
+    vol_corte_m2 = 0.0
+    if not df_hoje.empty and not df_produtos.empty:
+        df_corte_hoje = df_hoje[(df_hoje['setor'].astype(str).str.strip().str.upper() == 'CORTE') & (df_hoje['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')]
+        for _, r in df_corte_hoje.iterrows():
+            qtd = pd.to_numeric(r.get('quantidade', 0), errors='coerce')
+            if pd.isna(qtd): qtd = 0
+            vol_corte_un += int(qtd)
+            f_prod = df_produtos[df_produtos['cod'].astype(str) == str(r.get('cod_peca', '')).strip()]
+            if not f_prod.empty:
+                comp = pd.to_numeric(f_prod.iloc[0].get('comp', 0), errors='coerce')
+                larg = pd.to_numeric(f_prod.iloc[0].get('larg', 0), errors='coerce')
+                if pd.notna(comp) and pd.notna(larg):
+                    vol_corte_m2 += (comp / 1000.0) * (larg / 1000.0) * qtd
+
     for p in maquinas_paradas_criticas: noticias.append(f"🔴 [{p['setor']}] {p['maquina']} parada: {p['descricao_completa']}")
     for p in maquinas_pausas: noticias.append(f"☕ [{p['setor']}] {p['maquina']}: {p['descricao_completa']}")
     for p in maquinas_produzindo: noticias.append(f"🟢 [{p['setor']}] {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
@@ -273,48 +358,43 @@ header[data-testid="stHeader"] { display: none !important; }
 </div>"""
         st.markdown(html_hero, unsafe_allow_html=True)
 
-        # 3 Mini-Cards lado a lado
-        mc1, mc2, mc3 = st.columns(3)
+        mc1, mc2 = st.columns(2)
         with mc1:
-            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
-<div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Perdido</div>
-<div style='font-size:18px; font-weight:900; color:#c0392b;'>{h_perdido:02d}h{m_perdido:02d}</div>
+            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 75px;'>
+<div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Perdido Hoje</div>
+<div style='font-size:18px; font-weight:900; color:#c0392b; margin-top: 5px;'>{h_perdido:02d}h{m_perdido:02d}</div>
+</div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 75px; display: flex; flex-direction: column; justify-content: center;'>
+<div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Ofensor Atual</div>
+<div style='font-size:13px; font-weight:900; color:#e67e22; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{top_ofensor}'>{top_ofensor}</div>
 </div>""", unsafe_allow_html=True)
         with mc2:
-            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
+            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 75px;'>
 <div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Médio/Sol.</div>
-<div style='font-size:18px; font-weight:900; color:#2980b9;'>{mttr_str}</div>
+<div style='font-size:18px; font-weight:900; color:#2980b9; margin-top: 5px;'>{mttr_str}</div>
 </div>""", unsafe_allow_html=True)
-        with mc3:
-            st.markdown(f"""<div style='background:#fff; padding:10px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
-<div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Ofensor</div>
-<div style='font-size:13px; font-weight:900; color:#e67e22; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{top_ofensor}'>{top_ofensor}</div>
+            st.markdown(f"""<div style='background:#fff; padding:8px 5px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 75px;'>
+<div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase;'>Vol. Corte (Hoje)</div>
+<div style='font-size:16px; font-weight:900; color:#27ae60; line-height: 1.1; margin-top: 3px;'>{vol_corte_un} un.</div>
+<div style='font-size:11px; font-weight:bold; color:#95a5a6;'>{vol_corte_m2:,.1f} m²</div>
 </div>""", unsafe_allow_html=True)
 
         st.markdown("<div style='font-size: 12px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; text-align: center; margin-bottom: 5px;'>Evolução (Ao Vivo)</div>", unsafe_allow_html=True)
         
-        # --- NOVO GERADOR DE MARCAÇÕES FIXAS DE HORA EM HORA ---
         ticks_x = []
         curr_tick = hora_inicio_turno.replace(minute=0, second=0, microsecond=0)
         fim_arredondado = hora_fim_turno.replace(minute=0, second=0, microsecond=0)
-        if hora_fim_turno.minute > 0:
-            fim_arredondado += timedelta(hours=1)
+        if hora_fim_turno.minute > 0: fim_arredondado += timedelta(hours=1)
             
         while curr_tick <= fim_arredondado:
             ticks_x.append(curr_tick.isoformat())
             curr_tick += timedelta(hours=1)
 
         chart = alt.Chart(df_plot).mark_area(line={'color': '#2980b9'}, color='#2980b9', opacity=0.4).encode(
-            x=alt.X('Hora:T', 
-                    title='', 
-                    scale=alt.Scale(domain=[hora_inicio_turno.isoformat(), hora_fim_turno.isoformat()]),
-                    axis=alt.Axis(values=ticks_x, format='%H', labelExpr="parseInt(datum.label) + 'H'", grid=True)
-            ),
-            y=alt.Y('Em Operação (%):Q', 
-                    title='', 
-                    scale=alt.Scale(domain=[0, 100]), 
-                    axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True)
-            ),
+            x=alt.X('Hora:T', title='', scale=alt.Scale(domain=[hora_inicio_turno.isoformat(), hora_fim_turno.isoformat()]),
+                    axis=alt.Axis(values=ticks_x, format='%H', labelExpr="parseInt(datum.label) + 'H'", grid=True)),
+            y=alt.Y('Em Operação (%):Q', title='', scale=alt.Scale(domain=[0, 100]), 
+                    axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True)),
             tooltip=['Hora:T', 'Em Operação (%):Q']
         ).properties(height=180)
         st.altair_chart(chart, use_container_width=True)
@@ -370,7 +450,7 @@ header[data-testid="stHeader"] { display: none !important; }
             html_cards += "</div>"
             st.markdown(html_cards, unsafe_allow_html=True)
 
-    # 3️⃣ COLUNA DA DIREITA: HISTÓRICO INDIVIDUAL (LINHA ÚNICA GANTT)
+    # 3️⃣ COLUNA DA DIREITA: HISTÓRICO INDIVIDUAL & CORRIDA DAS OPS
     with col_dir:
         st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>📊 Histórico Individual</h3>", unsafe_allow_html=True)
         
@@ -485,13 +565,89 @@ header[data-testid="stHeader"] { display: none !important; }
             # --- LEGENDA GLOBAL ÚNICA ---
             tipos_exibicao_legenda = set(['LIVRE', 'PRODUÇÃO', 'PARADA', 'NÃO CONTA', 'INTERVALO PREVISTO', 'A REALIZAR'])
             for k in mapa_cores.keys(): tipos_exibicao_legenda.add(k)
-            html_legenda = "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; font-size: 10px; font-weight: bold; color: #555; padding-top: 10px; margin-bottom: 10px;'>"
+            html_legenda = "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; font-size: 10px; font-weight: bold; color: #555; padding-top: 5px; margin-bottom: 25px;'>"
             for stype in sorted(tipos_exibicao_legenda):
                 c_hex = get_color(stype)
                 border = "border: 1px solid #ccc;" if c_hex.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
                 html_legenda += f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{c_hex}; border-radius:2px; {border}'></div> {get_friendly_name(stype)}</div>"
             html_legenda += "</div>"
             st.markdown(html_legenda, unsafe_allow_html=True)
+            
+        # --- A CORRIDA DAS OPS (AGORA COM A MATEMÁTICA CORRETA IMPORTADA DO PAINEL) ---
+        if ops_ativas:
+            st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🏁 A Corrida das OPs</h3>", unsafe_allow_html=True)
+            html_ops = "<div>"
+            
+            for op in ops_ativas:
+                nome_op = op['produto_formula']
+                qtd_plan = int(op.get('quantidade_planejada', 0))
+                data_op_dt = pd.to_datetime(op['data_inicio'].split(" ")[0].split("T")[0])
+                
+                df_filtrado = df_produtos[df_produtos['produto_formula'] == nome_op]
+                
+                mapa_prod = {}
+                if not df_todas_producoes.empty:
+                    df_op_prod = df_todas_producoes[df_todas_producoes['data_registro_dt'] >= data_op_dt]
+                    agrup = df_op_prod.groupby(['setor', 'cod_peca'])['quantidade'].sum().reset_index()
+                    for _, r in agrup.iterrows(): mapa_prod[(r['setor'], r['cod_peca'])] = int(r['quantidade'])
+                
+                meta_global = 0
+                prod_global = 0
+                
+                # LOOP DAS PEÇAS (Com trava de proteção antimáscara)
+                for _, row in df_filtrado.iterrows():
+                    try: qnt_peca = int(float(row.get('qnt', 0)))
+                    except: qnt_peca = 0
+                    qtd_total = qnt_peca * qtd_plan
+                    cod = str(row.get('cod', '')).strip()
+                    
+                    def get_p(s): return mapa_prod.get((s.upper(), cod), 0)
+                    
+                    # Corte
+                    meta_global += qtd_total
+                    prod_global += min(qtd_total, get_p('Corte'))
+                    
+                    # Coladeira
+                    f_m = str(row.get('fita_mais', '')).replace('.0', '').strip()
+                    f_mn = str(row.get('fita_menos', '')).replace('.0', '').strip()
+                    if f_m in ['1', '2', '*'] or f_mn in ['1', '2', '*']:
+                        meta_global += qtd_total
+                        prod_global += min(qtd_total, get_p('Coladeira'))
+                        
+                    # Furadeira
+                    if str(row.get('furadeira', '')).strip().upper() == 'SIM':
+                        meta_global += qtd_total
+                        prod_global += min(qtd_total, get_p('Furadeira'))
+                        
+                    # Pintura
+                    lp = str(row.get('lp', '')).replace('.0', '').strip()
+                    if lp in ['1', '2']:
+                        meta_global += qtd_total
+                        prod_global += min(qtd_total, get_p('Pintura'))
+
+                # LOOP DAS CAIXAS
+                if not df_caixas.empty:
+                    df_cx_filtrado = df_caixas[df_caixas['produto_formula'] == nome_op]
+                    for _, row_cx in df_cx_filtrado.iterrows():
+                        cod_cx = str(row_cx.get('cod_caixa', '')).strip()
+                        if cod_cx and cod_cx not in ["", "None", "nan"]:
+                            meta_global += qtd_plan
+                            prod_cx_real = mapa_prod.get(('EMBALAGEM', cod_cx), 0)
+                            prod_global += min(qtd_plan, prod_cx_real)
+
+                perc_op = min(100, (prod_global / meta_global * 100)) if meta_global > 0 else 0
+                
+                html_ops += f"""
+                <div style='margin-bottom: 12px;'>
+                    <div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: #34495e; margin-bottom: 3px;'>
+                        <span>📦 {nome_op}</span><span>{perc_op:.1f}% ({int(prod_global)}/{int(meta_global)})</span>
+                    </div>
+                    <div style='width: 100%; background: #ecf0f1; height: 12px; border-radius: 6px; overflow: hidden; border: 1px solid #bdc3c7;'>
+                        <div style='width: {perc_op}%; background: #e74c3c; height: 100%; transition: width 0.5s ease;'></div>
+                    </div>
+                </div>"""
+            html_ops += "</div>"
+            st.markdown(html_ops, unsafe_allow_html=True)
 
     # ==========================================
     # RODAPÉ E JAVASCRIPT FIXOS
@@ -504,7 +660,6 @@ header[data-testid="stHeader"] { display: none !important; }
     """, unsafe_allow_html=True)
 
     json_timers = json.dumps(lista_js_timers)
-    # Novo Carimbo de Tempo para enganar o cache do Streamlit e manter o loop infinito de atualização vivo
     stamp_agora = time.time()
     
     js_engine = f"""
