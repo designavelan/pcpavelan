@@ -5,6 +5,7 @@ import banco
 import streamlit.components.v1 as components
 import json
 import altair as alt
+import time
 
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
@@ -23,7 +24,6 @@ header[data-testid="stHeader"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-    # 1. PUXA AS CONFIGURAÇÕES DO BANCO
     cfg = banco.obter_configuracoes()
     refresh_segundos = int(cfg.get('ao_vivo_refresh', 60))
     tempo_critico = int(cfg.get('ao_vivo_critico', 15))
@@ -293,10 +293,28 @@ header[data-testid="stHeader"] { display: none !important; }
 
         st.markdown("<div style='font-size: 12px; font-weight: bold; color: #7f8c8d; text-transform: uppercase; text-align: center; margin-bottom: 5px;'>Evolução (Ao Vivo)</div>", unsafe_allow_html=True)
         
-        # Ajuste Crítico: Eixo X convertido para 9H, 10H e Eixo Y fixo em 0-100
+        # --- NOVO GERADOR DE MARCAÇÕES FIXAS DE HORA EM HORA ---
+        ticks_x = []
+        curr_tick = hora_inicio_turno.replace(minute=0, second=0, microsecond=0)
+        fim_arredondado = hora_fim_turno.replace(minute=0, second=0, microsecond=0)
+        if hora_fim_turno.minute > 0:
+            fim_arredondado += timedelta(hours=1)
+            
+        while curr_tick <= fim_arredondado:
+            ticks_x.append(curr_tick.isoformat())
+            curr_tick += timedelta(hours=1)
+
         chart = alt.Chart(df_plot).mark_area(line={'color': '#2980b9'}, color='#2980b9', opacity=0.4).encode(
-            x=alt.X('Hora:T', title='', axis=alt.Axis(format='%H', labelExpr="parseInt(datum.label) + 'H'", grid=True)),
-            y=alt.Y('Em Operação (%):Q', title='', scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True)),
+            x=alt.X('Hora:T', 
+                    title='', 
+                    scale=alt.Scale(domain=[hora_inicio_turno.isoformat(), hora_fim_turno.isoformat()]),
+                    axis=alt.Axis(values=ticks_x, format='%H', labelExpr="parseInt(datum.label) + 'H'", grid=True)
+            ),
+            y=alt.Y('Em Operação (%):Q', 
+                    title='', 
+                    scale=alt.Scale(domain=[0, 100]), 
+                    axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True)
+            ),
             tooltip=['Hora:T', 'Em Operação (%):Q']
         ).properties(height=180)
         st.altair_chart(chart, use_container_width=True)
@@ -486,14 +504,16 @@ header[data-testid="stHeader"] { display: none !important; }
     """, unsafe_allow_html=True)
 
     json_timers = json.dumps(lista_js_timers)
+    # Novo Carimbo de Tempo para enganar o cache do Streamlit e manter o loop infinito de atualização vivo
+    stamp_agora = time.time()
     
-    # Ajuste Crítico: O Javascript agora procura o botão de "Atualizar" para forçar o Python a rodar e mantém o estado da aplicação
     js_engine = f"""
     <script>
-        setTimeout(function() {{
+        // Stamp: {stamp_agora}
+        setInterval(function() {{
             const btns = window.parent.document.querySelectorAll('button');
             for (let i = 0; i < btns.length; i++) {{
-                if (btns[i].innerText.includes('Atualizar')) {{ 
+                if (btns[i].innerText === '🔄 Atualizar' || btns[i].innerText.includes('Atualizar')) {{ 
                     btns[i].click(); 
                     break; 
                 }}
