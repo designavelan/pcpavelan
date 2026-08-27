@@ -1,6 +1,8 @@
 streamlit
 pandas
 plotly
+altair
 supabase
 openpyxl
 streamlit-option-menu
+google-generativeai

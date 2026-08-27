@@ -6,6 +6,7 @@ import streamlit.components.v1 as components
 import json
 import altair as alt
 import time
+import google.generativeai as genai
 
 def obter_hora_atual():
     return datetime.utcnow() - timedelta(hours=3)
@@ -66,6 +67,31 @@ header[data-testid="stHeader"] { display: none !important; }
     agora = obter_hora_atual()
     hoje_str = agora.strftime("%Y-%m-%d")
     agora_min = agora.hour * 60 + agora.minute
+
+    # ==========================================
+    # MOTOR DE CORES DINÂMICAS 
+    # ==========================================
+    mapa_cores = banco.obter_mapa_cores()
+    def get_color(tipo):
+        t = str(tipo).strip().upper()
+        if t in mapa_cores: return mapa_cores[t]
+        if t == 'PRODUÇÃO': return '#27ae60'
+        if t == 'PARADA': return '#e74c3c'
+        if t == 'NÃO CONTA': return '#f39c12'
+        if t == 'LIVRE': return '#3498db'
+        if t == 'A REALIZAR': return '#ecf0f1'
+        if t == 'INTERVALO PREVISTO': return '#bdc3c7'
+        return '#95a5a6'
+
+    def get_friendly_name(tipo):
+        t = str(tipo).strip().upper()
+        if t == 'NÃO CONTA': return 'Pausa Regist.'
+        if t == 'PRODUÇÃO': return 'Produzindo'
+        if t == 'PARADA': return 'Indisponível'
+        if t == 'LIVRE': return 'Livre'
+        if t == 'A REALIZAR': return 'A Realizar'
+        if t == 'INTERVALO PREVISTO': return 'Interv. Prev.'
+        return t.title()
 
     codigos_pausa = []
     if not df_codigos.empty and 'tipo' in df_codigos.columns:
@@ -183,86 +209,128 @@ header[data-testid="stHeader"] { display: none !important; }
         
         if status_maq == 'Parado':
             cod = info.get('cod_ocorrencia')
-            desc = str(df_codigos[df_codigos['codigo'].astype(str) == str(cod)].iloc[0]['descricao']) if cod and not df_codigos.empty and not df_codigos[df_codigos['codigo'].astype(str) == str(cod)].empty else "Desconhecido"
+            tipo_parada = 'PARADA'
+            desc = "Desconhecido"
+            
+            if cod and not df_codigos.empty:
+                f_cod = df_codigos[df_codigos['codigo'].astype(str) == str(cod)]
+                if not f_cod.empty:
+                    desc = str(f_cod.iloc[0]['descricao'])
+                    if 'tipo' in f_cod.columns:
+                        tipo_parada = str(f_cod.iloc[0]['tipo']).strip().upper()
+                        
+            if 'DESCONSIDERAR' in tipo_parada: tipo_parada = 'NÃO CONTA'
+            
+            info['tipo_registro'] = tipo_parada
             info['descricao_completa'] = f"{desc} ({cod})"
             info['is_pausa'] = str(cod).strip() in codigos_pausa
+            
             if info['is_pausa']:
                 maquinas_pausas.append(info)
-                classe_mapa, icone_mapa = "cd-pausa", "🟠"
+                icone_mapa = "☕"
             else:
                 maquinas_paradas_criticas.append(info)
-                classe_mapa, icone_mapa = "cd-parado", "🔴"
+                icone_mapa = "🟠" if tipo_parada == 'ROTINA' else "🔴"
+                
                 try:
                     h_ini = datetime.strptime(info['hora_inicio'], "%Y-%m-%d %H:%M:%S")
                     if h_ini.date() == agora.date():
-                        for m in range(h_ini.hour * 60 + h_ini.minute, agora_min + 1):
+                        for m in range(h_ini.hour * 60 + h_i.minute, agora_min + 1):
                             if (m >= m_das_min and m < m_as_min) or (m >= t_das_min and m < t_as_min): minutos_ativos_perdidos += 1
                 except: pass
+                
         elif status_maq == 'Produzindo':
+            info['tipo_registro'] = 'PRODUÇÃO'
             qtd_rodando += 1
-            classe_mapa, icone_mapa = "cd-prod", "🟢"
+            icone_mapa = "🟢"
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo, html_progresso = "Peça Desconhecida", ""
-            if cod_peca and not df_produtos.empty:
+            
+            ultima_p = info.get('ultima_peca_sel', '')
+            ultimo_prod = info.get('ultimo_produto_sel', '')
+            if str(cod_peca).startswith("VIRTUAL-") and ultima_p and ultimo_prod:
+                nome_cx = ultima_p.split(" (Cód:")[0].strip()
+                nome_peca_completo = f"{ultimo_prod} ➔ {nome_cx}"
+                prod_form = ultimo_prod
+            elif cod_peca and not df_produtos.empty:
                 f_peca = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca)]
                 if not f_peca.empty:
                     prod_form = f_peca.iloc[0]['produto_formula']
                     nome_peca_completo = f"{prod_form} ➔ {f_peca.iloc[0]['descricao']}"
-                    if prod_form in ops_dict:
-                        op_data = ops_dict[prod_form]
-                        meta_peca = int(op_data['quantidade_planejada']) * int(float(f_peca.iloc[0].get('qnt', 0)))
-                        if meta_peca > 0:
-                            prod_realizada = 0
-                            if not df_nuvem_operacao.empty:
-                                data_inicio_op_dt = pd.to_datetime(op_data['data_inicio'].split(" ")[0], errors='coerce')
-                                mask_todas_op = (df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) & (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) & (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)
-                                prod_realizada = int(df_nuvem_operacao[mask_todas_op]['quantidade_num'].sum())
-                            
-                            prod_realizada = min(meta_peca, prod_realizada)
-                            perc = (prod_realizada / meta_peca * 100)
-                            
-                            eta_str = "ETA: Calculando..."
-                            if not df_nuvem_operacao.empty:
-                                mask_maq_hoje = mask_todas_op & (df_nuvem_operacao['maquina'] == maq) & (df_nuvem_operacao['data_registro'] == hoje_str)
-                                df_maq_hoje = df_nuvem_operacao[mask_maq_hoje]
-                                prod_realizada_hoje = int(df_maq_hoje['quantidade_num'].sum())
-                                minutos_prod_hoje = 0
-                                for _, r in df_maq_hoje.iterrows():
-                                    min_i = calcular_minutos_str(r.get('das', '00:00'))
-                                    min_f = calcular_minutos_str(r.get('as_hora', '00:00'))
-                                    minutos_prod_hoje += max(0, min_f - min_i)
-                                
-                                if minutos_prod_hoje >= 20 or perc >= 5.0:
-                                    if minutos_prod_hoje > 0:
-                                        vel_minuto = prod_realizada_hoje / minutos_prod_hoje
-                                        if vel_minuto > 0:
-                                            faltam = max(0, meta_peca - prod_realizada)
-                                            min_restantes = faltam / vel_minuto
-                                            eta_dt = calcular_eta(min_restantes, agora, m_das_min, m_as_min, t_das_min, t_as_min)
-                                            if eta_dt:
-                                                if eta_dt.date() == agora.date(): eta_str = f"ETA: Hoje às {eta_dt.strftime('%H:%M')}"
-                                                elif eta_dt.date() == (agora + timedelta(days=1)).date(): eta_str = f"ETA: Amanhã às {eta_dt.strftime('%H:%M')}"
-                                                else: eta_str = f"ETA: {eta_dt.strftime('%d/%m %H:%M')}"
+                elif not df_caixas.empty:
+                    f_cx = df_caixas[df_caixas['cod_caixa'].astype(str) == str(cod_peca)]
+                    if not f_cx.empty:
+                        prod_form = f_cx.iloc[0]['produto_formula']
+                        nome_peca_completo = f"{prod_form} ➔ Caixa {f_cx.iloc[0]['num_caixa']}"
+            else:
+                prod_form = None
 
-                            html_progresso = f"""
-                            <div style='background: rgba(255,255,255,0.15); padding: 5px 10px; border-radius: 5px; margin-bottom: 5px;'>
-                                <div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 4px;'>
-                                    <span>{prod_realizada}/{meta_peca}</span><span>{perc:.1f}%</span>
-                                </div>
-                                <div style='width: 100%; background: rgba(0,0,0,0.2); height: 6px; border-radius: 3px;'>
-                                    <div style='width: {perc}%; background: #ffffff; height: 100%;'></div>
-                                </div>
-                                <div style='font-size: 10px; color: #e1f5fe; text-align: right; margin-top: 3px; font-style: italic;'>{eta_str}</div>
+            if cod_peca and prod_form:
+                if prod_form in ops_dict:
+                    op_data = ops_dict[prod_form]
+                    
+                    qnt_peca_matriz = 1
+                    if not df_produtos.empty:
+                        f_peca_aux = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca)]
+                        if not f_peca_aux.empty:
+                            try: qnt_peca_matriz = int(float(f_peca_aux.iloc[0].get('qnt', 1)))
+                            except: qnt_peca_matriz = 1
+                            
+                    meta_peca = int(op_data['quantidade_planejada']) * qnt_peca_matriz
+                    
+                    if meta_peca > 0:
+                        prod_realizada = 0
+                        if not df_nuvem_operacao.empty:
+                            data_inicio_op_dt = pd.to_datetime(op_data['data_inicio'].split(" ")[0], errors='coerce')
+                            mask_todas_op = (df_nuvem_operacao['cod_peca'].astype(str).str.strip() == str(cod_peca)) & (df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == setor.upper()) & (df_nuvem_operacao['data_registro_dt'] >= data_inicio_op_dt)
+                            prod_realizada = int(df_nuvem_operacao[mask_todas_op]['quantidade_num'].sum())
+                        
+                        prod_realizada = min(meta_peca, prod_realizada)
+                        perc = (prod_realizada / meta_peca * 100)
+                        
+                        eta_str = "ETA: Calculando..."
+                        if not df_nuvem_operacao.empty:
+                            mask_maq_hoje = mask_todas_op & (df_nuvem_operacao['maquina'] == maq) & (df_nuvem_operacao['data_registro'] == hoje_str)
+                            df_maq_hoje = df_nuvem_operacao[mask_maq_hoje]
+                            prod_realizada_hoje = int(df_maq_hoje['quantidade_num'].sum())
+                            minutos_prod_hoje = 0
+                            for _, r in df_maq_hoje.iterrows():
+                                min_i = calcular_minutos_str(r.get('das', '00:00'))
+                                min_f = calcular_minutos_str(r.get('as_hora', '00:00'))
+                                minutos_prod_hoje += max(0, min_f - min_i)
+                            
+                            if minutos_prod_hoje >= 20 or perc >= 5.0:
+                                if minutos_prod_hoje > 0:
+                                    vel_minuto = prod_realizada_hoje / minutos_prod_hoje
+                                    if vel_minuto > 0:
+                                        faltam = max(0, meta_peca - prod_realizada)
+                                        min_restantes = faltam / vel_minuto
+                                        eta_dt = calcular_eta(min_restantes, agora, m_das_min, m_as_min, t_das_min, t_as_min)
+                                        if eta_dt:
+                                            if eta_dt.date() == agora.date(): eta_str = f"ETA: Hoje às {eta_dt.strftime('%H:%M')}"
+                                            elif eta_dt.date() == (agora + timedelta(days=1)).date(): eta_str = f"ETA: Amanhã às {eta_dt.strftime('%H:%M')}"
+                                            else: eta_str = f"ETA: {eta_dt.strftime('%d/%m %H:%M')}"
+
+                        html_progresso = f"""
+                        <div style='background: rgba(255,255,255,0.15); padding: 5px 10px; border-radius: 5px; margin-bottom: 5px;'>
+                            <div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 4px;'>
+                                <span>{prod_realizada}/{meta_peca}</span><span>{perc:.1f}%</span>
                             </div>
-                            """
+                            <div style='width: 100%; background: rgba(0,0,0,0.2); height: 6px; border-radius: 3px;'>
+                                <div style='width: {perc}%; background: #ffffff; height: 100%;'></div>
+                            </div>
+                            <div style='font-size: 10px; color: #e1f5fe; text-align: right; margin-top: 3px; font-style: italic;'>{eta_str}</div>
+                        </div>
+                        """
             info['descricao_completa'] = nome_peca_completo
             info['html_progresso'] = html_progresso
             maquinas_produzindo.append(info)
         else:
+            info['tipo_registro'] = 'LIVRE'
             qtd_livres += 1
-            classe_mapa, icone_mapa = "cd-livre", "🔵"
+            icone_mapa = "🔵"
             
-        mapa_visual_dict[setor].append({"maquina": maq, "operadores": operadores_texto, "classe": classe_mapa, "icone": icone_mapa})
+        mapa_visual_dict[setor].append({"maquina": maq, "operadores": operadores_texto, "tipo": info['tipo_registro'], "icone": icone_mapa})
 
     cards_exibicao = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
     qtd_total = len(pares_maquinas)
@@ -312,27 +380,35 @@ header[data-testid="stHeader"] { display: none !important; }
     for p in maquinas_produzindo: noticias.append(f"🟢 [{p['setor']}] {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
     texto_letreiro = " &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; ".join(noticias) if noticias else "🟢 FÁBRICA OPERANDO COM 100% DE CAPACIDADE NESTE MOMENTO"
 
-    mapa_cores = banco.obter_mapa_cores()
-    def get_color(tipo):
-        t = str(tipo).strip().upper()
-        if t in mapa_cores: return mapa_cores[t]
-        if t == 'PRODUÇÃO': return '#27ae60'
-        if t == 'PARADA': return '#e74c3c'
-        if t == 'NÃO CONTA': return '#f39c12'
-        if t == 'LIVRE': return '#3498db'
-        if t == 'A REALIZAR': return '#ecf0f1'
-        if t == 'INTERVALO PREVISTO': return '#bdc3c7'
-        return '#95a5a6'
-
-    def get_friendly_name(tipo):
-        t = str(tipo).strip().upper()
-        if t == 'NÃO CONTA': return 'Pausa Regist.'
-        if t == 'PRODUÇÃO': return 'Produzindo'
-        if t == 'PARADA': return 'Indisponível'
-        if t == 'LIVRE': return 'Livre'
-        if t == 'A REALIZAR': return 'A Realizar'
-        if t == 'INTERVALO PREVISTO': return 'Interv. Prev.'
-        return t.title()
+    # ==========================================
+    # NOVIDADE: GERADOR DE INSIGHTS DA IA
+    # ==========================================
+    if "ia_dash_msg" not in st.session_state:
+        st.session_state.ia_dash_msg = "⏳ Aguardando primeira análise da IA..."
+        st.session_state.ia_dash_time = datetime.min
+    
+    if "GEMINI_API_KEY" in st.secrets:
+        # Só atualiza o recado a cada 15 minutos (900 segundos) para não estourar a cota
+        if (agora - st.session_state.ia_dash_time).total_seconds() > 900:
+            try:
+                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                dados_rapidos = f"""
+                Hora atual: {agora.strftime('%H:%M')}
+                Capacidade rodando: {perc_rodando:.0f}% ({qtd_rodando} de {qtd_total} máquinas).
+                Máquinas Paradas: {len(maquinas_paradas_criticas)}. Livres: {qtd_livres}.
+                Ofensor/Gargalo do dia: {top_ofensor}.
+                """
+                
+                prompt_ia = f"""Você é o analista do PCP. Leia estes dados muito rápido: {dados_rapidos}
+                Escreva UMA ÚNICA FRASE CURTA, encorajadora ou de alerta, para ser exibida num letreiro de TV na fábrica.
+                Sem introduções, sem aspas, seja direto. Foque no que é mais crítico ou parabenize se o % estiver alto (acima de 80%)."""
+                
+                modelo = genai.GenerativeModel(model_name="gemini-3.6-flash")
+                resp = modelo.generate_content(prompt_ia)
+                st.session_state.ia_dash_msg = resp.text.strip()
+                st.session_state.ia_dash_time = agora
+            except:
+                pass # Se falhar, mantém a última mensagem invisivelmente
 
     # ==========================================
     # DESENHO DA TELA (LAYOUT 3 COLUNAS)
@@ -355,6 +431,16 @@ header[data-testid="stHeader"] { display: none !important; }
 </div>
 </div>"""
         st.markdown(html_hero, unsafe_allow_html=True)
+
+        # --- AQUI ENTRA O NOVO CARD DA IA ---
+        if "GEMINI_API_KEY" in st.secrets:
+            st.markdown(f"""
+            <div style="background-color: #f0f7fb; border-left: 4px solid #2980b9; padding: 12px; border-radius: 5px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="font-size: 11px; font-weight: 900; color: #2980b9; text-transform: uppercase; margin-bottom: 5px;">🧠 Insight da Inteligência Artificial</div>
+                <div style="font-size: 14px; font-weight: 600; color: #2c3e50; line-height: 1.4;">"{st.session_state.ia_dash_msg}"</div>
+                <div style="font-size: 9px; color: #bdc3c7; text-align: right; margin-top: 4px;">Atualiza a cada 15 min</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         mc1, mc2 = st.columns(2)
         with mc1:
@@ -413,7 +499,7 @@ header[data-testid="stHeader"] { display: none !important; }
                 html_mapa += "<div style='flex: 1; min-width: 140px;'>"
                 html_mapa += f"<div style='background: #34495e; color: white; padding: 6px; border-radius: 5px; text-align: center; font-weight: bold; font-size: 12px; margin-bottom: 6px;'>{setor}</div>"
                 for m in sorted(maquinas_lista, key=lambda x: x['maquina']):
-                    cor_fundo = "#27ae60" if m['classe'] == "cd-prod" else ("#e74c3c" if m['classe'] == "cd-parado" else ("#f39c12" if m['classe'] == "cd-pausa" else "#3498db"))
+                    cor_fundo = get_color(m['tipo'])
                     html_mapa += f"<div style='background: {cor_fundo}; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; margin-bottom: 4px; display: flex; justify-content: space-between;'>"
                     html_mapa += f"<span>{m['icone']} {m['maquina']}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px;'>{m['operadores']}</span></div>"
                 html_mapa += "</div>"
@@ -423,9 +509,8 @@ header[data-testid="stHeader"] { display: none !important; }
         if cards_exibicao:
             st.markdown("""<style>
 .grid-dash { display: flex; flex-wrap: wrap; gap: 10px; }
-.card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; }
-.cd-prod { background-color: #27ae60; } .cd-parado { background-color: #e74c3c; } .cd-pausa { background-color: #f39c12; } .cd-livre { background-color: #3498db; }
-.cd-critico { background-color: #8b0000; animation: p-crit 1s infinite alternate; }
+.card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: background-color 0.3s ease; }
+.cd-critico { background-color: #8b0000 !important; animation: p-crit 1s infinite alternate; }
 @keyframes p-crit { 0% { opacity: 1; } 100% { opacity: 0.8; } }
 </style>""", unsafe_allow_html=True)
             
@@ -433,10 +518,11 @@ header[data-testid="stHeader"] { display: none !important; }
             for p in cards_exibicao:
                 p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
                 lista_js_timers.append({"id": p_id, "inicio_iso": str(p['hora_inicio']).replace(" ", "T")})
-                status_maq = p.get('status', 'Livre')
-                classe_card = "cd-prod" if status_maq == 'Produzindo' else ("cd-pausa" if p.get('is_pausa') else "cd-parado")
                 
-                html_cards += f"<div id='card_{p_id}' class='card-dash {classe_card}'>"
+                tipo_reg = p.get('tipo_registro', 'LIVRE')
+                cor_card = get_color(tipo_reg)
+                
+                html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card};' data-tipo='{tipo_reg}'>"
                 html_cards += "<div>" 
                 html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
                 html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina']}</div>"
@@ -462,27 +548,40 @@ header[data-testid="stHeader"] { display: none !important; }
                 
                 for _, row in df_feed.iterrows():
                     peca_raw = str(row.get('nome_peca', 'Desconhecida')).strip()
-                    if '➔' in peca_raw: peca_nome = peca_raw.split('➔')[-1].strip()
-                    elif '->' in peca_raw: peca_nome = peca_raw.split('->')[-1].strip()
-                    else: peca_nome = peca_raw
+                    produto_nome = "Produto Desconhecido"
                     
+                    if '➔' in peca_raw: 
+                        produto_nome = peca_raw.split('➔')[0].strip()
+                        peca_nome = peca_raw.split('➔')[1].strip()
+                    elif '->' in peca_raw: 
+                        produto_nome = peca_raw.split('->')[0].strip()
+                        peca_nome = peca_raw.split('->')[1].strip()
+                    else: 
+                        peca_nome = peca_raw
+                        
                     cod_peca = str(row.get('cod_peca', '')).strip()
                     qtd = int(pd.to_numeric(row.get('quantidade', 0), errors='coerce'))
                     das = str(row.get('das', '00:00')).strip()
                     as_hora = str(row.get('as_hora', '00:00')).strip()
                     maquina_nome = str(row.get('maquina', 'Máquina')).strip()
                     operador_nome = str(row.get('operador', 'Sem Operador')).strip()
+                    setor_feed = str(row.get('setor', '')).strip().upper()
                     
                     das_f = das[:5] if len(das) >= 5 else das
                     as_hora_f = as_hora[:5] if len(as_hora) >= 5 else as_hora
                     
-                    produto_nome = "Produto Desconhecido"
-                    if not df_produtos.empty and cod_peca:
-                        f_prod = df_produtos[df_produtos['cod'].astype(str) == cod_peca]
-                        if not f_prod.empty:
-                            produto_nome = str(f_prod.iloc[0].get('produto_formula', 'Produto Desconhecido'))
+                    if produto_nome == "Produto Desconhecido" and cod_peca:
+                        if setor_feed == 'EMBALAGEM':
+                            if not df_caixas.empty:
+                                f_cx = df_caixas[df_caixas['cod_caixa'].astype(str) == cod_peca]
+                                if not f_cx.empty:
+                                    produto_nome = str(f_cx.iloc[0].get('produto_formula', 'Produto Desconhecido'))
+                        else:
+                            if not df_produtos.empty:
+                                f_prod = df_produtos[df_produtos['cod'].astype(str) == cod_peca]
+                                if not f_prod.empty:
+                                    produto_nome = str(f_prod.iloc[0].get('produto_formula', 'Produto Desconhecido'))
                             
-                    # --- CORREÇÃO NO CÓDIGO HTML DO CARD ---
                     html_feed += f"""<div style='background: #fff; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #27ae60; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #f1f2f6; display: flex; flex-direction: column;'>
 <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 5px;'>
 <div style='overflow: hidden;'>
@@ -612,7 +711,6 @@ header[data-testid="stHeader"] { display: none !important; }
                     
             st.markdown(html_timelines, unsafe_allow_html=True)
             
-            # --- LEGENDA GLOBAL ÚNICA ---
             tipos_exibicao_legenda = set(['LIVRE', 'PRODUÇÃO', 'PARADA', 'NÃO CONTA', 'INTERVALO PREVISTO', 'A REALIZAR'])
             for k in mapa_cores.keys(): tipos_exibicao_legenda.add(k)
             html_legenda = "<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; font-size: 10px; font-weight: bold; color: #555; padding-top: 5px; margin-bottom: 25px;'>"
@@ -624,7 +722,7 @@ header[data-testid="stHeader"] { display: none !important; }
             st.markdown(html_legenda, unsafe_allow_html=True)
             
         if ops_ativas:
-            st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🏁 A Corrida das OPs</h3>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🏁 A Corrida DAS OPS</h3>", unsafe_allow_html=True)
             html_ops = "<div>"
             
             for op in ops_ativas:
@@ -743,8 +841,12 @@ header[data-testid="stHeader"] { display: none !important; }
                         if (tel) tel.innerHTML = (h<10?"0":"")+h + ":" + (m<10?"0":"")+m + ":" + (s<10?"0":"")+s;
                         
                         const cel = window.parent.document.getElementById("card_" + p.id);
-                        if (cel && distance >= tempoCriticoMs && !cel.classList.contains("cd-critico") && !cel.classList.contains("cd-pausa") && !cel.classList.contains("cd-prod")) {{
-                            cel.classList.remove("cd-parado"); cel.classList.add("cd-critico"); playBeep();
+                        if (cel && distance >= tempoCriticoMs && !cel.classList.contains("cd-critico")) {{
+                            const tipoReg = cel.getAttribute("data-tipo");
+                            if (tipoReg !== "NÃO CONTA" && tipoReg !== "PRODUÇÃO" && tipoReg !== "LIVRE") {{
+                                cel.classList.add("cd-critico"); 
+                                playBeep();
+                            }}
                         }}
                     }}
                 }});

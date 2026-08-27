@@ -33,7 +33,8 @@ def processar_planilha_caixas(arquivo_ou_caminho):
         
     df = df.loc[:, df.columns.notnull()]
     
-    colunas_esperadas = ["Quantidade de Caixas", "Cod", "Comp.", "Larg.", "Alt."]
+    # --- NOVIDADE: Adicionada a busca pela coluna "Tipo" ---
+    colunas_esperadas = ["Quantidade de Caixas", "Cod", "Comp.", "Larg.", "Alt.", "Tipo"]
     cols_presentes = [c for c in colunas_esperadas if c in df.columns]
     df = df[cols_presentes]
     
@@ -42,7 +43,8 @@ def processar_planilha_caixas(arquivo_ou_caminho):
         "Cod": "cod_caixa",
         "Comp.": "comp",
         "Larg.": "larg",
-        "Alt.": "alt"
+        "Alt.": "alt",
+        "Tipo": "tipo"
     }
     df = df.rename(columns=mapa)
     
@@ -85,7 +87,8 @@ def processar_planilha_caixas(arquivo_ou_caminho):
             'larg': limpar_texto(row['larg']),
             'alt': limpar_texto(row['alt']),
             'num_caixa': row['num_caixa'],
-            'm3': float(row['m3'])
+            'm3': float(row['m3']),
+            'tipo': limpar_texto(row.get('tipo'))
         }
         registros_limpos.append(linha)
         
@@ -173,9 +176,10 @@ def renderizar():
                 
                 if 'num_caixa' not in df_cx_filtro.columns: df_cx_filtro['num_caixa'] = ""
                 if 'm3' not in df_cx_filtro.columns: df_cx_filtro['m3'] = 0.0
+                if 'tipo' not in df_cx_filtro.columns: df_cx_filtro['tipo'] = None
                 
-                # Reordena para N ficar no começo e m³ no final
-                df_cx_filtro = df_cx_filtro[['id', 'num_caixa', 'cod_caixa', 'comp', 'larg', 'alt', 'm3']]
+                # Reordena para N ficar no começo, m³ e Tipo no final
+                df_cx_filtro = df_cx_filtro[['id', 'num_caixa', 'cod_caixa', 'comp', 'larg', 'alt', 'm3', 'tipo']]
                 
                 st.markdown(f"<p style='color: #27ae60; font-weight: bold;'>Exibindo {len(df_cx_filtro)} volumes para: {prod_sel_cx}</p>", unsafe_allow_html=True)
                 
@@ -191,7 +195,8 @@ def renderizar():
                         "comp": "Comp.",
                         "larg": "Larg.",
                         "alt": "Alt.",
-                        "m3": st.column_config.NumberColumn("m³", format="%.4f")
+                        "m3": st.column_config.NumberColumn("m³", format="%.4f"),
+                        "tipo": "Tipo (Espelho/Vidro)"
                     }, 
                     key="editor_caixas_ind"
                 )
@@ -202,7 +207,7 @@ def renderizar():
                         id_cx = row['id']
                         linha_orig = df_cx_filtro[df_cx_filtro['id'] == id_cx].iloc[0]
                         
-                        if row['comp'] != linha_orig['comp'] or row['larg'] != linha_orig['larg'] or row['alt'] != linha_orig['alt']:
+                        if row['comp'] != linha_orig['comp'] or row['larg'] != linha_orig['larg'] or row['alt'] != linha_orig['alt'] or row['tipo'] != linha_orig['tipo']:
                             try:
                                 c_n = float(row['comp']) if row['comp'] else 0
                                 l_n = float(row['larg']) if row['larg'] else 0
@@ -216,7 +221,8 @@ def renderizar():
                                 "comp": str(row['comp']) if row['comp'] else None,
                                 "larg": str(row['larg']) if row['larg'] else None,
                                 "alt": str(row['alt']) if row['alt'] else None,
-                                "m3": novo_m3
+                                "m3": novo_m3,
+                                "tipo": str(row['tipo']).strip() if row['tipo'] else None
                             })
                         
                     if mudancas_cx:
@@ -226,4 +232,4 @@ def renderizar():
                             st.success(f"✅ {len(mudancas_cx)} caixa(s) ajustada(s) no sistema!")
                             st.rerun()
                     else:
-                        st.info("Você não alterou nenhuma medida.")
+                        st.info("Você não alterou nenhuma medida ou tipo.")

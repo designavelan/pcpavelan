@@ -193,8 +193,6 @@ def renderizar(df_nuvem, df_codigos):
         ultimo_produto_sel = dados_maq.get('ultimo_produto_sel', "")
         ultima_peca_sel = dados_maq.get('ultima_peca_sel', "")
     else:
-        # --- A SOLUÇÃO: AUTO-CURA DA MÁQUINA ---
-        # Se a máquina não existir na tabela de status, o sistema cria o registro agora mesmo.
         try:
             supa.table("status_maquinas").insert({
                 "setor": setor_selecionado, 
@@ -216,6 +214,14 @@ def renderizar(df_nuvem, df_codigos):
             if 'tipo' in df_codigos.columns: df_codigos_parado = df_codigos[(df_codigos['tipo'].astype(str).str.strip().str.upper() != 'PRODUÇÃO') & (df_codigos['codigo'].astype(str).str.strip().str.upper() != 'P')]
             else: df_codigos_parado = pd.DataFrame()
     else: df_codigos_parado = pd.DataFrame()
+
+    # ==========================================
+    # GATILHO FANTASMA DOS 60 SEGUNDOS (COM CALLBACK SEGURO)
+    # ==========================================
+    def limpar_gatilho():
+        st.session_state["trigger_60s"] = ""
+
+    st.text_input("trigger_60s_js", key="trigger_60s", label_visibility="collapsed", on_change=limpar_gatilho)
 
     # ==========================================
     # ESTADO 1: MÁQUINA LIVRE
@@ -338,7 +344,21 @@ def renderizar(df_nuvem, df_codigos):
                         df_caixas = cache_obter_caixas()
                         if not df_caixas.empty:
                             df_cx_filtro = df_caixas[df_caixas['produto_formula'] == sel_prod]
-                            lista_pecas_limpa = [f"Caixa {row['num_caixa']} (Cód: {row['cod_caixa']})" for _, row in df_cx_filtro.iterrows() if pd.notna(row['cod_caixa']) and str(row['cod_caixa']).strip() not in ["", "None", "nan"]]
+                            lista_pecas_limpa = []
+                            for _, row in df_cx_filtro.iterrows():
+                                # --- FILTRO ANTI-ESTOQUE: Remove caixas de Espelho/Vidro do terminal do operador ---
+                                tipo_cx = str(row.get('tipo', '')).strip()
+                                if tipo_cx not in ["", "None", "nan"]:
+                                    continue 
+                                    
+                                cod_cx = str(row.get('cod_caixa', '')).strip()
+                                num_cx = str(row.get('num_caixa', '')).strip()
+                                
+                                # --- MÁGICA DA OPÇÃO 2: CÓDIGO VIRTUAL NO TERMINAL ---
+                                if cod_cx in ["", "None", "nan"]:
+                                    cod_cx = f"VIRTUAL-{sel_prod}-{num_cx}".replace(" ", "_").upper()
+                                    
+                                lista_pecas_limpa.append(f"Caixa {num_cx} (Cód: {cod_cx})")
                         else:
                             lista_pecas_limpa = []
                         df_pecas = pd.DataFrame()
@@ -436,7 +456,7 @@ def renderizar(df_nuvem, df_codigos):
                             codigo_peca = sel_peca_limpa.split("(Cód: ")[-1].replace(")", "").strip()
                             agora = logica.obter_hora_atual().strftime("%Y-%m-%d %H:%M:%S")
                             
-                            val_cod_peca_db = codigo_peca if not is_embalagem else None
+                            val_cod_peca_db = codigo_peca
                             
                             supa.table("status_maquinas").update({
                                 "status": "Produzindo", "cod_peca_atual": val_cod_peca_db, 
@@ -501,11 +521,16 @@ def renderizar(df_nuvem, df_codigos):
             
         if cod_peca_atual:
             if is_embalagem:
-                df_caixas = cache_obter_caixas()
-                if not df_caixas.empty:
-                    df_filtro = df_caixas[df_caixas['cod_caixa'].astype(str) == str(cod_peca_atual)]
-                    if not df_filtro.empty:
-                        nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ Caixa {df_filtro.iloc[0]['num_caixa']}"
+                if str(cod_peca_atual).startswith("VIRTUAL-"):
+                    if ultima_peca_sel:
+                        nome_cx = ultima_peca_sel.split(" (Cód:")[0].strip()
+                        nome_peca = f"{ultimo_produto_sel} ➔ {nome_cx}"
+                else:
+                    df_caixas = cache_obter_caixas()
+                    if not df_caixas.empty:
+                        df_filtro = df_caixas[df_caixas['cod_caixa'].astype(str) == str(cod_peca_atual)]
+                        if not df_filtro.empty:
+                            nome_peca = f"{df_filtro.iloc[0]['produto_formula']} ➔ Caixa {df_filtro.iloc[0]['num_caixa']}"
             else:
                 if not df_produtos.empty:
                     df_filtro = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca_atual)]

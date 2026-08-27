@@ -101,16 +101,27 @@ def gerar_tabela_caixas(df_caixas, df_apontamentos, produto, qtd_op):
             mapa_producao[r['cod_peca']] = int(r['quantidade'])
             
     for _, row in df_filtrado.iterrows():
+        # --- FILTRO ANTI-ESTOQUE: Remove caixas de Espelho/Vidro da tabela visual da OP ---
+        tipo_cx = str(row.get('tipo', '')).strip()
+        if tipo_cx not in ["", "None", "nan"]:
+            continue
+            
         cod_cx_str = str(row.get('cod_caixa', '')).strip()
-        if cod_cx_str in ["", "None", "nan"]: continue
-        
         num_caixa = str(row.get('num_caixa', '')).strip()
+        
+        # --- MÁGICA DA OPÇÃO 2: CÓDIGO VIRTUAL DE CAIXA ---
+        if cod_cx_str in ["", "None", "nan"]:
+            cod_cx_str = f"VIRTUAL-{produto}-{num_caixa}".replace(" ", "_").upper()
+            exibicao_cod = "Sem Código (Virtual)"
+        else:
+            exibicao_cod = cod_cx_str
+        
         qtd_total = qtd_op  
         prod_cx = mapa_producao.get(cod_cx_str, 0)
         
         linhas_tabela.append({
             "Volume": f"Caixa {num_caixa}",
-            "Código": cod_cx_str,
+            "Código": exibicao_cod,
             "Meta": formatar_valor(qtd_total),
             "Produzido": formatar_valor(prod_cx)
         })
@@ -320,7 +331,6 @@ def renderizar():
                 
                 def get_p(s): return mapa_prod.get((s.upper(), cod), 0)
                 
-                # 🛑 AQUI ESTÁ A "TELA MAGNÉTICA": min(qtd_total, get_p)
                 meta_setor['Corte'] += qtd_total
                 prod_setor['Corte'] += min(qtd_total, get_p('Corte'))
                 
@@ -343,12 +353,22 @@ def renderizar():
             if not df_caixas.empty:
                 df_cx_filtrado = df_caixas[df_caixas['produto_formula'] == nome_op]
                 for _, row_cx in df_cx_filtrado.iterrows():
+                    # --- MÁGICA DO FILTRO ANTI-ESTOQUE (ESPELHOS/VIDROS) ---
+                    tipo_cx = str(row_cx.get('tipo', '')).strip()
+                    if tipo_cx not in ["", "None", "nan"]:
+                        continue # Ignora este volume na OP (já existe no estoque)
+                        
                     cod_cx = str(row_cx.get('cod_caixa', '')).strip()
-                    if cod_cx and cod_cx not in ["", "None", "nan"]:
-                        codigos_desta_op.append(cod_cx) 
-                        meta_setor['Embalagem'] += qtd_plan
-                        prod_cx_real = mapa_prod.get(('EMBALAGEM', cod_cx), 0)
-                        prod_setor['Embalagem'] += min(qtd_plan, prod_cx_real)
+                    num_cx = str(row_cx.get('num_caixa', '')).strip()
+                    
+                    # --- MÁGICA DA OPÇÃO 2: AVALIA E CRIA O CÓDIGO VIRTUAL ---
+                    if cod_cx in ["", "None", "nan"]:
+                        cod_cx = f"VIRTUAL-{nome_op}-{num_cx}".replace(" ", "_").upper()
+                        
+                    codigos_desta_op.append(cod_cx) 
+                    meta_setor['Embalagem'] += qtd_plan
+                    prod_cx_real = mapa_prod.get(('EMBALAGEM', cod_cx), 0)
+                    prod_setor['Embalagem'] += min(qtd_plan, prod_cx_real)
 
             meta_global = sum(meta_setor.values())
             prod_global = sum(prod_setor.values())
