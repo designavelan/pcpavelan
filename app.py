@@ -15,6 +15,7 @@ import backups
 import plano_acao 
 import chao_de_fabrica
 import ao_vivo 
+import dashboard
 import desempenho
 import gerenciador
 import usuarios
@@ -214,7 +215,7 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -285,7 +286,6 @@ def abrir_central_correcoes(admin_nome):
     with tab_manual:
         st.markdown("Busque um ID de produção para conferir os dados antes de fazer a alteração.")
         
-        # Variável de estado para guardar o registro encontrado na busca
         if "registro_busca_manual" not in st.session_state:
             st.session_state.registro_busca_manual = None
 
@@ -306,11 +306,9 @@ def abrir_central_correcoes(admin_nome):
                 else:
                     st.error("⚠️ Por favor, digite um ID numérico válido.")
 
-        # Se encontrou o registro, exibe a "Ficha Cadastral" e libera os campos de alteração
         if st.session_state.registro_busca_manual:
             reg = st.session_state.registro_busca_manual
             
-            # Converte a data para padrão brasileiro, se possível
             data_reg = reg.get('data_registro', '')
             try: data_reg_br = datetime.strptime(data_reg, "%Y-%m-%d").strftime("%d/%m/%Y")
             except: data_reg_br = data_reg
@@ -318,7 +316,6 @@ def abrir_central_correcoes(admin_nome):
             st.markdown("<hr style='opacity: 0.2; margin: 15px 0;'>", unsafe_allow_html=True)
             st.markdown("<h4 style='color: #2980b9; margin-bottom: 10px;'>📄 Dados do Registro Encontrado</h4>", unsafe_allow_html=True)
             
-            # Caixa de informações com quebra de linha para cada informação (Mais legível)
             html_info = f"""
             <div style="background-color: #eaf2f8; padding: 15px; border-radius: 8px; border: 1px solid #bce0fd; color: #2c3e50; font-size: 15px; line-height: 1.8; margin-bottom: 15px;">
                 <b>ID:</b> {reg.get('id')}<br>
@@ -336,7 +333,6 @@ def abrir_central_correcoes(admin_nome):
             
             st.markdown("#### ✏️ Alteração e Auditoria")
             
-            # Puxa a quantidade atual e a coloca em um campo de texto limpo
             qtd_atual = ""
             try: qtd_atual = str(int(float(reg.get('quantidade', 0))))
             except: pass
@@ -351,7 +347,7 @@ def abrir_central_correcoes(admin_nome):
                         sucesso, msg = banco.corrigir_registro_manual(reg['id'], nova_qtd_m, motivo_m, admin_nome)
                         if sucesso:
                             st.success("✅ Registro corrigido com sucesso!")
-                            st.session_state.registro_busca_manual = None  # Limpa a tela após o sucesso
+                            st.session_state.registro_busca_manual = None
                             st.rerun()
                         else:
                             st.error(msg)
@@ -360,7 +356,7 @@ def abrir_central_correcoes(admin_nome):
                 else:
                     st.error("⚠️ A quantidade precisa ser um número inteiro válido.")
 
-if st.session_state.aba_atual != "📱 Chão de Fábrica":
+if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.aba_atual != "📺 Dashboard":
     c1, c2 = st.columns([8, 2])
     with c1:
         logo_b64 = cfg.get('logo_base64', None)
@@ -398,7 +394,7 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica":
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -409,7 +405,7 @@ else:
 
 idx_atual = todas_abas.index(st.session_state.aba_atual)
 
-if len(todas_abas) > 1:
+if len(todas_abas) > 1 and st.session_state.aba_atual != "📺 Dashboard":
     escolha = option_menu(
         menu_title=None,
         options=todas_abas,
@@ -423,6 +419,8 @@ if len(todas_abas) > 1:
             "nav-link-selected": {"background-color": "#2980b9"},
         }
     )
+elif st.session_state.aba_atual == "📺 Dashboard":
+    escolha = "📺 Dashboard"
 else:
     escolha = todas_abas[0]
 
@@ -436,6 +434,7 @@ registrar_heartbeat()
 # ROTEADOR DE ABAS
 if st.session_state.aba_atual == "📱 Chão de Fábrica": chao_de_fabrica.renderizar(df_nuvem, df_codigos)
 elif st.session_state.aba_atual == "🔴 Ao Vivo": ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+elif st.session_state.aba_atual == "📺 Dashboard": dashboard.renderizar(df_nuvem, df_codigos, filtros_selecionados)
 elif st.session_state.aba_atual == "🎯 Painel de OPs": painel_ops.renderizar()
 elif st.session_state.aba_atual == "🏆 Desempenho": desempenho.renderizar()
 elif st.session_state.aba_atual == "💡 Plano de Ação": 
@@ -471,3 +470,15 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
     with aba_backup: backups.renderizar()
     with aba_gerenciador: gerenciador.renderizar(df_nuvem)
     with aba_acessos: configuracoes.renderizar_registro_acessos()
+
+# BOTÕES DE CONTROLE DO MODO TV
+if st.session_state.aba_atual == "📺 Dashboard":
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_btn1, c_btn2, c_btn3 = st.columns([7, 1.5, 1.5])
+    with c_btn2:
+        if st.button("🔄 Atualizar", use_container_width=True, type="primary"):
+            st.rerun()
+    with c_btn3:
+        if st.button("⬅️ Sair do Modo TV", use_container_width=True):
+            st.session_state.aba_atual = todas_abas[0] if todas_abas else "🔴 Ao Vivo"
+            st.rerun()

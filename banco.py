@@ -121,10 +121,27 @@ def atualizar_usuario(id_usuario, dados):
 # FUNÇÕES DE ESTRUTURA DA FÁBRICA (CASCATA)
 # ==========================================
 
+@st.cache_data(ttl=5)
 def obter_estrutura():
-    supa = conectar()
-    resp = supa.table("estrutura_fabrica").select("*").order("setor").order("maquina").execute()
-    return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    """Retorna APENAS as máquinas ativas no sistema (Filtro Mestre)"""
+    try:
+        supa = conectar()
+        resp = supa.table("estrutura_fabrica").select("*").eq("ativo", True).order("setor").order("maquina").execute()
+        return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao obter estrutura: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=5)
+def obter_estrutura_completa():
+    """Retorna TODAS as máquinas (ativas e desativadas) para a aba de Configurações"""
+    try:
+        supa = conectar()
+        resp = supa.table("estrutura_fabrica").select("*").order("setor").order("maquina").execute()
+        return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao obter estrutura completa: {e}")
+        return pd.DataFrame()
 
 def adicionar_estrutura(setor, maquina):
     supa = conectar()

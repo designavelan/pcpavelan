@@ -99,7 +99,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -108,7 +108,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -233,7 +233,7 @@ def renderizar_config_abas():
                 salvar_caminho_matriz(novo_caminho)
                 st.success("✅ Caminho vinculado!")
     
-    with st.expander("🔴 Aba: Ao Vivo"):
+    with st.expander("🔴 Aba: Ao Vivo & Dashboard"):
         st.markdown("Controle o comportamento do painel de monitoramento da fábrica em tempo real (Sistema Andon):")
         
         cv1, cv2, cv3 = st.columns(3)
@@ -289,10 +289,11 @@ def renderizar_config_abas():
 
 def renderizar_estrutura():
     st.markdown("### 🏭 Estrutura da Fábrica")
-    st.markdown("Cadastre novos setores e máquinas, ou edite os nomes atuais. As alterações feitas aqui serão atualizadas **automaticamente em todo o histórico e nos usuários vinculados**.")
+    st.markdown("Cadastre novos setores e máquinas, ou ative/desative equipamentos atuais. **Máquinas desativadas são ocultadas dos gráficos e relatórios atuais**, mas o histórico delas é preservado.")
     st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
     
-    df_est = banco.obter_estrutura()
+    # ATENÇÃO: Usando obter_estrutura_completa para ver TODAS as máquinas, inclusive inativas
+    df_est = banco.obter_estrutura_completa()
     supa = banco.conectar()
     
     st.markdown("#### 🛤️ Ordem do Fluxo de Produção (Roteamento)")
@@ -341,7 +342,11 @@ def renderizar_estrutura():
             if n_setor and n_maq:
                 try:
                     banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
-                    supa.table("estrutura_fabrica").update({"permite_producao_dupla": n_dupla}).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
+                    supa.table("estrutura_fabrica").update({
+                        "permite_producao_dupla": n_dupla,
+                        "ativo": True # Garante que novas máquinas já nasçam ativas
+                    }).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
+                    
                     st.cache_data.clear()
                     st.success("✅ Máquina cadastrada com sucesso!")
                     st.rerun()
@@ -351,11 +356,13 @@ def renderizar_estrutura():
                 st.warning("Preencha o Setor e a Máquina.")
                 
     with c2:
-        st.markdown("#### ✏️ Editar Existente (Cascata)")
+        st.markdown("#### ✏️ Editar ou Desativar Existente")
         if not df_est.empty:
-            df_est['nome_exibicao'] = df_est['setor'] + " ➔ " + df_est['maquina']
-            opcoes = df_est['nome_exibicao'].tolist()
+            # Cria a tag (DESATIVADA) visual para facilitar a vida do usuário
+            df_est['status_txt'] = df_est['ativo'].apply(lambda x: "" if x is True or str(x).lower() == 'true' else " (DESATIVADA)")
+            df_est['nome_exibicao'] = df_est['setor'] + " ➔ " + df_est['maquina'] + df_est['status_txt']
             
+            opcoes = df_est['nome_exibicao'].tolist()
             selecionada = st.selectbox("Selecione para alterar:", opcoes)
             
             linha = df_est[df_est['nome_exibicao'] == selecionada].iloc[0]
@@ -366,22 +373,35 @@ def renderizar_estrutura():
             val_raw = linha.get('permite_producao_dupla', False)
             val_dupla_ant = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
             
+            val_ativo_raw = linha.get('ativo', True)
+            val_ativo_ant = True if str(val_ativo_raw).strip().lower() == 'true' or val_ativo_raw is True else False
+            
             e_setor = st.text_input("Renomear Setor", value=setor_ant)
             e_maq = st.text_input("Renomear Máquina", value=maq_ant)
+            
+            st.markdown("#### ⚙️ Status da Máquina no Sistema")
+            e_ativo = st.toggle("🟢 Máquina Ativa e Visível", value=val_ativo_ant, key=f"ativo_{id_est}")
+            if not e_ativo:
+                st.warning("⚠️ Atenção: Esta máquina ficará invisível nos painéis, gráficos e filtros. O histórico continuará salvo no banco de dados.")
+                
             e_dupla = st.checkbox("Esta máquina permite produção dupla (simultânea)", value=val_dupla_ant, key=f"chk_{id_est}")
             
-            if st.button("🔄 Salvar e Aplicar Cascata", type="primary"):
+            if st.button("🔄 Salvar e Atualizar", type="primary"):
                 if e_setor and e_maq:
                     mudou_nome = (e_setor.strip() != setor_ant or e_maq.strip() != maq_ant)
                     mudou_dupla = (e_dupla != val_dupla_ant)
+                    mudou_ativo = (e_ativo != val_ativo_ant)
                     
-                    if mudou_nome or mudou_dupla:
+                    if mudou_nome or mudou_dupla or mudou_ativo:
                         with st.spinner("Atualizando todo o sistema (Isso pode levar alguns segundos)..."):
                             try:
                                 if mudou_nome:
                                     banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
                                 
-                                supa.table("estrutura_fabrica").update({"permite_producao_dupla": e_dupla}).eq("id", id_est).execute()
+                                supa.table("estrutura_fabrica").update({
+                                    "permite_producao_dupla": e_dupla,
+                                    "ativo": e_ativo
+                                }).eq("id", id_est).execute()
                                 
                                 st.cache_data.clear()
                                 st.success("✅ Estrutura atualizada com sucesso!")
@@ -569,32 +589,27 @@ def renderizar_cores():
     st.markdown("Defina as cores globais do sistema para cada Tipo de registro. Essas cores serão aplicadas automaticamente no Chão de Fábrica, Telas Ao Vivo, Gráficos e Relatórios.")
     st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
     
-    # 1. Obter todos os tipos da tabela de códigos
-    import banco # Garantir o import local
+    import banco 
     df_codigos = banco.obter_codigos()
     tipos_descobertos = []
     if not df_codigos.empty and 'tipo' in df_codigos.columns:
         tipos_descobertos = df_codigos['tipo'].dropna().unique().tolist()
         tipos_descobertos = [t.strip().upper() for t in tipos_descobertos if t.strip()]
         
-    # 2. Garantir que os tipos virtuais existam na lista
     tipos_base = ['PRODUÇÃO', 'PARADA', 'NÃO CONTA', 'LIVRE', 'RETRABALHO']
     para_exibir = list(set(tipos_descobertos + tipos_base))
     para_exibir.sort()
     
-    # 3. Puxar o mapa de cores atual
     mapa_cores = banco.obter_mapa_cores()
     
-    # 4. Desenhar o UI em grade (3 colunas)
     colunas = st.columns(3)
     
     for idx, tipo_nome in enumerate(para_exibir):
         col_atual = colunas[idx % 3]
         with col_atual:
             st.markdown(f"<div style='margin-top: 15px; margin-bottom: 5px; font-size: 15px; font-weight: bold; color: #2c3e50;'>{tipo_nome}</div>", unsafe_allow_html=True)
-            cor_atual = mapa_cores.get(tipo_nome, '#cccccc') # Cinza se não houver cor
+            cor_atual = mapa_cores.get(tipo_nome, '#cccccc')
             
-            # O color picker salva instantaneamente
             nova_cor = st.color_picker(f"Cor {tipo_nome}", value=cor_atual, key=f"color_{tipo_nome}", label_visibility="collapsed")
             
             if nova_cor != cor_atual:
