@@ -357,7 +357,6 @@ header[data-testid="stHeader"] { display: none !important; }
                     m_i = calcular_minutos_str(r.get('das', '00:00'))
                     m_f = calcular_minutos_str(r.get('as_hora', '00:00'))
                     
-                    # Filtra matematicamente para somar apenas os minutos que caem dentro do horário útil
                     for min_bd in range(m_i, m_f):
                         is_turno = (m_das_min <= min_bd < m_as_min) or (t_das_min <= min_bd < t_as_min)
                         is_lanche = (lm_das_min <= min_bd < lm_as_min) or (lt_das_min <= min_bd < lt_as_min)
@@ -548,26 +547,38 @@ header[data-testid="stHeader"] { display: none !important; }
             for p in cards_exibicao:
                 p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
                 
-                lista_js_timers.append({
-                    "id": p_id, 
-                    "inicio_iso": str(p['hora_inicio']).replace(" ", "T"),
-                    "past_ms": p.get('minutos_acumulados_bd', 0) * 60000,
-                    "min_passados": minutos_uteis_passados, # A Régua Universal Aplicada
-                    "tipo": p.get('tipo_registro', 'LIVRE')
-                })
-                
                 tipo_reg = p.get('tipo_registro', 'LIVRE')
+                desc_completa = p.get('descricao_completa', '')
+                
+                # VERIFICAÇÃO SE É FIM DO EXPEDIENTE (No Tipo ou na Descrição)
+                is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
+                
+                # Só adiciona no motor JavaScript se NÃO for fim do expediente (evita alarmes desnecessários)
+                if not is_fim_expediente:
+                    lista_js_timers.append({
+                        "id": p_id, 
+                        "inicio_iso": str(p['hora_inicio']).replace(" ", "T"),
+                        "past_ms": p.get('minutos_acumulados_bd', 0) * 60000,
+                        "min_passados": minutos_uteis_passados,
+                        "tipo": tipo_reg
+                    })
+                
                 cor_card = get_color(tipo_reg)
                 
                 html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card};' data-tipo='{tipo_reg}'>"
                 html_cards += "<div>" 
                 html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
                 html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina']}</div>"
-                html_cards += f"<div style='font-size:11px; height:30px; overflow:hidden;'>{p['descricao_completa']}</div>"
+                html_cards += f"<div style='font-size:11px; height:30px; overflow:hidden;'>{desc_completa}</div>"
                 html_cards += p.get('html_progresso', '')
                 html_cards += "</div>" 
-                html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
-                html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
+                
+                if is_fim_expediente:
+                    html_cards += f"<div style='font-size:14px; font-weight:bold; background:rgba(0,0,0,0.2); border-radius:5px; margin-top:auto; padding: 15px 0; text-transform:uppercase;'>Turno Encerrado</div>"
+                else:
+                    html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
+                    html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
+                    
                 html_cards += "</div>"
             html_cards += "</div>"
             st.markdown(html_cards, unsafe_allow_html=True)
@@ -725,34 +736,29 @@ header[data-testid="stHeader"] { display: none !important; }
                     html_timelines += "<div style='display: flex; align-items: center; margin-bottom: 6px; gap: 8px; background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid #eaeaea; box-shadow: 0 1px 3px rgba(0,0,0,0.02);'>"
                     html_timelines += f"<div style='width: 80px; font-size: 11px; font-weight: 800; color: #34495e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{maq}'>{maq}</div>"
                     
-                    # LINHA DE PROGRESSO DO GRÁFICO (Mantém o visual esticado do dia todo)
                     html_timelines += "<div style='flex-grow: 1; display: flex; height: 12px; border-radius: 3px; overflow: hidden;'>"
                     for stype, slen in segments:
                         html_timelines += f"<div style='width:{(slen/total_timeline_min)*100}%; background-color:{get_color(stype)};' title='{get_friendly_name(stype)}'></div>"
                     html_timelines += "</div>"
                     
-                    # CÁLCULO CIRÚRGICO DA % (USANDO A RÉGUA UNIVERSAL DE TEMPO ÚTIL PASSADO)
                     counts_passados = {}
                     base_matematica = 0
-                    
                     for i in range(total_timeline_min):
                         curr = m_das_min + i
-                        if curr >= agora_min: break # Ignora completamente o futuro
+                        if curr >= agora_min: break 
                         
                         stype = timeline[i]
-                        # Ignora os lanches/pausas para o cálculo da base de 100% útil
-                        if stype != 'INTERVALO PREVISTO' and 'NÃO CONTA' not in stype:
+                        if stype != 'INTERVALO PREVISTO' and 'NÃO CONTA' not in stype and 'DESCONSIDERAR' not in stype:
                             counts_passados[stype] = counts_passados.get(stype, 0) + 1
                             base_matematica += 1
                             
-                    if base_matematica <= 0: base_matematica = 1 # Proteção
+                    if base_matematica <= 0: base_matematica = 1 
                     
                     itens_c = []
                     for stype, slen in counts_passados.items():
                         if slen > 0:
                             itens_c.append(((slen/base_matematica)*100, stype))
                             
-                    # REMOVIDO O LIMITE DE 3 ITENS (Para fechar 100% exato e bater com o Card)
                     html_timelines += "<div style='display: flex; gap: 6px; font-size: 10px; font-weight: bold; color: #2c3e50; min-width: 90px; justify-content: flex-end; flex-wrap: wrap;'>"
                     for pct_val, stype in sorted(itens_c, key=lambda x: x[0], reverse=True): 
                         cor = get_color(stype)

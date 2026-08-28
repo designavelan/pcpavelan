@@ -143,6 +143,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     t_das_min = calcular_minutos_str(t_das)
     t_as_min = calcular_minutos_str(t_as)
 
+    # CORREÇÃO: Variáveis de intervalo (Lanches/Pausas) adicionadas de volta
+    lm_das_min = calcular_minutos_str(cfg.get('lanche_m_das', '')) if cfg.get('lanche_m_das') else -1
+    lm_as_min = calcular_minutos_str(cfg.get('lanche_m_as', '')) if cfg.get('lanche_m_as') else -1
+    lt_das_min = calcular_minutos_str(cfg.get('lanche_t_das', '')) if cfg.get('lanche_t_das') else -1
+    lt_as_min = calcular_minutos_str(cfg.get('lanche_t_as', '')) if cfg.get('lanche_t_as') else -1
+
     # Coleta de Parâmetros de UI no Banco
     altura_graficos = int(banco.obter_memoria_sistema('Análise', 'Geral', 'altura_graficos', 500))
     tamanho_valores = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_valores', 16))
@@ -169,6 +175,290 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         c3.markdown(f"<div class='kpi-card'><div class='kpi-title'>🔴 Pior Ofensor (Parada)</div><div class='kpi-value val-red' style='font-size:24px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{ofensor_prob.split(' (')[0]}</div><div class='kpi-sub'>Tempo: {ofensor_prob.split('(')[-1].replace(')','')}</div></div>", unsafe_allow_html=True)
         c4.markdown(f"<div class='kpi-card'><div class='kpi-title'>🟠 Maior Rotina</div><div class='kpi-value val-orange' style='font-size:24px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{ofensor_rot.split(' (')[0]}</div><div class='kpi-sub'>Tempo: {ofensor_rot.split('(')[-1].replace(')','')}</div></div>", unsafe_allow_html=True)
         
+        st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+
+        # ==========================================
+        # 🕰️ BLOCO 2: DETALHE DIÁRIO (MÁQUINA DO TEMPO) RESTAURADO E CORRIGIDO
+        # ==========================================
+        if is_single_day:
+            st.info(f"📅 **Modo Diário Ativo:** Exibindo a linha do tempo detalhada para o dia **{data_de}**.")
+            
+            supa = banco.conectar()
+            agora = datetime.utcnow() - timedelta(hours=3)
+            is_hoje = (data_de == agora.strftime("%Y-%m-%d"))
+            agora_min = agora.hour * 60 + agora.minute if is_hoje else 1440
+            
+            df_est_total = banco.obter_estrutura()
+            total_maq_atual = len(df_est_total[['setor', 'maquina']].dropna().drop_duplicates()) if not df_est_total.empty else 0
+
+            resp_hist = supa.table("historico_operacao").select("data_hora, percentual, maquinas_ativas, maquinas_totais").gte("data_hora", f"{data_de} 00:00:00").lte("data_hora", f"{data_de} 23:59:59").order("data_hora").execute()
+            
+            hora_inicio_turno = datetime.strptime(f"{data_de} {m_das}", "%Y-%m-%d %H:%M")
+            hora_fim_turno = datetime.strptime(f"{data_de} {t_as}", "%Y-%m-%d %H:%M")
+            
+            df_h = pd.DataFrame(resp_hist.data) if resp_hist.data else pd.DataFrame()
+            if not df_h.empty:
+                df_h['data_hora'] = pd.to_datetime(df_h['data_hora']).dt.tz_localize(None)
+                df_h['minuto_exato'] = df_h['data_hora'].dt.floor('min')
+                df_agrupado = df_h.groupby('minuto_exato')[['percentual', 'maquinas_ativas', 'maquinas_totais']].last().reset_index()
+                df_agrupado.set_index('minuto_exato', inplace=True)
+            else:
+                df_agrupado = pd.DataFrame(columns=['percentual', 'maquinas_ativas', 'maquinas_totais'])
+                
+            idx_todos_minutos = pd.date_range(start=hora_inicio_turno, end=hora_fim_turno, freq='min')
+            df_completo = pd.DataFrame(index=idx_todos_minutos)
+            
+            if not df_agrupado.empty: df_completo = df_completo.join(df_agrupado)
+            else:
+                df_completo['percentual'] = pd.NA
+                df_completo['maquinas_ativas'] = pd.NA
+                df_completo['maquinas_totais'] = pd.NA
+                
+            df_completo['percentual'] = df_completo['percentual'].ffill().fillna(0.0)
+            df_completo['maquinas_ativas'] = df_completo['maquinas_ativas'].ffill().fillna(0)
+            df_completo['maquinas_totais'] = df_completo['maquinas_totais'].ffill().fillna(total_maq_atual)
+            
+            if is_hoje:
+                agora_minuto = agora.replace(second=0, microsecond=0)
+                df_completo.loc[df_completo.index > agora_minuto, 'percentual'] = pd.NA
+            
+            df_completo.reset_index(inplace=True)
+            df_completo.rename(columns={'index': 'Hora', 'percentual': 'Em Operação (%)'}, inplace=True)
+            df_plot = df_completo.dropna(subset=['Em Operação (%)']).copy()
+            
+            df_plot['Ativas_Str'] = df_plot['maquinas_ativas'].astype(int).astype(str)
+            df_plot['Totais_Str'] = df_plot['maquinas_totais'].astype(int).astype(str)
+            df_plot['Detalhe_Maquinas'] = df_plot['Ativas_Str'] + " de " + df_plot['Totais_Str'] + " ativas"
+            
+            st.markdown(f"<div style='margin-top: 5px; margin-bottom: 5px; color: #34495e; font-weight: 800; font-size: {tamanho_titulos}px; text-transform: uppercase; text-align: center; letter-spacing: 1px;'>📈 Evolução da Operação ({data_de})</div>", unsafe_allow_html=True)
+            
+            chart_evo = alt.Chart(df_plot).mark_area(
+                line={'color': '#2980b9', 'strokeWidth': 2}, color='#2980b9', opacity=0.4
+            ).encode(
+                x=alt.X('Hora:T', title='', axis=alt.Axis(format='%H:%M', tickCount=15, grid=True), scale=alt.Scale(domain=[hora_inicio_turno.isoformat(), hora_fim_turno.isoformat()])),
+                y=alt.Y('Em Operação (%):Q', title='', axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True), scale=alt.Scale(domain=[0, 100])),
+                tooltip=[
+                    alt.Tooltip('Hora:T', format='%H:%M', title='Horário'), 
+                    alt.Tooltip('Em Operação (%):Q', format='.1f', title='Operação (%)'),
+                    alt.Tooltip('Detalhe_Maquinas:N', title='Máquinas')
+                ]
+            ).properties(height=230).configure_axis(labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos)
+            
+            st.altair_chart(chart_evo, use_container_width=True)
+
+            st.markdown("<hr style='opacity:0.2; margin: 30px 0 20px 0;'>", unsafe_allow_html=True)
+
+            mapa_cores = banco.obter_mapa_cores()
+            def get_color(tipo):
+                t = str(tipo).strip().upper()
+                if t in mapa_cores: return mapa_cores[t]
+                if t == 'PRODUÇÃO': return '#27ae60'
+                if t == 'PARADA': return '#e74c3c'
+                if t == 'ROTINA': return '#e67e22'
+                if t == 'NÃO CONTA': return '#f39c12'
+                if t == 'LIVRE': return '#3498db'
+                if t == 'A REALIZAR': return '#ecf0f1'
+                if t == 'INTERVALO PREVISTO': return '#bdc3c7'
+                return '#95a5a6'
+
+            def get_friendly_name(tipo):
+                t = str(tipo).strip().upper()
+                if t == 'NÃO CONTA': return 'Pausa Registrada'
+                if t == 'PRODUÇÃO': return 'Produzindo'
+                if t == 'PARADA': return 'Indisponível (Parada)'
+                if t == 'ROTINA': return 'Rotina'
+                if t == 'LIVRE': return 'Disponível (Livre)'
+                if t == 'A REALIZAR': return 'A Realizar (Futuro)'
+                if t == 'INTERVALO PREVISTO': return 'Intervalo Previsto'
+                return t.title()
+
+            df_dia_completo = df_nuvem[(df_nuvem['data_registro'] == data_de)].copy()
+            if setor != "[ Todos ]": df_est_total = df_est_total[df_est_total['setor'] == setor]
+            if maquina != "[ Todas ]": df_est_total = df_est_total[df_est_total['maquina'] == maquina]
+            pares_maquinas = df_est_total[['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
+            
+            status_dict = {}
+            if is_hoje:
+                resp_status = supa.table("status_maquinas").select("*").execute()
+                if resp_status.data:
+                    status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data}
+
+            setores_dict_timeline = {}
+            for s, m in pares_maquinas:
+                if s not in setores_dict_timeline: setores_dict_timeline[s] = []
+                setores_dict_timeline[s].append(m)
+
+            ordem_setores = {}
+            if 'ordem_fluxo' in df_est_total.columns:
+                for _, row in df_est_total[['setor', 'ordem_fluxo']].dropna().drop_duplicates().iterrows():
+                    try: ordem_setores[str(row['setor']).strip()] = float(row['ordem_fluxo'])
+                    except: pass
+
+            if not df_dia_completo.empty or is_hoje:
+                html_timelines = "<div style='max-width: 1200px; margin: 0 auto;'>"
+                st.markdown(f"<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 30px;'>📊 Histórico Individual das Máquinas</h3>", unsafe_allow_html=True)
+
+                pct_as_m = ((m_as_min - m_das_min) / total_timeline_min) * 100
+                pct_das_t = ((t_das_min - m_das_min) / total_timeline_min) * 100
+
+                for s in sorted(setores_dict_timeline.keys(), key=lambda x: (ordem_setores.get(x, 999), x)):
+                    html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
+                    html_timelines += f"<h4 style='color: #7f8c8d; text-transform: uppercase; font-weight: 900; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; font-size: {tamanho_titulos + 2}px;'>🏭 {s}</h4>"
+                    
+                    html_timelines += "<div style='position: relative; height: 25px; color: #7f8c8d; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee;'>"
+                    html_timelines += f"<div style='position: absolute; left: 0%; transform: translateX(0%); top: 0px; font-size: {tamanho_labels}px;'>{m_das}</div>"
+                    
+                    for m in range(total_timeline_min):
+                        curr = m_das_min + m
+                        pct = (m / total_timeline_min) * 100
+                        dist_inicio_m = abs(curr - m_das_min)
+                        dist_fim_m = abs(curr - m_as_min)
+                        dist_inicio_t = abs(curr - t_das_min)
+                        dist_fim_t = abs(curr - t_as_min)
+                        if dist_inicio_m < 15 or dist_fim_m < 15 or dist_inicio_t < 15 or dist_fim_t < 15: continue
+                        if curr % 60 == 0:
+                            h = curr // 60
+                            html_timelines += f"<div style='position: absolute; left: {pct}%; transform: translateX(-50%); font-weight: 500; color: #95a5a6; top: 2px; font-size: {tamanho_labels - 2}px;'>{h}h</div>"
+                        elif curr % 60 == 30:
+                            html_timelines += f"<div style='position: absolute; left: {pct}%; top: 6px; width: 1px; height: 6px; background-color: #bdc3c7;'></div>"
+                    
+                    html_timelines += f"<div style='position: absolute; left: {pct_as_m}%; transform: translateX(-50%); top: 0px; font-size: {tamanho_labels}px;'>{m_as}</div>"
+                    html_timelines += f"<div style='position: absolute; left: {pct_das_t}%; transform: translateX(-50%); top: 0px; font-size: {tamanho_labels}px;'>{t_das}</div>"
+                    html_timelines += f"<div style='position: absolute; left: 100%; transform: translateX(-100%); top: 0px; font-size: {tamanho_labels}px;'>{t_as}</div>"
+                    html_timelines += "</div>"
+
+                    for maq in sorted(setores_dict_timeline[s]):
+                        timeline = ['LIVRE'] * total_timeline_min
+                        
+                        for i in range(total_timeline_min):
+                            curr = m_das_min + i
+                            if curr >= m_as_min and curr < t_das_min: timeline[i] = 'INTERVALO PREVISTO'
+                            elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = 'INTERVALO PREVISTO'
+                            elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = 'INTERVALO PREVISTO'
+                            elif is_hoje and curr > agora_min: timeline[i] = 'A REALIZAR' 
+                            elif not ((curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min)):
+                                timeline[i] = 'INTERVALO PREVISTO'
+                            
+                        if not df_dia_completo.empty:
+                            maq_records = df_dia_completo[(df_dia_completo['maquina'] == maq) & (df_dia_completo['setor'] == s)]
+                            for _, row in maq_records.iterrows():
+                                if pd.notna(row.get('das')) and pd.notna(row.get('as_hora')):
+                                    inicio = calcular_minutos_str(row['das'])
+                                    fim = calcular_minutos_str(row['as_hora'])
+                                    tipo_reg = str(row.get('tipo', 'PARADA')).strip().upper()
+                                    
+                                    if tipo_reg == 'PARADA':
+                                        cod = str(row.get('cod_ocorrencia')).strip()
+                                        if cod and not df_codigos.empty:
+                                            f_cod = df_codigos[df_codigos['codigo'].astype(str) == cod]
+                                            if not f_cod.empty and 'tipo' in f_cod.columns:
+                                                tipo_reg = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                                
+                                    if 'DESCONSIDERAR' in tipo_reg: tipo_reg = 'NÃO CONTA'
+                                    
+                                    for m in range(inicio, fim):
+                                        idx = m - m_das_min
+                                        if 0 <= idx < total_timeline_min: timeline[idx] = tipo_reg
+
+                        if is_hoje:
+                            info_maq = status_dict.get((s, maq), {})
+                            status_atual = info_maq.get('status', 'Livre')
+                            
+                            if status_atual in ['Produzindo', 'Parado']:
+                                try:
+                                    h_ini_obj = datetime.strptime(info_maq['hora_inicio'], "%Y-%m-%d %H:%M:%S")
+                                    if h_ini_obj.date() == agora.date():
+                                        inicio = h_ini_obj.hour * 60 + h_ini_obj.minute
+                                        fim = agora_min + 1 
+                                        
+                                        if status_atual == 'Produzindo': tipo_linha = 'PRODUÇÃO'
+                                        else:
+                                            c_oco = str(info_maq.get('cod_ocorrencia')).strip()
+                                            tipo_linha = 'PARADA'
+                                            if c_oco and not df_codigos.empty:
+                                                f_cod = df_codigos[df_codigos['codigo'].astype(str) == c_oco]
+                                                if not f_cod.empty and 'tipo' in f_cod.columns:
+                                                    tipo_linha = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                            if 'DESCONSIDERAR' in tipo_linha: tipo_linha = 'NÃO CONTA'
+                                            
+                                        for m in range(inicio, fim):
+                                            idx = m - m_das_min
+                                            if 0 <= idx < total_timeline_min: timeline[idx] = tipo_linha
+                                except: pass
+
+                        segments = []
+                        if total_timeline_min > 0:
+                            curr_type, curr_len = timeline[0], 1
+                            for i in range(1, total_timeline_min):
+                                if timeline[i] == curr_type: curr_len += 1
+                                else:
+                                    segments.append((curr_type, curr_len))
+                                    curr_type, curr_len = timeline[i], 1
+                            segments.append((curr_type, curr_len))
+                            
+                        html_timelines += "<div style='margin-bottom: 25px; display: flex; flex-direction: column;'>"
+                        html_timelines += f"<div style='font-size: {tamanho_titulos}px; font-weight: bold; color: #34495e; margin-bottom: 4px; text-transform: uppercase;'>{maq}</div>"
+                        html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15); margin-bottom: 6px;'>"
+                        
+                        counts_minutos = {}
+                        for stype, slen in segments:
+                            pct = (slen / total_timeline_min) * 100
+                            color = get_color(stype)
+                            html_timelines += f"<div style='width: {pct}%; background-color: {color};' title='{get_friendly_name(stype)}'></div>"
+                            counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
+                        html_timelines += "</div>"
+                        
+                        minutos_nao_conta = 0
+                        for stype, slen in counts_minutos.items():
+                            if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype:
+                                minutos_nao_conta += slen
+                                
+                        base_100_util = total_timeline_min - minutos_nao_conta
+                        if base_100_util <= 0: base_100_util = 1 
+                        
+                        itens_conta = []
+                        itens_nao_conta = []
+                        
+                        for stype, slen in counts_minutos.items():
+                            if slen > 0:
+                                tempo_str = formatar_minutos(slen)
+                                color = get_color(stype)
+                                fname = get_friendly_name(stype)
+                                border = "border: 1px solid #ccc;" if color.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
+                                is_nao_conta = (stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype)
+                                
+                                if is_nao_conta:
+                                    itens_nao_conta.append(f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> <b style='color: #7f8c8d; font-size: {tamanho_labels}px;'>{fname}:</b> <span style='color: #7f8c8d; font-size: {tamanho_valores}px;'>{tempo_str}</span></div>")
+                                else:
+                                    pct_val = (slen / base_100_util) * 100
+                                    itens_conta.append((slen, f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> <b style='font-size: {tamanho_labels}px;'>{fname}:</b> <span style='font-size: {tamanho_valores}px;'>{tempo_str} ({pct_val:.1f}%)</span></div>"))
+                                    
+                        itens_conta.sort(key=lambda x: x[0], reverse=True)
+                        html_timelines += f"<div style='display: flex; flex-wrap: wrap; gap: 15px; color: #2c3e50;'>"
+                        
+                        for _, html_item in itens_conta: html_timelines += html_item
+                        if itens_nao_conta:
+                            html_timelines += "<div style='border-left: 2px solid #bdc3c7; margin: 0 5px;'></div>"
+                            for html_item in itens_nao_conta: html_timelines += html_item
+                                
+                        html_timelines += "</div></div>" 
+                    html_timelines += "</div>" 
+                
+                tipos_exibicao_legenda = set(['LIVRE', 'PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO', 'NÃO CONTA', 'INTERVALO PREVISTO', 'A REALIZAR'])
+                for k in mapa_cores.keys(): tipos_exibicao_legenda.add(k)
+                
+                html_timelines += f"<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; font-weight: bold; color: #555; padding-top: 10px; margin-bottom: 20px; font-size: {tamanho_labels}px;'>"
+                for stype in sorted(tipos_exibicao_legenda):
+                    c_hex = get_color(stype)
+                    f_name = get_friendly_name(stype)
+                    border = "border: 1px solid #ccc;" if c_hex.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
+                    html_timelines += f"<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:{c_hex}; border-radius:3px; {border}'></div> {f_name}</div>"
+                html_timelines += "</div></div>"
+
+                st.markdown(html_timelines, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ **Múltiplos Dias Selecionados:** A visualização em Linha do Tempo individual foi ocultada. Consulte o consolidado abaixo.")
+
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
         # ==========================================
