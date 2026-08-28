@@ -99,7 +99,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -108,7 +108,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -292,7 +292,6 @@ def renderizar_estrutura():
     st.markdown("Cadastre novos setores e máquinas, ou ative/desative equipamentos atuais. **Máquinas desativadas são ocultadas dos gráficos e relatórios atuais**, mas o histórico delas é preservado.")
     st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
     
-    # ATENÇÃO: Usando obter_estrutura_completa para ver TODAS as máquinas, inclusive inativas
     df_est = banco.obter_estrutura_completa()
     supa = banco.conectar()
     
@@ -344,7 +343,7 @@ def renderizar_estrutura():
                     banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
                     supa.table("estrutura_fabrica").update({
                         "permite_producao_dupla": n_dupla,
-                        "ativo": True # Garante que novas máquinas já nasçam ativas
+                        "ativo": True 
                     }).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
                     
                     st.cache_data.clear()
@@ -358,7 +357,6 @@ def renderizar_estrutura():
     with c2:
         st.markdown("#### ✏️ Editar ou Desativar Existente")
         if not df_est.empty:
-            # Cria a tag (DESATIVADA) visual para facilitar a vida do usuário
             df_est['status_txt'] = df_est['ativo'].apply(lambda x: "" if x is True or str(x).lower() == 'true' else " (DESATIVADA)")
             df_est['nome_exibicao'] = df_est['setor'] + " ➔ " + df_est['maquina'] + df_est['status_txt']
             

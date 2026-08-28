@@ -56,7 +56,7 @@ def injetar_js_botoes():
             btns.forEach(btn => {
                 const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
                 
-                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ PROBLEMA RESOLVIDO (FINALIZAR)' || texto === '✅ FINALIZAR INTERVALO') {
+                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ FINALIZAR REGISTRO' || texto === '✅ FINALIZAR INTERVALO') {
                     btn.style.setProperty('min-height', '90px', 'important');
                     btn.style.setProperty('height', 'auto', 'important');
                     btn.style.setProperty('padding', '15px 10px', 'important');
@@ -283,7 +283,7 @@ def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso)
     </script>
     """
 
-def obter_html_cronometro_parado(titulo_card, sub_texto, desc_problema, cod_ocorrencia, hora_inicio_iso, cor_fundo, cor_sombra, texto_botao):
+def obter_html_cronometro_parado(titulo_card, desc_problema, cod_ocorrencia, hora_inicio_iso, cor_fundo, cor_sombra, texto_botao):
     return f"""
     <style>
         body {{ margin: 0; padding: 0; font-family: sans-serif; }}
@@ -294,7 +294,8 @@ def obter_html_cronometro_parado(titulo_card, sub_texto, desc_problema, cod_ocor
         @media (max-width: 768px) {{ .caixa-vermelha {{ padding: 20px 10px; }} .titulo-vermelho {{ font-size: 24px; }} .sub-vermelho {{ font-size: 15px; margin: 10px 0 10px 0; }} .cronometro {{ font-size: 40px; letter-spacing: 0px; }} }}
     </style>
     <div class="caixa-vermelha">
-        <h1 class="titulo-vermelho">{titulo_card}</h1><p class="sub-vermelho">{sub_texto} <br><b>{desc_problema} ({cod_ocorrencia})</b></p>
+        <h1 class="titulo-vermelho">{titulo_card}</h1>
+        <p class="sub-vermelho"><b>{desc_problema} ({cod_ocorrencia})</b></p>
         <div id="stopwatch" class="cronometro">00:00:00</div>
     </div>
     <script>

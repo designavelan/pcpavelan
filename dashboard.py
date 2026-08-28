@@ -69,6 +69,30 @@ header[data-testid="stHeader"] { display: none !important; }
     agora_min = agora.hour * 60 + agora.minute
 
     # ==========================================
+    # LÓGICA DO TEMPO ÚTIL TRANSCORRIDO (A RÉGUA UNIVERSAL)
+    # ==========================================
+    minutos_uteis_passados = 0
+    total_min_uteis_dia = 0
+    
+    for m in range(m_das_min, t_as_min):
+        is_turno = (m_das_min <= m < m_as_min) or (t_das_min <= m < t_as_min)
+        is_lanche = (lm_das_min <= m < lm_as_min) or (lt_das_min <= m < lt_as_min)
+        if is_turno and not is_lanche:
+            total_min_uteis_dia += 1
+            if m < agora_min:
+                minutos_uteis_passados += 1
+                
+    if minutos_uteis_passados <= 0: minutos_uteis_passados = 1 # Evita erro divisão por zero no início do dia
+    if total_min_uteis_dia <= 0: total_min_uteis_dia = 1
+
+    perc_turno = (minutos_uteis_passados / total_min_uteis_dia) * 100
+    if perc_turno > 100: perc_turno = 100
+
+    st.markdown(f"""<div style="width: 100%; background-color: #e0e0e0; height: 6px; overflow: hidden; margin-bottom: 15px; border-radius: 3px;">
+<div style="width: {perc_turno:.1f}%; background-color: #2980b9; height: 100%;"></div>
+</div>""", unsafe_allow_html=True)
+
+    # ==========================================
     # MOTOR DE CORES DINÂMICAS 
     # ==========================================
     mapa_cores = banco.obter_mapa_cores()
@@ -97,20 +121,6 @@ header[data-testid="stHeader"] { display: none !important; }
     if not df_codigos.empty and 'tipo' in df_codigos.columns:
         mask_pausa = df_codigos['tipo'].astype(str).str.strip().str.upper().isin(['NÃO CONTA', 'DESNCONSIDERAR', 'DESCONSIDERAR'])
         codigos_pausa = df_codigos[mask_pausa]['codigo'].astype(str).str.strip().tolist()
-
-    total_min_turno = max(0, m_as_min - m_das_min) + max(0, t_as_min - t_das_min)
-    if total_min_turno <= 0: total_min_turno = 1
-    
-    min_passados = 0
-    for m in range(m_das_min, agora_min):
-        if (m >= m_das_min and m < m_as_min) or (m >= t_das_min and m < t_as_min): min_passados += 1
-            
-    perc_turno = (min_passados / total_min_turno) * 100
-    if perc_turno > 100: perc_turno = 100
-
-    st.markdown(f"""<div style="width: 100%; background-color: #e0e0e0; height: 6px; overflow: hidden; margin-bottom: 15px; border-radius: 3px;">
-<div style="width: {perc_turno:.1f}%; background-color: #2980b9; height: 100%;"></div>
-</div>""", unsafe_allow_html=True)
 
     supa = banco.conectar()
     df_est = banco.obter_estrutura()
@@ -164,7 +174,9 @@ header[data-testid="stHeader"] { display: none !important; }
     ops_dict = {op['produto_formula']: op for op in ops_ativas}
     
     df_nuvem_operacao = pd.DataFrame()
+    df_hoje = pd.DataFrame()
     if not df_nuvem.empty and 'data_registro' in df_nuvem.columns and 'tipo' in df_nuvem.columns:
+        df_hoje = df_nuvem[(df_nuvem['data_registro'] == hoje_str)].copy()
         df_nuvem_operacao = df_nuvem[df_nuvem['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO'].copy()
         if not df_nuvem_operacao.empty:
             df_nuvem_operacao['data_registro_dt'] = pd.to_datetime(df_nuvem_operacao['data_registro'], errors='coerce')
@@ -235,7 +247,7 @@ header[data-testid="stHeader"] { display: none !important; }
                 try:
                     h_ini = datetime.strptime(info['hora_inicio'], "%Y-%m-%d %H:%M:%S")
                     if h_ini.date() == agora.date():
-                        for m in range(h_ini.hour * 60 + h_i.minute, agora_min + 1):
+                        for m in range(h_ini.hour * 60 + h_ini.minute, agora_min + 1):
                             if (m >= m_das_min and m < m_as_min) or (m >= t_das_min and m < t_as_min): minutos_ativos_perdidos += 1
                 except: pass
                 
@@ -330,13 +342,36 @@ header[data-testid="stHeader"] { display: none !important; }
             qtd_livres += 1
             icone_mapa = "🔵"
             
+        # ==========================================
+        # ACUMULADO COM FILTRO DE TEMPO ÚTIL
+        # ==========================================
+        minutos_acumulados_bd = 0
+        if not df_hoje.empty and info.get('tipo_registro') not in ['LIVRE', 'A REALIZAR']:
+            df_maq_hoje = df_hoje[(df_hoje['maquina'] == maq) & (df_hoje['setor'] == setor)]
+            for _, r in df_maq_hoje.iterrows():
+                tipo_hist = str(r.get('tipo', '')).strip().upper()
+                if 'DESCONSIDERAR' in tipo_hist: tipo_hist = 'NÃO CONTA'
+                if not tipo_hist or tipo_hist == 'NAN': tipo_hist = 'PARADA'
+                
+                if tipo_hist == info['tipo_registro']:
+                    m_i = calcular_minutos_str(r.get('das', '00:00'))
+                    m_f = calcular_minutos_str(r.get('as_hora', '00:00'))
+                    
+                    # Filtra matematicamente para somar apenas os minutos que caem dentro do horário útil
+                    for min_bd in range(m_i, m_f):
+                        is_turno = (m_das_min <= min_bd < m_as_min) or (t_das_min <= min_bd < t_as_min)
+                        is_lanche = (lm_das_min <= min_bd < lm_as_min) or (lt_das_min <= min_bd < lt_as_min)
+                        if is_turno and not is_lanche:
+                            minutos_acumulados_bd += 1
+                            
+        info['minutos_acumulados_bd'] = minutos_acumulados_bd
+            
         mapa_visual_dict[setor].append({"maquina": maq, "operadores": operadores_texto, "tipo": info['tipo_registro'], "icone": icone_mapa})
 
     cards_exibicao = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
     qtd_total = len(pares_maquinas)
     perc_rodando = (qtd_rodando / qtd_total) * 100 if qtd_total > 0 else 0
 
-    df_hoje = df_nuvem[(df_nuvem['data_registro'] == hoje_str)].copy() if not df_nuvem.empty and 'maquina' in df_nuvem.columns else pd.DataFrame()
     minutos_finalizados = 0
     top_ofensor = "Nenhum"
     mttr_str = "0m"
@@ -380,15 +415,11 @@ header[data-testid="stHeader"] { display: none !important; }
     for p in maquinas_produzindo: noticias.append(f"🟢 [{p['setor']}] {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
     texto_letreiro = " &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; ".join(noticias) if noticias else "🟢 FÁBRICA OPERANDO COM 100% DE CAPACIDADE NESTE MOMENTO"
 
-    # ==========================================
-    # NOVIDADE: GERADOR DE INSIGHTS DA IA
-    # ==========================================
     if "ia_dash_msg" not in st.session_state:
         st.session_state.ia_dash_msg = "⏳ Aguardando primeira análise da IA..."
         st.session_state.ia_dash_time = datetime.min
     
     if "GEMINI_API_KEY" in st.secrets:
-        # Só atualiza o recado a cada 15 minutos (900 segundos) para não estourar a cota
         if (agora - st.session_state.ia_dash_time).total_seconds() > 900:
             try:
                 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -408,7 +439,7 @@ header[data-testid="stHeader"] { display: none !important; }
                 st.session_state.ia_dash_msg = resp.text.strip()
                 st.session_state.ia_dash_time = agora
             except:
-                pass # Se falhar, mantém a última mensagem invisivelmente
+                pass 
 
     # ==========================================
     # DESENHO DA TELA (LAYOUT 3 COLUNAS)
@@ -432,7 +463,6 @@ header[data-testid="stHeader"] { display: none !important; }
 </div>"""
         st.markdown(html_hero, unsafe_allow_html=True)
 
-        # --- AQUI ENTRA O NOVO CARD DA IA ---
         if "GEMINI_API_KEY" in st.secrets:
             st.markdown(f"""
             <div style="background-color: #f0f7fb; border-left: 4px solid #2980b9; padding: 12px; border-radius: 5px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
@@ -517,7 +547,14 @@ header[data-testid="stHeader"] { display: none !important; }
             html_cards = "<div class='grid-dash'>"
             for p in cards_exibicao:
                 p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
-                lista_js_timers.append({"id": p_id, "inicio_iso": str(p['hora_inicio']).replace(" ", "T")})
+                
+                lista_js_timers.append({
+                    "id": p_id, 
+                    "inicio_iso": str(p['hora_inicio']).replace(" ", "T"),
+                    "past_ms": p.get('minutos_acumulados_bd', 0) * 60000,
+                    "min_passados": minutos_uteis_passados, # A Régua Universal Aplicada
+                    "tipo": p.get('tipo_registro', 'LIVRE')
+                })
                 
                 tipo_reg = p.get('tipo_registro', 'LIVRE')
                 cor_card = get_color(tipo_reg)
@@ -529,7 +566,8 @@ header[data-testid="stHeader"] { display: none !important; }
                 html_cards += f"<div style='font-size:11px; height:30px; overflow:hidden;'>{p['descricao_completa']}</div>"
                 html_cards += p.get('html_progresso', '')
                 html_cards += "</div>" 
-                html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px; margin-top:auto; padding: 4px 0;'>00:00:00</div>"
+                html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
+                html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
                 html_cards += "</div>"
             html_cards += "</div>"
             st.markdown(html_cards, unsafe_allow_html=True)
@@ -687,23 +725,36 @@ header[data-testid="stHeader"] { display: none !important; }
                     html_timelines += "<div style='display: flex; align-items: center; margin-bottom: 6px; gap: 8px; background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid #eaeaea; box-shadow: 0 1px 3px rgba(0,0,0,0.02);'>"
                     html_timelines += f"<div style='width: 80px; font-size: 11px; font-weight: 800; color: #34495e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{maq}'>{maq}</div>"
                     
+                    # LINHA DE PROGRESSO DO GRÁFICO (Mantém o visual esticado do dia todo)
                     html_timelines += "<div style='flex-grow: 1; display: flex; height: 12px; border-radius: 3px; overflow: hidden;'>"
-                    counts_minutos = {}
                     for stype, slen in segments:
                         html_timelines += f"<div style='width:{(slen/total_timeline_min)*100}%; background-color:{get_color(stype)};' title='{get_friendly_name(stype)}'></div>"
-                        counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
                     html_timelines += "</div>"
                     
-                    min_nao_conta = sum(slen for stype, slen in counts_minutos.items() if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype)
-                    base_100 = max(1, total_timeline_min - min_nao_conta)
+                    # CÁLCULO CIRÚRGICO DA % (USANDO A RÉGUA UNIVERSAL DE TEMPO ÚTIL PASSADO)
+                    counts_passados = {}
+                    base_matematica = 0
+                    
+                    for i in range(total_timeline_min):
+                        curr = m_das_min + i
+                        if curr >= agora_min: break # Ignora completamente o futuro
+                        
+                        stype = timeline[i]
+                        # Ignora os lanches/pausas para o cálculo da base de 100% útil
+                        if stype != 'INTERVALO PREVISTO' and 'NÃO CONTA' not in stype:
+                            counts_passados[stype] = counts_passados.get(stype, 0) + 1
+                            base_matematica += 1
+                            
+                    if base_matematica <= 0: base_matematica = 1 # Proteção
                     
                     itens_c = []
-                    for stype, slen in counts_minutos.items():
-                        if slen > 0 and stype != 'INTERVALO PREVISTO' and 'NÃO CONTA' not in stype:
-                            itens_c.append(((slen/base_100)*100, stype))
+                    for stype, slen in counts_passados.items():
+                        if slen > 0:
+                            itens_c.append(((slen/base_matematica)*100, stype))
                             
-                    html_timelines += "<div style='display: flex; gap: 6px; font-size: 10px; font-weight: bold; color: #2c3e50; min-width: 90px; justify-content: flex-end;'>"
-                    for pct_val, stype in sorted(itens_c, key=lambda x: x[0], reverse=True)[:3]: 
+                    # REMOVIDO O LIMITE DE 3 ITENS (Para fechar 100% exato e bater com o Card)
+                    html_timelines += "<div style='display: flex; gap: 6px; font-size: 10px; font-weight: bold; color: #2c3e50; min-width: 90px; justify-content: flex-end; flex-wrap: wrap;'>"
+                    for pct_val, stype in sorted(itens_c, key=lambda x: x[0], reverse=True): 
                         cor = get_color(stype)
                         brd = "border:1px solid #ccc;" if cor.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
                         html_timelines += f"<div style='display: flex; align-items: center; gap: 3px;' title='{get_friendly_name(stype)}'><div style='width:8px;height:8px;background:{cor};border-radius:50%;{brd}'></div>{pct_val:.0f}%</div>"
@@ -839,6 +890,34 @@ header[data-testid="stHeader"] { display: none !important; }
                         const h = Math.floor(distance / 3600000); const m = Math.floor((distance % 3600000) / 60000); const s = Math.floor((distance % 60000) / 1000);
                         const tel = window.parent.document.getElementById("timer_" + p.id);
                         if (tel) tel.innerHTML = (h<10?"0":"")+h + ":" + (m<10?"0":"")+m + ":" + (s<10?"0":"")+s;
+                        
+                        // LÓGICA DO SUBTOTAL ACUMULADO AO VIVO
+                        const subTel = window.parent.document.getElementById("sub_timer_" + p.id);
+                        if (subTel) {{
+                            const totalMs = distance + p.past_ms;
+                            const totalMin = Math.floor(totalMs / 60000);
+                            let perc = 0;
+                            if (p.min_passados > 0) {{
+                                perc = (totalMin / p.min_passados) * 100;
+                            }}
+                            if (perc > 100) perc = 100;
+                            
+                            let prefix = "";
+                            if (p.tipo === "PRODUÇÃO") prefix = "Tempo trabalhado hoje: ";
+                            else if (p.tipo === "PARADA") prefix = "Total parado hoje: ";
+                            else if (p.tipo === "ROTINA") prefix = "Total rotina hoje: ";
+                            else if (p.tipo === "RETRABALHO") prefix = "Total retrabalho hoje: ";
+                            else if (p.tipo === "NÃO CONTA" || p.tipo === "INTERVALO PREVISTO") prefix = "Total em pausa hoje: ";
+                            else prefix = "Acumulado hoje: ";
+                            
+                            let tempoStr = "";
+                            const h_tot = Math.floor(totalMin / 60);
+                            const m_tot = totalMin % 60;
+                            if (h_tot > 0) tempoStr = h_tot + "h" + (m_tot < 10 ? "0":"") + m_tot + "m";
+                            else tempoStr = m_tot + " min";
+                            
+                            subTel.innerHTML = prefix + tempoStr + " (" + perc.toFixed(1) + "%)";
+                        }}
                         
                         const cel = window.parent.document.getElementById("card_" + p.id);
                         if (cel && distance >= tempoCriticoMs && !cel.classList.contains("cd-critico")) {{

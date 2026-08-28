@@ -23,9 +23,27 @@ import produtos
 import caixas
 import painel_ops 
 import central_correcoes
-import assistente_ia  # <-- MÓDULO DA IA IMPORTADO AQUI
+import assistente_ia
+import analise  
+import capacidade_produtiva
 from streamlit_option_menu import option_menu
 import base64
+
+# ==========================================
+# 🕵️ IDENTIFICADOR DE AMBIENTE DEV (LOCALHOST)
+# ==========================================
+is_local_dev = False
+host = ""
+try: 
+    host = st.context.headers.get("Host", "")
+except:
+    try:
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        host = _get_websocket_headers().get("Host", "")
+    except: pass
+    
+if host and ("localhost" in host.lower() or "127.0.0.1" in host):
+    is_local_dev = True
 
 # ==========================================
 # MOTOR DE HEARTBEAT (MONITORAMENTO SILENCIOSO)
@@ -98,6 +116,17 @@ except:
 if 'usuario_logado' not in st.session_state:
     st.session_state['usuario_logado'] = None
 
+if 'logout_explicito' not in st.session_state:
+    st.session_state['logout_explicito'] = False
+
+# 🚀 MÁGICA DO AUTO-LOGIN PARA O DESENVOLVEDOR 
+if st.session_state['usuario_logado'] is None and not st.session_state['logout_explicito']:
+    if is_local_dev:
+        user_admin = banco.obter_usuario_por_login("admin")
+        if user_admin:
+            st.session_state['usuario_logado'] = user_admin
+            st.rerun()
+
 if st.session_state['usuario_logado'] is None:
     try:
         if hasattr(st, 'query_params') and 'session' in st.query_params:
@@ -146,6 +175,7 @@ if st.session_state['usuario_logado'] is None:
                     user_valido = banco.autenticar_usuario(login, senha)
                     if user_valido:
                         st.session_state['usuario_logado'] = user_valido
+                        st.session_state['logout_explicito'] = False 
                         encoded_user = base64.b64encode(user_valido['username'].encode('utf-8')).decode('utf-8')
                         try: st.query_params['session'] = encoded_user
                         except: st.experimental_set_query_params(session=encoded_user)
@@ -171,7 +201,9 @@ if st.session_state['usuario_logado'] is None:
 usuario_atual = st.session_state['usuario_logado']
 
 if modo_manutencao and usuario_atual.get('username', '').lower() != "admin":
+    st.session_state.clear()
     st.session_state['usuario_logado'] = None
+    st.session_state['logout_explicito'] = True
     try: st.query_params.clear()
     except: st.experimental_set_query_params()
     st.rerun()
@@ -217,8 +249,7 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-# --- NOVIDADE: Aba "🤖 Copiloto PCP" adicionada à lista padrão de abas ---
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "🤖 Copiloto PCP", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
@@ -250,7 +281,7 @@ if st.session_state.aba_atual not in todas_abas: st.session_state.aba_atual = to
 # 3. CABEÇALHO GLOBAL CONDICIONAL
 # ==========================================
 if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.aba_atual != "📺 Dashboard":
-    c1, c2 = st.columns([8, 2])
+    c1, c2 = st.columns([8, 2.5]) 
     with c1:
         logo_b64 = cfg.get('logo_base64', None)
         if logo_b64:
@@ -258,26 +289,61 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.a
         else:
             st.markdown(f'<div class="logo-container"><h1 class="titulo-responsivo">🏭 {titulo_app}</h1></div>', unsafe_allow_html=True)
     with c2:
-        col_ola, col_sino = st.columns([7, 3])
-        with col_ola:
-            st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-top: 5px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-top: 5px; margin-bottom: 8px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
+        
+        if is_local_dev:
+            col_sino, col_trocar, col_sair = st.columns([2.5, 4.5, 3])
+        else:
+            col_sino, col_sair = st.columns([3, 7])
+
         with col_sino:
             tem_acesso_correcoes = is_admin or "🔔 Central de Correções" in abas_permitidas_str
-            
             if tem_acesso_correcoes:
                 pendentes = banco.obter_solicitacoes_pendentes()
                 qtd_pendentes = len(pendentes) if pendentes else 0
-                
                 tipo_botao = "primary" if qtd_pendentes > 0 else "secondary"
-                
-                if st.button(f"🔔 {qtd_pendentes}", key="btn_sino_correcoes", help="Central de Correções", type=tipo_botao):
+                if st.button(f"🔔 {qtd_pendentes}", key="btn_sino_correcoes", help="Central de Correções", type=tipo_botao, use_container_width=True):
                     central_correcoes.abrir_janela(usuario_atual['nome'])
 
-        if st.button("🚪 Sair do Sistema", use_container_width=True):
-            st.session_state['usuario_logado'] = None
-            try: st.query_params.clear()
-            except: st.experimental_set_query_params()
-            st.rerun()
+        # BOTÃO EXCLUSIVO PARA O DESENVOLVEDOR (Troca sem Senha)
+        if is_local_dev:
+            with col_trocar:
+                with st.popover("🔄 Trocar", use_container_width=True):
+                    st.markdown("<div style='font-size: 13px; font-weight: bold; margin-bottom: 10px; color: #e67e22;'>🛠️ DEV: Troca Rápida</div>", unsafe_allow_html=True)
+                    
+                    def efetuar_troca(u_novo):
+                        st.session_state.clear()
+                        
+                        st.session_state['usuario_logado'] = u_novo
+                        st.session_state['logout_explicito'] = False
+                        
+                        encoded = base64.b64encode(u_novo['username'].encode('utf-8')).decode('utf-8')
+                        try: st.query_params['session'] = encoded
+                        except: 
+                            try: st.experimental_set_query_params(session=encoded)
+                            except: pass
+
+                    lista_usuarios = []
+                    try:
+                        supa = banco.conectar()
+                        resp_u = supa.table('usuarios').select('*, perfis_acesso(*)').eq('ativo', True).order('nome').execute()
+                        if resp_u.data:
+                            lista_usuarios = resp_u.data
+                    except Exception as e:
+                        st.write("Erro ao carregar usuários do banco.")
+                    
+                    for u_data in lista_usuarios:
+                        if str(u_data.get('username')).strip().lower() != str(usuario_atual.get('username')).strip().lower():
+                            st.button(f"{u_data['nome']}", key=f"dev_swap_{u_data['username']}", on_click=efetuar_troca, args=(u_data,), use_container_width=True)
+
+        with col_sair:
+            if st.button("🚪 Sair", use_container_width=True):
+                st.session_state.clear() 
+                st.session_state['usuario_logado'] = None
+                st.session_state['logout_explicito'] = True 
+                try: st.query_params.clear()
+                except: st.experimental_set_query_params()
+                st.rerun()
 
     if modo_manutencao:
         st.markdown("""<div style='background-color:#e74c3c; color:white; padding:8px 15px; border-radius:5px; text-align:center; font-weight:bold; margin-top:10px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>⚠️ ATENÇÃO: O MODO MANUTENÇÃO ESTÁ ATIVADO. OPERADORES ESTÃO BLOQUEADOS.</div>""", unsafe_allow_html=True)
@@ -287,8 +353,7 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.a
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-# --- REGRAS DO FILTRO GLOBAL (Oculto no Copiloto para a interface ficar limpa) ---
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas", "🤖 Copiloto PCP"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas", "🤖 Pergunte para a IA", "⚡ Capacidade Produtiva"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -343,14 +408,19 @@ elif st.session_state.aba_atual == "🔎 Ocorrências":
 elif st.session_state.aba_atual == "📋 Apontamentos":
     if not df_nuvem.empty: apontamentos.renderizar(df_nuvem, df_codigos, filtros_selecionados)
     else: st.info("O banco de dados está vazio.")
+elif st.session_state.aba_atual == "📊 Análise":
+    if not df_nuvem.empty: analise.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else: st.info("O banco de dados está vazio.")
+elif st.session_state.aba_atual == "⚡ Capacidade Produtiva":
+    if not df_nuvem.empty: capacidade_produtiva.renderizar(df_nuvem, df_codigos, filtros_selecionados)
+    else: st.info("O banco de dados está vazio.")
 elif st.session_state.aba_atual == "👥 Controle de Acessos":
     usuarios.renderizar(df_nuvem)
 elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
 elif st.session_state.aba_atual == "📦 Caixas": 
     caixas.renderizar()
-# --- AQUI É ONDE O COPILOTO É RENDERIZADO ---
-elif st.session_state.aba_atual == "🤖 Copiloto PCP":
+elif st.session_state.aba_atual == "🤖 Pergunte para a IA":
     assistente_ia.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
     aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])

@@ -269,3 +269,43 @@ def atualizar_cor(tipo, cor_hex):
     else:
         supa.table("config_cores").insert({"tipo": tipo, "cor_hex": cor_hex}).execute()
     st.cache_data.clear() # Limpa a memória para espalhar a cor pelo sistema todo na hora
+
+# ==========================================
+# FUNÇÕES DE MEMÓRIA DO SISTEMA (KEY-VALUE)
+# ==========================================
+def salvar_memoria_sistema(aba, local_aplicacao, chave, valor):
+    """
+    Salva ou atualiza uma configuração na tabela coringa 'memoria_sistema'.
+    """
+    try:
+        supa = conectar()
+        resp = supa.table("memoria_sistema").select("id").eq("aba", aba).eq("local_aplicacao", local_aplicacao).eq("chave", chave).execute()
+        
+        if resp.data:
+            id_registro = resp.data[0]['id']
+            supa.table("memoria_sistema").update({"valor": str(valor)}).eq("id", id_registro).execute()
+        else:
+            dados = {
+                "aba": aba,
+                "local_aplicacao": local_aplicacao,
+                "chave": chave,
+                "valor": str(valor)
+            }
+            supa.table("memoria_sistema").insert(dados).execute()
+    except Exception as e:
+        print(f"Erro ao salvar memoria_sistema: {e}")
+
+def obter_memoria_sistema(aba, local_aplicacao, chave, valor_padrao=None):
+    """
+    Busca uma configuração na tabela coringa 'memoria_sistema'. Retorna o valor_padrao se não encontrar.
+    """
+    try:
+        supa = conectar()
+        resp = supa.table("memoria_sistema").select("valor").eq("aba", aba).eq("local_aplicacao", local_aplicacao).eq("chave", chave).execute()
+        
+        if resp.data:
+            return resp.data[0]['valor']
+        return valor_padrao
+    except Exception as e:
+        print(f"Erro ao obter memoria_sistema: {e}")
+        return valor_padrao

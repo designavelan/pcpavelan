@@ -113,6 +113,9 @@ def renderizar(df_nuvem, df_codigos):
         st.warning("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá na aba Configurações > Estrutura.")
         return
 
+    # Busca o mapa de cores dinâmico do banco (para sincronizar com as Configurações)
+    mapa_cores = banco.obter_mapa_cores()
+
     usuario = st.session_state.get('usuario_logado', {})
     user_setor = usuario.get('setor', '[ Todos ]')
     user_maq = usuario.get('maquina', '[ Todas ]')
@@ -346,7 +349,6 @@ def renderizar(df_nuvem, df_codigos):
                             df_cx_filtro = df_caixas[df_caixas['produto_formula'] == sel_prod]
                             lista_pecas_limpa = []
                             for _, row in df_cx_filtro.iterrows():
-                                # --- FILTRO ANTI-ESTOQUE: Remove caixas de Espelho/Vidro do terminal do operador ---
                                 tipo_cx = str(row.get('tipo', '')).strip()
                                 if tipo_cx not in ["", "None", "nan"]:
                                     continue 
@@ -354,7 +356,6 @@ def renderizar(df_nuvem, df_codigos):
                                 cod_cx = str(row.get('cod_caixa', '')).strip()
                                 num_cx = str(row.get('num_caixa', '')).strip()
                                 
-                                # --- MÁGICA DA OPÇÃO 2: CÓDIGO VIRTUAL NO TERMINAL ---
                                 if cod_cx in ["", "None", "nan"]:
                                     cod_cx = f"VIRTUAL-{sel_prod}-{num_cx}".replace(" ", "_").upper()
                                     
@@ -697,13 +698,27 @@ def renderizar(df_nuvem, df_codigos):
         hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         is_pausa = (tipo_problema == 'NÃO CONTA' or 'DESCONSIDERAR' in tipo_problema)
         
-        cor_fundo = "#f39c12" if is_pausa else "#c0392b"
-        cor_sombra = "rgba(243, 156, 18, 0.4)" if is_pausa else "rgba(192, 57, 43, 0.4)"
-        titulo_card = "☕ PAUSA PROGRAMADA" if is_pausa else "🔴 MÁQUINA PARADA"
-        sub_texto = "Pausa em andamento:" if is_pausa else "Problema em andamento:"
-        texto_botao = "✅ FINALIZAR INTERVALO" if is_pausa else "✅ PROBLEMA RESOLVIDO (FINALIZAR)"
+        # --- BUSCA A COR DINÂMICA NAS CONFIGURAÇÕES ---
+        cor_dinamica = mapa_cores.get(tipo_problema)
+        
+        if cor_dinamica:
+            cor_fundo = cor_dinamica
+            cor_sombra = f"{cor_dinamica}66" # Adiciona ~40% de opacidade no formato hex para a sombra
+        else:
+            cor_fundo = "#f39c12" if is_pausa else "#c0392b"
+            cor_sombra = "rgba(243, 156, 18, 0.4)" if is_pausa else "rgba(192, 57, 43, 0.4)"
+            
+        # --- AJUSTA O TÍTULO PARA FICAR IGUAL AO TIPO ---
+        if is_pausa:
+            titulo_card = "☕ PAUSA PROGRAMADA"
+        elif tipo_problema == "PARADA":
+            titulo_card = "🔴 MÁQUINA PARADA"
+        else:
+            titulo_card = f"🔴 {tipo_problema}"
+            
+        texto_botao = "✅ FINALIZAR INTERVALO" if is_pausa else "✅ FINALIZAR REGISTRO"
 
-        ui.components.html(ui.obter_html_cronometro_parado(titulo_card, sub_texto, desc_problema, cod_ocorrencia, hora_inicio_iso, cor_fundo, cor_sombra, texto_botao), height=250)
+        ui.components.html(ui.obter_html_cronometro_parado(titulo_card, desc_problema, cod_ocorrencia, hora_inicio_iso, cor_fundo, cor_sombra, texto_botao), height=250)
         
         st.markdown("<br>", unsafe_allow_html=True)
         btn_canc_parada = st.button("❌ CANCELAR PARADA (Erro de Seleção)", use_container_width=True)
@@ -728,7 +743,7 @@ def renderizar(df_nuvem, df_codigos):
                 "status": "Livre", "hora_inicio": None, "cod_ocorrencia": None, "cod_peca_atual": None
             }).eq("maquina", maquina_selecionada).eq("setor", setor_selecionado).execute()
             
-            texto_acao = "Problema Resolvido (Máquina Livre)" if btn_fin_parada else "Parada Cancelada (Erro Seleção)"
+            texto_acao = "Registro Finalizado (Máquina Livre)" if btn_fin_parada else "Parada Cancelada (Erro Seleção)"
             sucesso, erro = logica.registrar_telemetria(supa, setor_selecionado, maquina_selecionada, texto_acao, df_est)
             
             st.rerun()
@@ -800,14 +815,21 @@ def renderizar(df_nuvem, df_codigos):
                     f_cod = df_codigos[df_codigos['codigo'].astype(str).str.upper() == codigo_bd]
                     if not f_cod.empty: desc_oco = str(f_cod.iloc[0]['descricao']).strip()
                 
-                if tipo_bd == "NÃO CONTA" or "DESCONSIDERAR" in tipo_bd:
-                    cor_borda = "#f39c12"
-                    cor_fundo = "#fdf8f3"
-                    titulo = f"Pausa: {desc_oco} ({codigo_bd})"
+                cor_mapa = mapa_cores.get(tipo_bd)
+                if cor_mapa:
+                    cor_borda = cor_mapa
+                    cor_fundo = f"{cor_mapa}1A" # 10% de opacidade no formato hex para o fundo da caixa
+                    nome_exibicao = "Pausa" if (tipo_bd == "NÃO CONTA" or "DESCONSIDERAR" in tipo_bd) else tipo_bd.title()
+                    titulo = f"{nome_exibicao}: {desc_oco} ({codigo_bd})"
                 else:
-                    cor_borda = "#e74c3c"
-                    cor_fundo = "#fdf4f3"
-                    titulo = f"Parada: {desc_oco} ({codigo_bd})"
+                    if tipo_bd == "NÃO CONTA" or "DESCONSIDERAR" in tipo_bd:
+                        cor_borda = "#f39c12"
+                        cor_fundo = "#fdf8f3"
+                        titulo = f"Pausa: {desc_oco} ({codigo_bd})"
+                    else:
+                        cor_borda = "#e74c3c"
+                        cor_fundo = "#fdf4f3"
+                        titulo = f"Parada: {desc_oco} ({codigo_bd})"
             
             html_card = f"<div style='border-left: 6px solid {cor_borda}; background-color: {cor_fundo}; padding: 12px 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #eee; margin-bottom: 5px;'>"
             html_card += "<div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;'>"
