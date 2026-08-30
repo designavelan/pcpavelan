@@ -143,7 +143,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     t_das_min = calcular_minutos_str(t_das)
     t_as_min = calcular_minutos_str(t_as)
 
-    # CORREÇÃO: Variáveis de intervalo (Lanches/Pausas) adicionadas de volta
     lm_das_min = calcular_minutos_str(cfg.get('lanche_m_das', '')) if cfg.get('lanche_m_das') else -1
     lm_as_min = calcular_minutos_str(cfg.get('lanche_m_as', '')) if cfg.get('lanche_m_as') else -1
     lt_das_min = calcular_minutos_str(cfg.get('lanche_t_das', '')) if cfg.get('lanche_t_das') else -1
@@ -178,7 +177,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
         # ==========================================
-        # 🕰️ BLOCO 2: DETALHE DIÁRIO (MÁQUINA DO TEMPO) RESTAURADO E CORRIGIDO
+        # 🕰️ BLOCO 2: DETALHE DIÁRIO (MÁQUINA DO TEMPO) 
         # ==========================================
         if is_single_day:
             st.info(f"📅 **Modo Diário Ativo:** Exibindo a linha do tempo detalhada para o dia **{data_de}**.")
@@ -471,7 +470,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         agrup_maq = pd.DataFrame()
         if not df_prob.empty and min_prob > 0:
-            agrup_maq = df_prob.groupby('maquina')['duracao'].sum().reset_index()
+            agrup_maq = df_prob.groupby('maquina')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
             agrup_maq = agrup_maq[agrup_maq['duracao'] > 0]
             agrup_maq['tempo_str'] = agrup_maq['duracao'].apply(formatar_minutos)
             agrup_maq['pct'] = (agrup_maq['duracao'] / min_prob * 100).fillna(0)
@@ -483,13 +482,13 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             disp_pct = max(0, 100 - (min_prob_maq / total_disp_min * 100))
             disp_data.append({'maquina': maq, 'disponibilidade': disp_pct, 'perdido_str': formatar_minutos(min_prob_maq)})
         
-        df_disp = pd.DataFrame(disp_data)
+        df_disp = pd.DataFrame(disp_data).sort_values('disponibilidade', ascending=False)
         if not df_disp.empty:
             df_disp['label'] = df_disp['disponibilidade'].apply(lambda x: f"{x:.1f}%")
 
         agrup_prob = pd.DataFrame()
         if not df_prob.empty and min_prob > 0:
-            agrup_prob = df_prob.groupby('descricao_falha')['duracao'].sum().reset_index()
+            agrup_prob = df_prob.groupby('descricao_falha')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
             agrup_prob = agrup_prob[agrup_prob['duracao'] > 0]
             agrup_prob['tempo_str'] = agrup_prob['duracao'].apply(formatar_minutos)
             agrup_prob['pct'] = (agrup_prob['duracao'] / min_prob * 100).fillna(0)
@@ -498,12 +497,30 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
         agrup_rot = pd.DataFrame()
         if not df_rot.empty and min_rot > 0:
-            agrup_rot = df_rot.groupby('descricao_falha')['duracao'].sum().reset_index()
+            agrup_rot = df_rot.groupby('descricao_falha')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
             agrup_rot = agrup_rot[agrup_rot['duracao'] > 0]
             agrup_rot['tempo_str'] = agrup_rot['duracao'].apply(formatar_minutos)
             agrup_rot['pct'] = (agrup_rot['duracao'] / min_rot * 100).fillna(0)
             agrup_rot['label'] = agrup_rot.apply(lambda x: f"{x['tempo_str']} ({x['pct']:.1f}%)", axis=1)
             agrup_rot['descricao_quebrada'] = agrup_rot['descricao_falha'].apply(lambda x: ' | '.join(textwrap.wrap(str(x), width=30)))
+
+        # === CAIXA PRETA (MODO DESENVOLVEDOR) ===
+        with st.expander("🛠️ CAIXA PRETA (Debug de Ordenação do Python)"):
+            st.markdown("**1. Piores Máquinas (Ordem de renderização):**")
+            ordem_maq = agrup_maq['maquina'].tolist() if not agrup_maq.empty else []
+            st.write(ordem_maq)
+            
+            st.markdown("**2. Ranking Disponibilidade:**")
+            ordem_disp = df_disp['maquina'].tolist() if not df_disp.empty else []
+            st.write(ordem_disp)
+            
+            st.markdown("**3. Pareto Top Paradas:**")
+            ordem_prob = agrup_prob['descricao_quebrada'].tolist() if not agrup_prob.empty else []
+            st.write(ordem_prob)
+            
+            st.markdown("**4. Pareto Top Rotinas:**")
+            ordem_rot = agrup_rot['descricao_quebrada'].tolist() if not agrup_rot.empty else []
+            st.write(ordem_rot)
 
         col_m1, col_m2 = st.columns(2)
         with col_m1:
@@ -514,7 +531,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 
                 base_maq = alt.Chart(agrup_maq).encode(
                     x=alt.X('duracao:Q', title='Tempo Perdido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('maquina:N', sort=alt.EncodingSortField(field="duracao", order="descending"), title=None, axis=alt.Axis(labelOverlap=False)), 
+                    y=alt.Y('maquina:N', sort=ordem_maq, title=None, axis=alt.Axis(labelOverlap=False)), 
                     tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('tempo_str:N', title='Tempo Perdido')]
                 )
                 bars_maq = base_maq.mark_bar(color='#e74c3c')
@@ -537,7 +554,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             if not df_disp.empty:
                 base_disp = alt.Chart(df_disp).encode(
                     x=alt.X('disponibilidade:Q', title='Disponibilidade (%)', scale=alt.Scale(domain=[0, 100])),
-                    y=alt.Y('maquina:N', sort=alt.EncodingSortField(field="disponibilidade", order="ascending"), title=None, axis=alt.Axis(labelOverlap=False)), 
+                    y=alt.Y('maquina:N', sort=ordem_disp, title=None, axis=alt.Axis(labelOverlap=False)), 
                     tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('disponibilidade:Q', title='Disponibilidade (%)', format='.1f'), alt.Tooltip('perdido_str:N', title='Tempo Perdido (Problema)')]
                 )
                 bars_disp = base_disp.mark_bar(color='#2ecc71')
@@ -564,9 +581,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 max_dur_prob = agrup_prob['duracao'].max()
                 thresh_prob = max_dur_prob * 0.15 if max_dur_prob > 0 else 1
                 
-                base_prob = alt.Chart(agrup_prob.head(10)).encode(
+                base_prob = alt.Chart(agrup_prob).encode(
                     x=alt.X('duracao:Q', title='Tempo Consumido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('descricao_quebrada:N', sort=alt.EncodingSortField(field="duracao", order="descending"), title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
+                    y=alt.Y('descricao_quebrada:N', sort=ordem_prob, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
                     tooltip=[alt.Tooltip('descricao_falha:N', title='Motivo'), alt.Tooltip('tempo_str:N', title='Tempo Consumido')]
                 )
                 bars_prob = base_prob.mark_bar(color='#c0392b')
@@ -590,9 +607,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 max_dur_rot = agrup_rot['duracao'].max()
                 thresh_rot = max_dur_rot * 0.15 if max_dur_rot > 0 else 1
                 
-                base_rot = alt.Chart(agrup_rot.head(10)).encode(
+                base_rot = alt.Chart(agrup_rot).encode(
                     x=alt.X('duracao:Q', title='Tempo Consumido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('descricao_quebrada:N', sort=alt.EncodingSortField(field="duracao", order="descending"), title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
+                    y=alt.Y('descricao_quebrada:N', sort=ordem_rot, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
                     tooltip=[alt.Tooltip('descricao_falha:N', title='Processo'), alt.Tooltip('tempo_str:N', title='Tempo Consumido')]
                 )
                 bars_rot = base_rot.mark_bar(color='#f39c12')
