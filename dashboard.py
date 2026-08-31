@@ -629,6 +629,20 @@ header[data-testid="stHeader"] { display: none !important; }
                                 if not f_prod.empty:
                                     produto_nome = str(f_prod.iloc[0].get('produto_formula', 'Produto Desconhecido'))
                             
+                    # Cálculo de Tempo e Velocidade projetada
+                    min_i = calcular_minutos_str(das)
+                    min_f = calcular_minutos_str(as_hora)
+                    duracao_minutos = max(0, min_f - min_i)
+                    
+                    h_dur = duracao_minutos // 60
+                    m_dur = duracao_minutos % 60
+                    duracao_str = f"({h_dur}:{m_dur:02d})"
+                    
+                    velocidade_str = ""
+                    if duracao_minutos > 0:
+                        vel = (qtd / duracao_minutos) * 60
+                        velocidade_str = f" &nbsp;|&nbsp; <span style='opacity: 0.6;'>{int(vel)} pçs/h</span>"
+                            
                     html_feed += f"<div style='background: #fff; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #27ae60; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #f1f2f6; display: flex; flex-direction: column;'>"
                     html_feed += f"<div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 5px;'>"
                     html_feed += f"<div style='overflow: hidden;'>"
@@ -637,7 +651,10 @@ header[data-testid="stHeader"] { display: none !important; }
                     html_feed += f"</div>"
                     html_feed += f"<div style='font-size: 12px; font-weight: 900; color: #27ae60; white-space: nowrap; background: #eafaf1; padding: 3px 6px; border-radius: 4px; flex-shrink: 0;'>+{qtd} pçs</div>"
                     html_feed += f"</div>"
-                    html_feed += f"<div style='font-size: 10px; color: #95a5a6; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-top: 1px dashed #eee; padding-top: 4px;'>{das_f} ➔ {as_hora_f} &nbsp;•&nbsp; 🛠️ {maquina_nome} / {operador_nome}</div>"
+                    html_feed += f"<div style='display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #95a5a6; font-weight: 600; border-top: 1px dashed #eee; padding-top: 4px; margin-top: 4px;'>"
+                    html_feed += f"<div style='white-space: nowrap;'>{das_f} ➔ {as_hora_f} {duracao_str}{velocidade_str}</div>"
+                    html_feed += f"<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;'>🛠️ {maquina_nome} / {operador_nome}</div>"
+                    html_feed += f"</div>"
                     html_feed += f"</div>"
                 html_feed += "</div>"
                 st.markdown(html_feed, unsafe_allow_html=True)
