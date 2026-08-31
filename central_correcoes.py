@@ -7,7 +7,6 @@ import banco
 def abrir_janela(admin_nome):
     st.markdown("### ⚖️ Gestão de Correções de Produção")
     
-    # As 3 novas abas organizadas
     tab_pend, tab_recentes, tab_manual = st.tabs(["Fila de Aprovações", "Últimos Apontamentos", "Edição e Exclusão Avançada"])
     
     # ==========================================
@@ -21,24 +20,51 @@ def abrir_janela(admin_nome):
             for p in pendentes:
                 prod_info = p.get('producao_diaria', {})
                 if isinstance(prod_info, list) and len(prod_info) > 0: prod_info = prod_info[0]
+                
                 nome_peca = prod_info.get('nome_peca', 'Desconhecida')
                 setor = prod_info.get('setor', '')
                 maq = prod_info.get('maquina', '')
                 
+                # Pegando as novas variáveis (se existirem)
+                cod_peca_antigo = p.get('cod_peca_antigo')
+                cod_peca_novo = p.get('cod_peca_novo')
+                nome_peca_antigo = p.get('nome_peca_antigo')
+                nome_peca_novo = p.get('nome_peca_novo')
+                
                 try: data_f = datetime.strptime(p['data_solicitacao'], "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y %H:%M")
                 except: data_f = p['data_solicitacao']
                 
-                st.markdown(f"**Registro #ID:** {p['id_producao']} | **Peça:** {nome_peca} ({setor} - {maq})")
+                st.markdown(f"**Registro #ID:** {p['id_producao']} ({setor} - {maq})")
                 st.markdown(f"**Operador:** {p['operador_solicitante']} | **Data do Pedido:** {data_f}")
-                st.markdown(f"<h4 style='color:#e74c3c; margin:0; font-size:16px;'>Quantidade Atual: {p['qtd_antiga']}</h4>", unsafe_allow_html=True)
-                st.markdown(f"<h4 style='color:#27ae60; margin:0 0 10px 0; font-size:16px;'>Quantidade Solicitada: {p['qtd_nova']}</h4>", unsafe_allow_html=True)
+                
+                # BLOCO VISUAL "DE ➔ PARA"
+                st.markdown("<div style='background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #f39c12; margin: 10px 0;'>", unsafe_allow_html=True)
+                
+                if nome_peca_antigo and nome_peca_novo and nome_peca_antigo != nome_peca_novo:
+                    st.markdown(f"<div style='font-size:14px; margin-bottom:10px;'><b>🛠️ Correção de Peça:</b><br><span style='color:#e74c3c; text-decoration: line-through;'>De: {nome_peca_antigo}</span> <br><span style='color:#27ae60;'>Para: {nome_peca_novo}</span></div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='font-size:14px; margin-bottom:10px;'><b>🛠️ Peça:</b> {nome_peca} (Sem alteração)</div>", unsafe_allow_html=True)
+                    
+                if p['qtd_antiga'] != p['qtd_nova']:
+                    st.markdown(f"<div style='font-size:14px;'><b>📦 Correção de Quantidade:</b><br><span style='color:#e74c3c; text-decoration: line-through;'>De: {p['qtd_antiga']}</span> <br><span style='color:#27ae60;'>Para: {p['qtd_nova']}</span></div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='font-size:14px;'><b>📦 Quantidade:</b> {p['qtd_antiga']} (Sem alteração)</div>", unsafe_allow_html=True)
+                    
+                st.markdown("</div>", unsafe_allow_html=True)
                 
                 if p.get('motivo'):
                     st.info(f"**Motivo:** {p['motivo']}")
                 
                 c1, c2 = st.columns(2)
                 if c1.button("✅ Aprovar e Corrigir", key=f"apr_{p['id']}", type="primary", use_container_width=True):
-                    banco.aprovar_solicitacao(p['id'], p['id_producao'], p['qtd_nova'], admin_nome)
+                    banco.aprovar_solicitacao(
+                        p['id'], 
+                        p['id_producao'], 
+                        p['qtd_nova'], 
+                        admin_nome,
+                        cod_peca_novo=cod_peca_novo,
+                        nome_peca_novo=nome_peca_novo
+                    )
                     st.rerun()
                 if c2.button("❌ Recusar Pedido", key=f"rec_{p['id']}", use_container_width=True):
                     banco.recusar_solicitacao(p['id'], admin_nome)
@@ -54,15 +80,12 @@ def abrir_janela(admin_nome):
         
         try:
             supa = banco.conectar()
-            # Busca os 50 registros mais recentes diretamente do banco
             resp = supa.table("producao_diaria").select("id, setor, maquina, nome_peca, quantidade, data_registro, as_hora").order("id", desc=True).limit(50).execute()
             
             if resp.data:
                 df_recentes = pd.DataFrame(resp.data)
-                # Formata a data para padrão brasileiro
                 df_recentes['data_registro'] = pd.to_datetime(df_recentes['data_registro']).dt.strftime('%d/%m/%Y')
                 
-                # Reordena e renomeia as colunas
                 df_recentes = df_recentes[['id', 'data_registro', 'as_hora', 'setor', 'maquina', 'nome_peca', 'quantidade']]
                 df_recentes.columns = ['ID', 'Data', 'Hora', 'Setor', 'Máquina', 'Peça / Produto', 'Qtd']
                 
@@ -125,10 +148,8 @@ def abrir_janela(admin_nome):
             
             st.markdown("#### ⚙️ Ações Disponíveis")
             
-            # --- DIVISÃO DA TELA: ESQUERDA (EDITAR) | DIREITA (EXCLUIR) ---
             col_edit, col_del = st.columns(2)
             
-            # BLOCO DE EDIÇÃO
             with col_edit:
                 st.markdown("<div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e1e8ed; height: 100%;'>", unsafe_allow_html=True)
                 st.markdown("<h5 style='color: #27ae60; margin-top: 0;'>✏️ Alterar Quantidade</h5>", unsafe_allow_html=True)
@@ -157,14 +178,12 @@ def abrir_janela(admin_nome):
                         st.error("⚠️ A quantidade precisa ser um número inteiro válido.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # BLOCO DE EXCLUSÃO
             with col_del:
                 st.markdown("<div style='background-color: #fdf4f3; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb; height: 100%;'>", unsafe_allow_html=True)
                 st.markdown("<h5 style='color: #c0392b; margin-top: 0;'>🗑️ Excluir Registro</h5>", unsafe_allow_html=True)
                 st.markdown("<p style='font-size: 13px; color: #7f8c8d;'>Esta ação apagará permanentemente este apontamento do banco de dados e dos painéis de desempenho. <b>Não pode ser desfeita.</b></p>", unsafe_allow_html=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                # O Checkbox de Segurança
                 confirma_del = st.checkbox("🚨 Tenho certeza que desejo excluir este registro.", key=f"check_del_{reg['id']}")
                 
                 if st.button("🗑️ Excluir Permanentemente", type="primary", use_container_width=True, disabled=not confirma_del, key=f"btn_del_{reg['id']}"):

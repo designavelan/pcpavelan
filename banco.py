@@ -190,30 +190,54 @@ def obter_solicitacoes_pendentes():
     resp = supa.table("solicitacoes_correcao").select("*, producao_diaria(nome_peca, setor, maquina)").eq("status", "Pendente").execute()
     return resp.data if resp.data else []
 
-def enviar_solicitacao_correcao(id_producao, operador, qtd_antiga, qtd_nova, motivo):
-    supa = conectar()
-    # Verifica se o operador já clicou e há uma pendente
-    resp = supa.table("solicitacoes_correcao").select("id").eq("id_producao", id_producao).eq("status", "Pendente").execute()
-    if resp.data: return False, "Já existe uma solicitação pendente para este registro."
-        
-    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-    dados = {
-        "id_producao": id_producao, "operador_solicitante": operador,
-        "data_solicitacao": agora, "qtd_antiga": qtd_antiga, "qtd_nova": qtd_nova, 
-        "motivo": motivo, "status": "Pendente"
-    }
-    supa.table("solicitacoes_correcao").insert(dados).execute()
-    return True, ""
+def enviar_solicitacao_correcao(id_producao, operador, qtd_antiga, qtd_nova, motivo, cod_peca_antigo=None, cod_peca_novo=None, nome_peca_antigo=None, nome_peca_novo=None):
+    try:
+        supa = conectar()
+        # Verifica se o operador já clicou e há uma pendente
+        resp = supa.table("solicitacoes_correcao").select("id").eq("id_producao", id_producao).eq("status", "Pendente").execute()
+        if resp.data: return False, "Já existe uma solicitação pendente para este registro."
+            
+        agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        dados = {
+            "id_producao": id_producao, 
+            "operador_solicitante": operador,
+            "data_solicitacao": agora, 
+            "qtd_antiga": qtd_antiga, 
+            "qtd_nova": qtd_nova, 
+            "motivo": motivo, 
+            "status": "Pendente",
+            "cod_peca_antigo": cod_peca_antigo,
+            "cod_peca_novo": cod_peca_novo,
+            "nome_peca_antigo": nome_peca_antigo,
+            "nome_peca_novo": nome_peca_novo
+        }
+        supa.table("solicitacoes_correcao").insert(dados).execute()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
-def aprovar_solicitacao(id_solic, id_prod, nova_qtd, admin_nome):
-    supa = conectar()
-    agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-    # Atualiza o registro original na fábrica
-    supa.table("producao_diaria").update({"quantidade": nova_qtd}).eq("id", id_prod).execute()
-    # Registra a auditoria da aprovação
-    supa.table("solicitacoes_correcao").update({
-        "status": "Aprovada", "aprovado_por": admin_nome, "data_decisao": agora
-    }).eq("id", id_solic).execute()
+def aprovar_solicitacao(id_solic, id_prod, nova_qtd, admin_nome, cod_peca_novo=None, nome_peca_novo=None):
+    try:
+        supa = conectar()
+        agora = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Atualiza o registro original na fábrica
+        dados_update = {"quantidade": nova_qtd}
+        if cod_peca_novo:
+            dados_update["cod_peca"] = cod_peca_novo
+        if nome_peca_novo:
+            dados_update["nome_peca"] = nome_peca_novo
+            
+        supa.table("producao_diaria").update(dados_update).eq("id", id_prod).execute()
+        
+        # Registra a auditoria da aprovação
+        supa.table("solicitacoes_correcao").update({
+            "status": "Aprovada", "aprovado_por": admin_nome, "data_decisao": agora
+        }).eq("id", id_solic).execute()
+        
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 def recusar_solicitacao(id_solic, admin_nome):
     supa = conectar()

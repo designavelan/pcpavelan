@@ -40,22 +40,69 @@ def cache_obter_estrutura():
 # ==========================================
 # JANELAS FLUTUANTES (POP-UPS)
 # ==========================================
-@st.dialog("📝 Solicitar Correção de Quantidade")
-def abrir_dialog_correcao(id_reg, qtd_atual, nomes_operadores):
+@st.dialog("📝 Solicitar Correção de Apontamento")
+def abrir_dialog_correcao(id_reg, qtd_atual, nomes_operadores, cod_peca_atual, nome_peca_atual, is_embalagem):
     st.markdown(f"<h4 style='color:#2c3e50; margin-top:0;'>Registro: #{id_reg}</h4>", unsafe_allow_html=True)
-    st.info(f"**Quantidade registrada atualmente:** {qtd_atual}")
+    
+    st.markdown("**Apontamento Atual:**")
+    st.info(f"**Peça:** {nome_peca_atual}\n\n**Quantidade:** {qtd_atual}")
+    
+    st.markdown("---")
+    st.markdown("##### 🛠️ Como deveria ser?")
+    st.markdown("<p style='font-size:13px; color:#7f8c8d; margin-top:-10px;'>Altere apenas o que estiver errado.</p>", unsafe_allow_html=True)
+    
+    df_produtos = cache_obter_produtos()
+    produtos_ativos = cache_obter_ativos()
+    
+    lista_todos = sorted(df_produtos['produto_formula'].dropna().unique().tolist()) if not df_produtos.empty else []
+    
+    prod_atual = nome_peca_atual.split(" ➔ ")[0] if " ➔ " in nome_peca_atual else nome_peca_atual
+    idx_prod = lista_todos.index(prod_atual) if prod_atual in lista_todos else 0
+    
+    novo_prod = st.selectbox("1. Produto Correto:", lista_todos, index=idx_prod)
+    
+    if is_embalagem:
+        df_caixas = cache_obter_caixas()
+        if not df_caixas.empty:
+            df_cx_filtro = df_caixas[df_caixas['produto_formula'] == novo_prod]
+            lista_pecas = [f"Caixa {row['num_caixa']} (Cód: {row['cod_caixa']})" if str(row['cod_caixa']).strip() not in ["", "None", "nan"] else f"Caixa {row['num_caixa']} (Cód: VIRTUAL-{novo_prod}-{row['num_caixa']})".replace(" ", "_").upper() for _, row in df_cx_filtro.iterrows()]
+        else:
+            lista_pecas = []
+    else:
+        df_pecas = df_produtos[df_produtos['produto_formula'] == novo_prod]
+        lista_pecas = [f"{row['descricao']} (Cód: {row['cod']})" for _, row in df_pecas.iterrows()]
+        
+    idx_peca = 0
+    for i, p in enumerate(lista_pecas):
+        if str(cod_peca_atual) in p:
+            idx_peca = i
+            break
+            
+    nova_peca_display = st.selectbox("2. Peça/Volume Correto:", lista_pecas, index=idx_peca if lista_pecas else 0)
     
     try: val_inicial = int(float(qtd_atual))
     except: val_inicial = 0
         
-    nova_qtd = st.number_input("Digite a quantidade correta:", min_value=0, step=1, value=val_inicial)
-    motivo = st.text_area("Motivo da correção (Opcional):", placeholder="Ex: Digitei a mais sem querer...")
+    nova_qtd = st.number_input("3. Quantidade Correta:", min_value=0, step=1, value=val_inicial)
+    motivo = st.text_area("Motivo da correção:", placeholder="Ex: Selecionei a peça errada na hora da pressa...")
     
     if st.button("Enviar Solicitação", type="primary", use_container_width=True):
-        if nova_qtd == val_inicial:
-            st.warning("A nova quantidade digitada é igual à atual.")
+        if nova_peca_display:
+            novo_cod_peca = nova_peca_display.split("(Cód: ")[-1].replace(")", "").strip()
+            novo_nome_peca_final = f"{novo_prod} ➔ {nova_peca_display.split(' (Cód:')[0]}"
         else:
-            sucesso, msg = banco.enviar_solicitacao_correcao(id_reg, nomes_operadores, val_inicial, nova_qtd, motivo)
+            novo_cod_peca = cod_peca_atual
+            novo_nome_peca_final = nome_peca_atual
+            
+        if nova_qtd == val_inicial and novo_cod_peca == cod_peca_atual:
+            st.warning("⚠️ Você não alterou nem a peça nem a quantidade.")
+        elif not motivo:
+            st.warning("⚠️ Informe o motivo da correção para a auditoria.")
+        else:
+            sucesso, msg = banco.enviar_solicitacao_correcao(
+                id_reg, nomes_operadores, val_inicial, nova_qtd, motivo,
+                cod_peca_atual, novo_cod_peca, nome_peca_atual, novo_nome_peca_final
+            )
             if sucesso:
                 st.success("✅ Solicitação enviada para aprovação do Gestor!")
                 st.rerun()
@@ -113,7 +160,6 @@ def renderizar(df_nuvem, df_codigos):
         st.warning("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá na aba Configurações > Estrutura.")
         return
 
-    # Busca o mapa de cores dinâmico do banco (para sincronizar com as Configurações)
     mapa_cores = banco.obter_mapa_cores()
 
     usuario = st.session_state.get('usuario_logado', {})
@@ -218,17 +264,11 @@ def renderizar(df_nuvem, df_codigos):
             else: df_codigos_parado = pd.DataFrame()
     else: df_codigos_parado = pd.DataFrame()
 
-    # ==========================================
-    # GATILHO FANTASMA DOS 60 SEGUNDOS (COM CALLBACK SEGURO)
-    # ==========================================
     def limpar_gatilho():
         st.session_state["trigger_60s"] = ""
 
     st.text_input("trigger_60s_js", key="trigger_60s", label_visibility="collapsed", on_change=limpar_gatilho)
 
-    # ==========================================
-    # ESTADO 1: MÁQUINA LIVRE
-    # ==========================================
     if status_db == 'Livre':
         tab_prod, tab_parada = st.tabs(["🟢 MODO PRODUÇÃO", "🔴 MODO PARADA"])
         
@@ -511,9 +551,6 @@ def renderizar(df_nuvem, df_codigos):
                             st.rerun()
             else: st.warning(f"⚠️ Não há nenhum código configurado para este setor.")
 
-    # ==========================================
-    # ESTADO 2: PRODUZINDO LOTE ATUAL
-    # ==========================================
     elif status_db == 'Produzindo':
         nome_peca = "Peça Desconhecida"
         
@@ -682,9 +719,6 @@ def renderizar(df_nuvem, df_codigos):
                         st.cache_data.clear()
                         st.rerun()
 
-    # ==========================================
-    # ESTADO 3: MÁQUINA PARADA (PROBLEMA)
-    # ==========================================
     elif status_db == 'Parado':
         desc_problema = "Desconhecido"
         tipo_problema = "PARADA" 
@@ -698,17 +732,15 @@ def renderizar(df_nuvem, df_codigos):
         hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         is_pausa = (tipo_problema == 'NÃO CONTA' or 'DESCONSIDERAR' in tipo_problema)
         
-        # --- BUSCA A COR DINÂMICA NAS CONFIGURAÇÕES ---
         cor_dinamica = mapa_cores.get(tipo_problema)
         
         if cor_dinamica:
             cor_fundo = cor_dinamica
-            cor_sombra = f"{cor_dinamica}66" # Adiciona ~40% de opacidade no formato hex para a sombra
+            cor_sombra = f"{cor_dinamica}66" 
         else:
             cor_fundo = "#f39c12" if is_pausa else "#c0392b"
             cor_sombra = "rgba(243, 156, 18, 0.4)" if is_pausa else "rgba(192, 57, 43, 0.4)"
             
-        # --- AJUSTA O TÍTULO PARA FICAR IGUAL AO TIPO ---
         if is_pausa:
             titulo_card = "☕ PAUSA PROGRAMADA"
         elif tipo_problema == "PARADA":
@@ -765,7 +797,7 @@ def renderizar(df_nuvem, df_codigos):
     if df_hist.empty: 
         st.info("Nenhum apontamento nesta máquina hoje.")
     else:
-        df_hist = df_hist.sort_values(by=['data_registro', 'as_hora'], ascending=[False, False]).head(20)
+        df_hist = df_hist.sort_values(by=['data_registro', 'as_hora'], ascending=[False, False]).head(50)
         
         try:
             resp_pend = supa.table("solicitacoes_correcao").select("id_producao").eq("status", "Pendente").execute()
@@ -818,7 +850,7 @@ def renderizar(df_nuvem, df_codigos):
                 cor_mapa = mapa_cores.get(tipo_bd)
                 if cor_mapa:
                     cor_borda = cor_mapa
-                    cor_fundo = f"{cor_mapa}1A" # 10% de opacidade no formato hex para o fundo da caixa
+                    cor_fundo = f"{cor_mapa}1A"
                     nome_exibicao = "Pausa" if (tipo_bd == "NÃO CONTA" or "DESCONSIDERAR" in tipo_bd) else tipo_bd.title()
                     titulo = f"{nome_exibicao}: {desc_oco} ({codigo_bd})"
                 else:
@@ -859,7 +891,7 @@ def renderizar(df_nuvem, df_codigos):
                         st.button("⏳ Correção Pendente", key=f"btn_pend_{id_reg}", disabled=True, use_container_width=True)
                     else:
                         if st.button("📝 Solicitar Correção", key=f"btn_corr_{id_reg}", use_container_width=True):
-                            abrir_dialog_correcao(id_reg, qtd_peca, nomes_operadores)
+                            abrir_dialog_correcao(id_reg, qtd_peca, nomes_operadores, cod_peca, nome_peca_hist, is_embalagem)
             
             st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
