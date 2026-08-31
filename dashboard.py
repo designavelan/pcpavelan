@@ -82,7 +82,7 @@ header[data-testid="stHeader"] { display: none !important; }
             if m < agora_min:
                 minutos_uteis_passados += 1
                 
-    if minutos_uteis_passados <= 0: minutos_uteis_passados = 1 # Evita erro divisão por zero no início do dia
+    if minutos_uteis_passados <= 0: minutos_uteis_passados = 1 
     if total_min_uteis_dia <= 0: total_min_uteis_dia = 1
 
     perc_turno = (minutos_uteis_passados / total_min_uteis_dia) * 100
@@ -538,9 +538,9 @@ header[data-testid="stHeader"] { display: none !important; }
         if cards_exibicao:
             st.markdown("""<style>
 .grid-dash { display: flex; flex-wrap: wrap; gap: 10px; }
-.card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: background-color 0.3s ease; }
-.cd-critico { background-color: #8b0000 !important; animation: p-crit 1s infinite alternate; }
-@keyframes p-crit { 0% { opacity: 1; } 100% { opacity: 0.8; } }
+.card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: all 0.3s ease; position: relative; }
+.cd-critico { animation: p-crit 0.8s infinite alternate !important; z-index: 10; }
+@keyframes p-crit { 0% { transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); } 100% { transform: scale(1.04); box-shadow: 0 12px 24px rgba(0,0,0,0.4); } }
 </style>""", unsafe_allow_html=True)
             
             html_cards = "<div class='grid-dash'>"
@@ -550,10 +550,8 @@ header[data-testid="stHeader"] { display: none !important; }
                 tipo_reg = p.get('tipo_registro', 'LIVRE')
                 desc_completa = p.get('descricao_completa', '')
                 
-                # VERIFICAÇÃO SE É FIM DO EXPEDIENTE (No Tipo ou na Descrição)
                 is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
                 
-                # Só adiciona no motor JavaScript se NÃO for fim do expediente (evita alarmes desnecessários)
                 if not is_fim_expediente:
                     lista_js_timers.append({
                         "id": p_id, 
@@ -862,8 +860,14 @@ header[data-testid="stHeader"] { display: none !important; }
     
     js_engine = f"""
     <script>
+        // LIMPANDO OS MOTORES ANTIGOS (Vassoura Fantasma)
+        if (window.parent.__dash_intervals) {{
+            window.parent.__dash_intervals.forEach(clearInterval);
+        }}
+        window.parent.__dash_intervals = [];
+
         // Stamp: {stamp_agora}
-        setInterval(function() {{
+        const intRef = setInterval(function() {{
             const btns = window.parent.document.querySelectorAll('button');
             for (let i = 0; i < btns.length; i++) {{
                 if (btns[i].innerText === '🔄 Atualizar' || btns[i].innerText.includes('Atualizar')) {{ 
@@ -872,6 +876,7 @@ header[data-testid="stHeader"] { display: none !important; }
                 }}
             }}
         }}, {refresh_segundos * 1000});
+        window.parent.__dash_intervals.push(intRef);
 
         function playBeep() {{
             try {{
@@ -888,7 +893,7 @@ header[data-testid="stHeader"] { display: none !important; }
         const tempoCriticoMs = {tempo_critico} * 60 * 1000;
         
         if (timers.length > 0) {{
-            setInterval(() => {{
+            const intTimers = setInterval(() => {{
                 const now = new Date().getTime();
                 timers.forEach(p => {{
                     const distance = now - new Date(p.inicio_iso).getTime();
@@ -897,7 +902,6 @@ header[data-testid="stHeader"] { display: none !important; }
                         const tel = window.parent.document.getElementById("timer_" + p.id);
                         if (tel) tel.innerHTML = (h<10?"0":"")+h + ":" + (m<10?"0":"")+m + ":" + (s<10?"0":"")+s;
                         
-                        // LÓGICA DO SUBTOTAL ACUMULADO AO VIVO
                         const subTel = window.parent.document.getElementById("sub_timer_" + p.id);
                         if (subTel) {{
                             const totalMs = distance + p.past_ms;
@@ -926,16 +930,22 @@ header[data-testid="stHeader"] { display: none !important; }
                         }}
                         
                         const cel = window.parent.document.getElementById("card_" + p.id);
-                        if (cel && distance >= tempoCriticoMs && !cel.classList.contains("cd-critico")) {{
+                        if (cel) {{
                             const tipoReg = cel.getAttribute("data-tipo");
-                            if (tipoReg !== "NÃO CONTA" && tipoReg !== "PRODUÇÃO" && tipoReg !== "LIVRE") {{
-                                cel.classList.add("cd-critico"); 
-                                playBeep();
+                            if (distance >= tempoCriticoMs && (tipoReg === "PARADA" || tipoReg === "ROTINA")) {{
+                                if (!cel.classList.contains("cd-critico")) {{
+                                    cel.classList.add("cd-critico"); 
+                                    playBeep();
+                                }}
+                            }} else {{
+                                // Remove a classe caso a máquina saia do estado crítico ou mude para Produção
+                                cel.classList.remove("cd-critico");
                             }}
                         }}
                     }}
                 }});
             }}, 1000);
+            window.parent.__dash_intervals.push(intTimers);
         }}
     </script>
     """
