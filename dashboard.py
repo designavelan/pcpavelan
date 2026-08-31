@@ -601,7 +601,7 @@ header[data-testid="stHeader"] { display: none !important; }
                 df_feed = df_feed.tail(10).iloc[::-1]
                 
             if not df_feed.empty:
-                html_feed = "<h4 style='color: #2c3e50; font-size: 14px; text-transform: uppercase; font-weight: 900; margin-top: 25px; margin-bottom: 12px; text-align: center;'>⚡ Últimas Produções</h4>"
+                html_feed = "<h4 style='color: #2c3e50; font-size: 14px; text-transform: uppercase; font-weight: 900; margin-top: 25px; margin-bottom: 12px; text-align: center;'>⚡ Últimas Peças Produzidas</h4>"
                 
                 html_feed += "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
                 
@@ -787,7 +787,109 @@ header[data-testid="stHeader"] { display: none !important; }
                 html_legenda += f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{c_hex}; border-radius:2px; {border}'></div> {get_friendly_name(stype)}</div>"
             html_legenda += "</div>"
             st.markdown(html_legenda, unsafe_allow_html=True)
+
+        # ==========================================
+        # 🪚 INTELIGÊNCIA: EM CORTE AGORA
+        # ==========================================
+        recent_products_freq = {}
+        if not df_nuvem_operacao.empty:
+            df_corte_recentes = df_nuvem_operacao[df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == 'CORTE']
+            if 'id' in df_corte_recentes.columns:
+                df_corte_recentes = df_corte_recentes.sort_values('id', ascending=False).head(20)
+            else:
+                df_corte_recentes = df_corte_recentes.tail(20).iloc[::-1]
+                
+            for _, row in df_corte_recentes.iterrows():
+                cod_peca = str(row.get('cod_peca', '')).strip()
+                prod_nome = None
+                if not df_produtos.empty:
+                    f_prod = df_produtos[df_produtos['cod'].astype(str) == cod_peca]
+                    if not f_prod.empty:
+                        prod_nome = str(f_prod.iloc[0].get('produto_formula', ''))
+                
+                if prod_nome and prod_nome in ops_dict:
+                    recent_products_freq[prod_nome] = recent_products_freq.get(prod_nome, 0) + 1
+
+        def calc_corte_prog(nome_op):
+            if nome_op not in ops_dict: return None
+            op = ops_dict[nome_op]
+            qtd_plan = int(op.get('quantidade_planejada', 0))
+            data_op_dt = pd.to_datetime(op['data_inicio'].split(" ")[0].split("T")[0])
             
+            df_filtrado = df_produtos[df_produtos['produto_formula'] == nome_op]
+            mapa_prod_corte = {}
+            if not df_todas_producoes.empty:
+                df_op_prod = df_todas_producoes[(df_todas_producoes['data_registro_dt'] >= data_op_dt) & (df_todas_producoes['setor'] == 'CORTE')]
+                agrup = df_op_prod.groupby('cod_peca')['quantidade'].sum().reset_index()
+                for _, r in agrup.iterrows(): mapa_prod_corte[r['cod_peca']] = int(r['quantidade'])
+                
+            meta_corte = 0
+            prod_corte = 0
+            
+            for _, row in df_filtrado.iterrows():
+                try: qnt_peca = int(float(row.get('qnt', 0)))
+                except: qnt_peca = 0
+                qtd_total = qnt_peca * qtd_plan
+                cod = str(row.get('cod', '')).strip()
+                
+                meta_corte += qtd_total
+                prod_corte += min(qtd_total, mapa_prod_corte.get(cod, 0))
+                
+            if meta_corte > 0:
+                perc = (prod_corte / meta_corte) * 100
+                if perc > 100: perc = 100.0
+                return {'nome': nome_op, 'meta': meta_corte, 'prod': prod_corte, 'perc': perc}
+            return None
+
+        concluidos = []
+        andamento = []
+        for p_nome, freq in recent_products_freq.items():
+            prog = calc_corte_prog(p_nome)
+            if prog:
+                prog['freq'] = freq
+                if prog['perc'] >= 99.9 or prog['prod'] >= prog['meta']:
+                    concluidos.append(prog)
+                else:
+                    andamento.append(prog)
+                    
+        concluidos = sorted(concluidos, key=lambda x: x['freq'], reverse=True)
+        andamento = sorted(andamento, key=lambda x: x['freq'], reverse=True)
+        
+        prod_concluido = concluidos[0] if concluidos else None
+        prod_andamento = andamento[0] if andamento else None
+        
+        produtos_para_exibir = []
+        if prod_andamento and prod_concluido:
+            if prod_andamento['perc'] < 10.0:
+                produtos_para_exibir.append(prod_concluido)
+                produtos_para_exibir.append(prod_andamento)
+            else:
+                produtos_para_exibir.append(prod_andamento)
+        elif prod_andamento:
+            produtos_para_exibir.append(prod_andamento)
+        elif prod_concluido:
+            produtos_para_exibir.append(prod_concluido)
+
+        if produtos_para_exibir:
+            st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🪚 EM CORTE AGORA</h3>", unsafe_allow_html=True)
+            html_corte_agora = "<div>"
+            for p in produtos_para_exibir:
+                is_concluido = p['perc'] >= 99.9 or p['prod'] >= p['meta']
+                nome_display = f"📦 {p['nome']} &nbsp;<span style='color:#27ae60; font-size:10px; background:#eafaf1; padding:2px 6px; border-radius:4px;'>✅ Lote Concluído no Corte</span>" if is_concluido else f"📦 {p['nome']}"
+                cor_barra = "#27ae60" if is_concluido else "#f39c12" 
+                
+                html_corte_agora += f"""
+                <div style='margin-bottom: 15px;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; color: #34495e; margin-bottom: 4px;'>
+                        <span>{nome_display}</span><span>{p['perc']:.1f}% ({int(p['prod'])}/{int(p['meta'])})</span>
+                    </div>
+                    <div style='width: 100%; background: #ecf0f1; height: 16px; border-radius: 8px; overflow: hidden; border: 1px solid #bdc3c7;'>
+                        <div style='width: {p['perc']}%; background: {cor_barra}; height: 100%; transition: width 0.5s ease;'></div>
+                    </div>
+                </div>"""
+            html_corte_agora += "</div>"
+            st.markdown(html_corte_agora, unsafe_allow_html=True)
+
         if ops_ativas:
             st.markdown("<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 15px; font-size: 18px;'>🏁 A Corrida DAS OPS</h3>", unsafe_allow_html=True)
             html_ops = "<div>"

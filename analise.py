@@ -12,7 +12,7 @@ def calcular_minutos_str(hora_str):
 def formatar_minutos(minutos):
     h = int(minutos // 60)
     m = int(minutos % 60)
-    if h > 0: return f"{h}:{m:02d}m"
+    if h > 0: return f"{h}:{m:02d}h"
     return f"{m}m"
 
 def processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor_filtro, maq_filtro):
@@ -50,7 +50,7 @@ def processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor_filtr
     
     if 'tipo' not in df.columns: df['tipo'] = 'PARADA'
     
-    mask_exclude = df['tipo'].astype(str).str.strip().str.upper().isin(['PRODUÇÃO', 'LIVRE', 'A REALIZAR'])
+    mask_exclude = df['tipo'].astype(str).str.strip().str.upper().isin(['LIVRE', 'A REALIZAR'])
     df_paradas = df[~mask_exclude].copy()
     
     if not df_paradas.empty:
@@ -81,8 +81,8 @@ def calcular_kpis(df_paradas):
     if df_paradas.empty:
         return 0, 0, 0, 0, "Nenhum (0m)", "Nenhuma (0m)", pd.DataFrame(), pd.DataFrame()
         
-    df_problema = df_paradas[df_paradas['classificacao'].isin(['PARADA', 'RETRABALHO'])]
-    df_rotina = df_paradas[df_paradas['classificacao'] == 'ROTINA']
+    df_problema = df_paradas[df_paradas['classificacao'] == 'PARADA']
+    df_rotina = df_paradas[df_paradas['classificacao'].isin(['ROTINA', 'RETRABALHO'])]
     
     min_problema = df_problema['duracao'].sum() if not df_problema.empty else 0
     min_rotina = df_rotina['duracao'].sum() if not df_rotina.empty else 0
@@ -148,7 +148,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     lt_das_min = calcular_minutos_str(cfg.get('lanche_t_das', '')) if cfg.get('lanche_t_das') else -1
     lt_as_min = calcular_minutos_str(cfg.get('lanche_t_as', '')) if cfg.get('lanche_t_as') else -1
 
-    # Coleta de Parâmetros de UI no Banco
     altura_graficos = int(banco.obter_memoria_sistema('Análise', 'Geral', 'altura_graficos', 500))
     tamanho_valores = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_valores', 16))
     tamanho_labels = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_labels', 14))
@@ -168,6 +167,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         df_paradas = processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor, maquina)
         min_total, min_prob, min_rot, mttr, ofensor_prob, ofensor_rot, df_prob, df_rot = calcular_kpis(df_paradas)
         
+        # 1. CARDS (KPIS)
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f"<div class='kpi-card'><div class='kpi-title'>🩸 Tempo Útil Perdido</div><div class='kpi-value val-red'>{formatar_minutos(min_total)}</div><div class='kpi-sub'>({formatar_minutos(min_prob)} Prob. | {formatar_minutos(min_rot)} Rotina)</div></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='kpi-card'><div class='kpi-title'>⏱️ MTTR (Problemas)</div><div class='kpi-value val-blue'>{int(mttr)}m</div><div class='kpi-sub'>Tempo médio de solução</div></div>", unsafe_allow_html=True)
@@ -176,11 +176,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
-        # ==========================================
-        # 🕰️ BLOCO 2: DETALHE DIÁRIO (MÁQUINA DO TEMPO) 
-        # ==========================================
+        # 2. EVOLUÇÃO DA OPERAÇÃO
         if is_single_day:
-            st.info(f"📅 **Modo Diário Ativo:** Exibindo a linha do tempo detalhada para o dia **{data_de}**.")
+            st.info(f"📅 **Modo Diário Ativo:** Exibindo dados detalhados para o dia **{data_de}**.")
             
             supa = banco.conectar()
             agora = datetime.utcnow() - timedelta(hours=3)
@@ -191,7 +189,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             total_maq_atual = len(df_est_total[['setor', 'maquina']].dropna().drop_duplicates()) if not df_est_total.empty else 0
 
             resp_hist = supa.table("historico_operacao").select("data_hora, percentual, maquinas_ativas, maquinas_totais").gte("data_hora", f"{data_de} 00:00:00").lte("data_hora", f"{data_de} 23:59:59").order("data_hora").execute()
-            
             hora_inicio_turno = datetime.strptime(f"{data_de} {m_das}", "%Y-%m-%d %H:%M")
             hora_fim_turno = datetime.strptime(f"{data_de} {t_as}", "%Y-%m-%d %H:%M")
             
@@ -244,9 +241,215 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             ).properties(height=230).configure_axis(labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos)
             
             st.altair_chart(chart_evo, use_container_width=True)
-
             st.markdown("<hr style='opacity:0.2; margin: 30px 0 20px 0;'>", unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ **Múltiplos Dias Selecionados:** A visualização em Linha do Tempo e Evolução foi ocultada. Consulte o consolidado abaixo.")
+            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
+        # 3. VISÃO MACRO DA FÁBRICA (OEE) - BARRA ÚNICA EMPILHADA
+        st.markdown("### 📊 Visão Macro da Fábrica (Distribuição do Tempo Útil)")
+        
+        if not df_paradas.empty:
+            df_macro = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO'])].groupby('classificacao')['duracao'].sum().reset_index()
+            df_macro = df_macro[df_macro['duracao'] > 0]
+            total_macro = df_macro['duracao'].sum()
+            
+            if total_macro > 0:
+                df_macro['pct'] = (df_macro['duracao'] / total_macro * 100).fillna(0)
+                df_macro['tempo_str'] = df_macro['duracao'].apply(formatar_minutos)
+                
+                # Regra Lógica de Texto: % Arredondada
+                def get_label_macro(row):
+                    if row['pct'] >= 8: return f"{row['tempo_str']} ({row['pct']:.1f}%)"
+                    elif row['pct'] >= 4: return f"{int(round(row['pct']))}%"
+                    return ""
+                
+                df_macro['label_exibicao'] = df_macro.apply(get_label_macro, axis=1)
+                
+                df_macro['dummy'] = 'Fábrica'
+                ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4}
+                df_macro['ordem'] = df_macro['classificacao'].map(ordem_dict)
+                df_macro = df_macro.sort_values('ordem')
+                df_macro['cum_duracao'] = df_macro['duracao'].cumsum()
+                df_macro['midpos'] = df_macro['cum_duracao'] - (df_macro['duracao'] / 2)
+                
+                bars_macro = alt.Chart(df_macro).mark_bar(size=70).encode(
+                    x=alt.X('duracao:Q', title='', axis=alt.Axis(labelExpr=expr_horas, grid=False), stack='zero'),
+                    y=alt.Y('dummy:N', title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
+                    color=alt.Color('classificacao:N', scale=alt.Scale(
+                        domain=['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA'],
+                        range=['#27ae60', '#2ecc71', '#f39c12', '#c0392b'] 
+                    ), legend=alt.Legend(title="", orient="top", labelFontSize=14, symbolSize=200, padding=10)),
+                    order=alt.Order('ordem:Q'),
+                    tooltip=[alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
+                )
+                
+                text_macro = alt.Chart(df_macro).mark_text(
+                    align='center', baseline='middle', size=tamanho_valores
+                ).encode(
+                    x=alt.X('midpos:Q', axis=None),
+                    y=alt.Y('dummy:N', axis=None),
+                    text='label_exibicao:N',
+                    color=alt.condition(alt.datum.classificacao == 'ROTINA', alt.value('#2c3e50'), alt.value('white')),
+                    tooltip=[alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
+                )
+                
+                chart_macro = (bars_macro + text_macro).properties(height=120).configure_axis(
+                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+                ).configure_legend(
+                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+                ).configure_view(strokeWidth=0)
+                
+                st.altair_chart(chart_macro, use_container_width=True)
+                
+                # LEGENDA DISCRETA PARA FATIAS PEQUENAS
+                df_macro_small = df_macro[df_macro['pct'] < 4]
+                if not df_macro_small.empty:
+                    text_items = [f"<b>{row['classificacao']}</b>: {row['tempo_str']} ({row['pct']:.1f}%)" for _, row in df_macro_small.iterrows()]
+                    st.markdown(f"<div style='text-align:center; font-size:12px; color:#7f8c8d; margin-top:-10px; margin-bottom:20px;'>*Ocultos no gráfico por falta de espaço: {', '.join(text_items)}*</div>", unsafe_allow_html=True)
+            else:
+                st.info("Nenhum dado macro registrado no período.")
+        else:
+            st.info("Nenhum dado registrado no período.")
+
+        # Criação do Filtro Exclusivo para Ocorrências (Retirando a Produção Limpa dos Paretos de Falhas)
+        df_ocorrencias = df_paradas[df_paradas['classificacao'].isin(['PARADA', 'ROTINA', 'RETRABALHO'])]
+
+        # 4. GRÁFICO DE PARETO GERAL
+        st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+        st.markdown("### 📊 Pareto Geral: Top 15 Ocorrências (Tempo Consumido)")
+        
+        agrup_geral = pd.DataFrame()
+        if not df_ocorrencias.empty and min_total > 0:
+            agrup_geral = df_ocorrencias.groupby(['descricao_falha', 'classificacao'])['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(15)
+            agrup_geral = agrup_geral[agrup_geral['duracao'] > 0]
+            agrup_geral['tempo_str'] = agrup_geral['duracao'].apply(formatar_minutos)
+            agrup_geral['pct'] = (agrup_geral['duracao'] / min_total * 100).fillna(0)
+            agrup_geral['label'] = agrup_geral.apply(lambda x: f"{x['tempo_str']} ({x['pct']:.1f}%)", axis=1)
+            agrup_geral['descricao_quebrada'] = agrup_geral['descricao_falha'].apply(lambda x: ' | '.join(textwrap.wrap(str(x), width=60)))
+
+        ordem_geral = agrup_geral['descricao_quebrada'].tolist() if not agrup_geral.empty else []
+
+        if not agrup_geral.empty:
+            max_dur_geral = agrup_geral['duracao'].max()
+            thresh_geral = max_dur_geral * 0.15 if max_dur_geral > 0 else 1
+            
+            base_geral = alt.Chart(agrup_geral).encode(
+                x=alt.X('duracao:Q', title='Tempo Consumido', axis=alt.Axis(labelExpr=expr_horas)),
+                y=alt.Y('descricao_quebrada:N', sort=ordem_geral, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelLimit=0, labelExpr="split(datum.value, ' | ')")),
+                tooltip=[alt.Tooltip('descricao_falha:N', title='Ocorrência'), alt.Tooltip('classificacao:N', title='Tipo'), alt.Tooltip('tempo_str:N', title='Tempo Consumido')]
+            )
+            
+            bars_geral = base_geral.mark_bar().encode(
+                color=alt.Color('classificacao:N', scale=alt.Scale(
+                    domain=['PARADA', 'RETRABALHO', 'ROTINA'],
+                    range=['#c0392b', '#27ae60', '#f39c12']
+                ), legend=None)
+            )
+            
+            text_geral_in = base_geral.transform_filter(alt.datum.duracao > thresh_geral).mark_text(
+                align='right', dx=-5, baseline='middle', size=tamanho_valores
+            ).encode(
+                text='label:N',
+                color=alt.condition(alt.datum.classificacao == 'ROTINA', alt.value('#2c3e50'), alt.value('white'))
+            )
+            
+            text_geral_out = base_geral.transform_filter(alt.datum.duracao <= thresh_geral).mark_text(
+                align='left', dx=5, color='#2c3e50', baseline='middle', size=tamanho_valores
+            ).encode(text='label:N')
+            
+            chart_geral = (bars_geral + text_geral_in + text_geral_out).properties(height=altura_graficos).configure_axis(
+                labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+            )
+            st.altair_chart(chart_geral, use_container_width=True)
+        else:
+            st.write("Nenhuma ocorrência registrada no período.")
+
+        # 5. DESEMPENHO POR MÁQUINA (ESCALA ABSOLUTA COM TEXTO FLUTUANTE)
+        st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
+        st.markdown("### 🏭 Desempenho por Máquina")
+        
+        if not df_paradas.empty:
+            df_desemp = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO'])].groupby(['maquina', 'classificacao'])['duracao'].sum().reset_index()
+            df_desemp = df_desemp[df_desemp['duracao'] > 0]
+            
+            df_desemp['total_maq'] = df_desemp.groupby('maquina')['duracao'].transform('sum')
+            df_desemp['pct'] = (df_desemp['duracao'] / df_desemp['total_maq'] * 100).fillna(0)
+            df_desemp['tempo_str'] = df_desemp['duracao'].apply(formatar_minutos)
+            
+            # Regra Lógica de Texto: % Arredondada no meio
+            def get_label_maq(row):
+                if row['pct'] >= 8: return f"{row['tempo_str']} ({row['pct']:.1f}%)"
+                elif row['pct'] >= 4: return f"{int(round(row['pct']))}%" 
+                return ""
+            
+            df_desemp['label_exibicao'] = df_desemp.apply(get_label_maq, axis=1)
+            
+            ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4}
+            df_desemp['ordem'] = df_desemp['classificacao'].map(ordem_dict)
+            
+            # Ordenar pela máquina com maior tempo total
+            df_desemp = df_desemp.sort_values(by=['total_maq', 'maquina', 'ordem'], ascending=[False, True, True])
+            ordem_maquinas_chart = df_desemp[['maquina', 'total_maq']].drop_duplicates().sort_values('total_maq', ascending=False)['maquina'].tolist()
+            
+            df_desemp['cum_duracao'] = df_desemp.groupby('maquina')['duracao'].cumsum()
+            df_desemp['midpos'] = df_desemp['cum_duracao'] - (df_desemp['duracao'] / 2)
+            
+            # Altura Dinâmica para manter o respiro perfeito (Cresce conforme novas máquinas são adicionadas)
+            qtd_maquinas_grafico = len(ordem_maquinas_chart)
+            altura_dinamica = max(150, qtd_maquinas_grafico * 90) 
+            
+            # Barras finas com eixo X absoluto (Minutos)
+            bars_desemp = alt.Chart(df_desemp).mark_bar(size=35).encode(
+                x=alt.X('duracao:Q', stack='zero', title='Tempo Total Utilizado', axis=alt.Axis(grid=True, labelExpr=expr_horas)),
+                y=alt.Y('maquina:N', sort=ordem_maquinas_chart, title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
+                color=alt.Color('classificacao:N', scale=alt.Scale(
+                    domain=['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA'],
+                    range=['#27ae60', '#2ecc71', '#f39c12', '#c0392b']
+                ), legend=alt.Legend(title="", orient="top", labelFontSize=14, padding=10)),
+                order=alt.Order('ordem:Q'),
+                tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
+            )
+            
+            # Texto da Porcentagem dentro da Barra
+            text_desemp = alt.Chart(df_desemp).mark_text(
+                align='center', baseline='middle', size=tamanho_valores
+            ).encode(
+                x=alt.X('midpos:Q', axis=None),
+                y=alt.Y('maquina:N', sort=ordem_maquinas_chart, axis=None),
+                text='label_exibicao:N',
+                color=alt.condition(alt.datum.classificacao == 'ROTINA', alt.value('#2c3e50'), alt.value('white')),
+                tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
+            )
+            
+            # Nova Camada: O Nome da Máquina Flutuando Acima da Barra
+            df_nomes = df_desemp[['maquina', 'total_maq']].drop_duplicates()
+            names_desemp = alt.Chart(df_nomes).mark_text(
+                align='left', baseline='bottom', dy=-22, size=tamanho_titulos, fontWeight='bold', color='#34495e'
+            ).encode(
+                x=alt.value(0), # Trava o nome sempre no canto esquerdo da tela
+                y=alt.Y('maquina:N', sort=ordem_maquinas_chart, axis=None),
+                text='maquina:N'
+            )
+            
+            chart_desemp = alt.layer(bars_desemp, text_desemp, names_desemp).properties(height=altura_dinamica).configure_axis(
+                labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+            ).configure_legend(
+                labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+            ).configure_view(strokeWidth=0)
+            
+            st.altair_chart(chart_desemp, use_container_width=True)
+            
+            df_desemp_small = df_desemp[df_desemp['pct'] < 4]
+            if not df_desemp_small.empty:
+                st.markdown("<div style='text-align:center; font-size:11px; color:#95a5a6; margin-top:-10px; margin-bottom:20px;'>*Passe o mouse sobre as barras para ver os detalhes das fatias ocultas (menores que 4%).*</div>", unsafe_allow_html=True)
+                
+        else:
+            st.write("Sem dados de desempenho para o período.")
+
+        # 6. HISTÓRICO INDIVIDUAL (LINHA DO TEMPO) COM CORTES E DETALHES
+        if is_single_day:
+            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
             mapa_cores = banco.obter_mapa_cores()
             def get_color(tipo):
                 t = str(tipo).strip().upper()
@@ -258,6 +461,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 if t == 'LIVRE': return '#3498db'
                 if t == 'A REALIZAR': return '#ecf0f1'
                 if t == 'INTERVALO PREVISTO': return '#bdc3c7'
+                if t == 'RETRABALHO': return '#27ae60'
                 return '#95a5a6'
 
             def get_friendly_name(tipo):
@@ -272,6 +476,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 return t.title()
 
             df_dia_completo = df_nuvem[(df_nuvem['data_registro'] == data_de)].copy()
+            
+            # Carregando códigos para buscar as descrições em tempo real
+            if not df_codigos.empty:
+                df_codigos_temp = df_codigos.copy()
+                df_codigos_temp['codigo'] = df_codigos_temp['codigo'].astype(str).str.strip()
+            else:
+                df_codigos_temp = pd.DataFrame()
+            
+            df_est_total = banco.obter_estrutura()
             if setor != "[ Todos ]": df_est_total = df_est_total[df_est_total['setor'] == setor]
             if maquina != "[ Todas ]": df_est_total = df_est_total[df_est_total['maquina'] == maquina]
             pares_maquinas = df_est_total[['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
@@ -327,16 +540,17 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     html_timelines += "</div>"
 
                     for maq in sorted(setores_dict_timeline[s]):
-                        timeline = ['LIVRE'] * total_timeline_min
+                        # A nova timeline salva DUAS informações: Macro Categoria e Descrição Específica
+                        timeline = [('LIVRE', 'Disponível (Livre)')] * total_timeline_min
                         
                         for i in range(total_timeline_min):
                             curr = m_das_min + i
-                            if curr >= m_as_min and curr < t_das_min: timeline[i] = 'INTERVALO PREVISTO'
-                            elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = 'INTERVALO PREVISTO'
-                            elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = 'INTERVALO PREVISTO'
-                            elif is_hoje and curr > agora_min: timeline[i] = 'A REALIZAR' 
+                            if curr >= m_as_min and curr < t_das_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
+                            elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
+                            elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
+                            elif is_hoje and curr > agora_min: timeline[i] = ('A REALIZAR', 'A Realizar (Futuro)')
                             elif not ((curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min)):
-                                timeline[i] = 'INTERVALO PREVISTO'
+                                timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
                             
                         if not df_dia_completo.empty:
                             maq_records = df_dia_completo[(df_dia_completo['maquina'] == maq) & (df_dia_completo['setor'] == s)]
@@ -345,19 +559,26 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                                     inicio = calcular_minutos_str(row['das'])
                                     fim = calcular_minutos_str(row['as_hora'])
                                     tipo_reg = str(row.get('tipo', 'PARADA')).strip().upper()
+                                    desc_reg = "Sem Descrição"
                                     
                                     if tipo_reg == 'PARADA':
                                         cod = str(row.get('cod_ocorrencia')).strip()
-                                        if cod and not df_codigos.empty:
-                                            f_cod = df_codigos[df_codigos['codigo'].astype(str) == cod]
-                                            if not f_cod.empty and 'tipo' in f_cod.columns:
-                                                tipo_reg = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                        if cod and not df_codigos_temp.empty:
+                                            f_cod = df_codigos_temp[df_codigos_temp['codigo'] == cod]
+                                            if not f_cod.empty:
+                                                if 'tipo' in f_cod.columns: tipo_reg = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                                if 'descricao' in f_cod.columns: desc_reg = str(f_cod.iloc[0]['descricao']).strip()
                                                 
                                     if 'DESCONSIDERAR' in tipo_reg: tipo_reg = 'NÃO CONTA'
                                     
+                                    if tipo_reg == 'PRODUÇÃO': desc_reg = 'Produzindo'
+                                    elif tipo_reg == 'LIVRE': desc_reg = 'Disponível (Livre)'
+                                    elif tipo_reg == 'NÃO CONTA': desc_reg = 'Pausa Registrada'
+                                    elif desc_reg == "Sem Descrição": desc_reg = tipo_reg.title()
+                                    
                                     for m in range(inicio, fim):
                                         idx = m - m_das_min
-                                        if 0 <= idx < total_timeline_min: timeline[idx] = tipo_reg
+                                        if 0 <= idx < total_timeline_min: timeline[idx] = (tipo_reg, desc_reg)
 
                         if is_hoje:
                             info_maq = status_dict.get((s, maq), {})
@@ -370,50 +591,68 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                                         inicio = h_ini_obj.hour * 60 + h_ini_obj.minute
                                         fim = agora_min + 1 
                                         
-                                        if status_atual == 'Produzindo': tipo_linha = 'PRODUÇÃO'
+                                        if status_atual == 'Produzindo': 
+                                            tipo_linha = 'PRODUÇÃO'
+                                            desc_linha = 'Produzindo'
                                         else:
                                             c_oco = str(info_maq.get('cod_ocorrencia')).strip()
                                             tipo_linha = 'PARADA'
-                                            if c_oco and not df_codigos.empty:
-                                                f_cod = df_codigos[df_codigos['codigo'].astype(str) == c_oco]
-                                                if not f_cod.empty and 'tipo' in f_cod.columns:
-                                                    tipo_linha = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                            desc_linha = 'Sem Descrição'
+                                            if c_oco and not df_codigos_temp.empty:
+                                                f_cod = df_codigos_temp[df_codigos_temp['codigo'] == c_oco]
+                                                if not f_cod.empty:
+                                                    if 'tipo' in f_cod.columns: tipo_linha = str(f_cod.iloc[0]['tipo']).strip().upper()
+                                                    if 'descricao' in f_cod.columns: desc_linha = str(f_cod.iloc[0]['descricao']).strip()
                                             if 'DESCONSIDERAR' in tipo_linha: tipo_linha = 'NÃO CONTA'
+                                            if desc_linha == 'Sem Descrição': desc_linha = tipo_linha.title()
                                             
                                         for m in range(inicio, fim):
                                             idx = m - m_das_min
-                                            if 0 <= idx < total_timeline_min: timeline[idx] = tipo_linha
+                                            if 0 <= idx < total_timeline_min: timeline[idx] = (tipo_linha, desc_linha)
                                 except: pass
 
                         segments = []
                         if total_timeline_min > 0:
-                            curr_type, curr_len = timeline[0], 1
+                            curr_type, curr_desc = timeline[0]
+                            curr_len = 1
                             for i in range(1, total_timeline_min):
-                                if timeline[i] == curr_type: curr_len += 1
+                                if timeline[i] == (curr_type, curr_desc): curr_len += 1
                                 else:
-                                    segments.append((curr_type, curr_len))
-                                    curr_type, curr_len = timeline[i], 1
-                            segments.append((curr_type, curr_len))
+                                    segments.append((curr_type, curr_desc, curr_len))
+                                    curr_type, curr_desc = timeline[i]
+                                    curr_len = 1
+                            segments.append((curr_type, curr_desc, curr_len))
                             
                         html_timelines += "<div style='margin-bottom: 25px; display: flex; flex-direction: column;'>"
                         html_timelines += f"<div style='font-size: {tamanho_titulos}px; font-weight: bold; color: #34495e; margin-bottom: 4px; text-transform: uppercase;'>{maq}</div>"
                         html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15); margin-bottom: 6px;'>"
                         
                         counts_minutos = {}
-                        for stype, slen in segments:
-                            pct = (slen / total_timeline_min) * 100
-                            color = get_color(stype)
-                            html_timelines += f"<div style='width: {pct}%; background-color: {color};' title='{get_friendly_name(stype)}'></div>"
-                            counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
-                        html_timelines += "</div>"
-                        
                         minutos_nao_conta = 0
-                        for stype, slen in counts_minutos.items():
+                        for stype, sdesc, slen in segments:
+                            counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
                             if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype:
                                 minutos_nao_conta += slen
                                 
                         base_100_util = total_timeline_min - minutos_nao_conta
                         if base_100_util <= 0: base_100_util = 1 
+                        
+                        for i, (stype, sdesc, slen) in enumerate(segments):
+                            pct = (slen / total_timeline_min) * 100
+                            color = get_color(stype)
+                            
+                            # Formatação exata do Tooltip solicitada com cálculos inteligentes
+                            if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'A REALIZAR' in stype:
+                                tooltip_text = f"{sdesc} / {formatar_minutos(slen)}"
+                            else:
+                                pct_util = (slen / base_100_util) * 100
+                                tooltip_text = f"{sdesc} / {formatar_minutos(slen)} ({pct_util:.1f}%)"
+                            
+                            # Corte visível e elegante usando borda branca de alta transparência
+                            border_css = "border-right: 1px solid rgba(255,255,255,0.6); box-sizing: border-box;" if i < len(segments)-1 else ""
+                            html_timelines += f"<div style='width: {pct}%; background-color: {color}; {border_css}' title='{tooltip_text}'></div>"
+                            
+                        html_timelines += "</div>"
                         
                         itens_conta = []
                         itens_nao_conta = []
@@ -455,194 +694,21 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 html_timelines += "</div></div>"
 
                 st.markdown(html_timelines, unsafe_allow_html=True)
-        else:
-            st.warning("⚠️ **Múltiplos Dias Selecionados:** A visualização em Linha do Tempo individual foi ocultada. Consulte o consolidado abaixo.")
 
-        st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-
-        # ==========================================
-        # 🏆 BLOCO 3: RANKINGS E PARETOS HORIZONTAIS
-        # ==========================================
-        df_est = banco.obter_estrutura()
-        if setor != "[ Todos ]": df_est = df_est[df_est['setor'] == setor]
-        if maquina != "[ Todas ]": df_est = df_est[df_est['maquina'] == maquina]
-        todas_maquinas = df_est['maquina'].dropna().unique().tolist()
-        
-        agrup_maq = pd.DataFrame()
-        if not df_prob.empty and min_prob > 0:
-            agrup_maq = df_prob.groupby('maquina')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
-            agrup_maq = agrup_maq[agrup_maq['duracao'] > 0]
-            agrup_maq['tempo_str'] = agrup_maq['duracao'].apply(formatar_minutos)
-            agrup_maq['pct'] = (agrup_maq['duracao'] / min_prob * 100).fillna(0)
-            agrup_maq['label'] = agrup_maq.apply(lambda x: f"{x['tempo_str']} ({x['pct']:.1f}%)", axis=1)
-            
-        disp_data = []
-        for maq in todas_maquinas:
-            min_prob_maq = df_prob[df_prob['maquina'] == maq]['duracao'].sum() if not df_prob.empty else 0
-            disp_pct = max(0, 100 - (min_prob_maq / total_disp_min * 100))
-            disp_data.append({'maquina': maq, 'disponibilidade': disp_pct, 'perdido_str': formatar_minutos(min_prob_maq)})
-        
-        df_disp = pd.DataFrame(disp_data).sort_values('disponibilidade', ascending=False)
-        if not df_disp.empty:
-            df_disp['label'] = df_disp['disponibilidade'].apply(lambda x: f"{x:.1f}%")
-
-        agrup_prob = pd.DataFrame()
-        if not df_prob.empty and min_prob > 0:
-            agrup_prob = df_prob.groupby('descricao_falha')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
-            agrup_prob = agrup_prob[agrup_prob['duracao'] > 0]
-            agrup_prob['tempo_str'] = agrup_prob['duracao'].apply(formatar_minutos)
-            agrup_prob['pct'] = (agrup_prob['duracao'] / min_prob * 100).fillna(0)
-            agrup_prob['label'] = agrup_prob.apply(lambda x: f"{x['tempo_str']} ({x['pct']:.1f}%)", axis=1)
-            agrup_prob['descricao_quebrada'] = agrup_prob['descricao_falha'].apply(lambda x: ' | '.join(textwrap.wrap(str(x), width=30)))
-
-        agrup_rot = pd.DataFrame()
-        if not df_rot.empty and min_rot > 0:
-            agrup_rot = df_rot.groupby('descricao_falha')['duracao'].sum().reset_index().sort_values('duracao', ascending=False).head(10)
-            agrup_rot = agrup_rot[agrup_rot['duracao'] > 0]
-            agrup_rot['tempo_str'] = agrup_rot['duracao'].apply(formatar_minutos)
-            agrup_rot['pct'] = (agrup_rot['duracao'] / min_rot * 100).fillna(0)
-            agrup_rot['label'] = agrup_rot.apply(lambda x: f"{x['tempo_str']} ({x['pct']:.1f}%)", axis=1)
-            agrup_rot['descricao_quebrada'] = agrup_rot['descricao_falha'].apply(lambda x: ' | '.join(textwrap.wrap(str(x), width=30)))
-
-        # === CAIXA PRETA (MODO DESENVOLVEDOR) ===
-        with st.expander("🛠️ CAIXA PRETA (Debug de Ordenação do Python)"):
-            st.markdown("**1. Piores Máquinas (Ordem de renderização):**")
-            ordem_maq = agrup_maq['maquina'].tolist() if not agrup_maq.empty else []
-            st.write(ordem_maq)
-            
-            st.markdown("**2. Ranking Disponibilidade:**")
-            ordem_disp = df_disp['maquina'].tolist() if not df_disp.empty else []
-            st.write(ordem_disp)
-            
-            st.markdown("**3. Pareto Top Paradas:**")
-            ordem_prob = agrup_prob['descricao_quebrada'].tolist() if not agrup_prob.empty else []
-            st.write(ordem_prob)
-            
-            st.markdown("**4. Pareto Top Rotinas:**")
-            ordem_rot = agrup_rot['descricao_quebrada'].tolist() if not agrup_rot.empty else []
-            st.write(ordem_rot)
-
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.markdown("### 🏆 Piores Máquinas (Paradas/Problemas)")
-            if not agrup_maq.empty:
-                max_dur_maq = agrup_maq['duracao'].max()
-                thresh_maq = max_dur_maq * 0.15 if max_dur_maq > 0 else 1
-                
-                base_maq = alt.Chart(agrup_maq).encode(
-                    x=alt.X('duracao:Q', title='Tempo Perdido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('maquina:N', sort=ordem_maq, title=None, axis=alt.Axis(labelOverlap=False)), 
-                    tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('tempo_str:N', title='Tempo Perdido')]
-                )
-                bars_maq = base_maq.mark_bar(color='#e74c3c')
-                text_maq_in = base_maq.transform_filter(alt.datum.duracao > thresh_maq).mark_text(
-                    align='right', dx=-5, color='white', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                text_maq_out = base_maq.transform_filter(alt.datum.duracao <= thresh_maq).mark_text(
-                    align='left', dx=5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                
-                chart_maq = (bars_maq + text_maq_in + text_maq_out).properties(height=altura_graficos).configure_axis(
-                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
-                )
-                st.altair_chart(chart_maq, use_container_width=True)
-            else:
-                st.write("Sem problemas registrados no período.")
-
-        with col_m2:
-            st.markdown("### 📈 Ranking de Disponibilidade (%)")
-            if not df_disp.empty:
-                base_disp = alt.Chart(df_disp).encode(
-                    x=alt.X('disponibilidade:Q', title='Disponibilidade (%)', scale=alt.Scale(domain=[0, 100])),
-                    y=alt.Y('maquina:N', sort=ordem_disp, title=None, axis=alt.Axis(labelOverlap=False)), 
-                    tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('disponibilidade:Q', title='Disponibilidade (%)', format='.1f'), alt.Tooltip('perdido_str:N', title='Tempo Perdido (Problema)')]
-                )
-                bars_disp = base_disp.mark_bar(color='#2ecc71')
-                text_disp_in = base_disp.transform_filter(alt.datum.disponibilidade > 15).mark_text(
-                    align='right', dx=-5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                text_disp_out = base_disp.transform_filter(alt.datum.disponibilidade <= 15).mark_text(
-                    align='left', dx=5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                
-                chart_disp = (bars_disp + text_disp_in + text_disp_out).properties(height=altura_graficos).configure_axis(
-                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
-                )
-                st.altair_chart(chart_disp, use_container_width=True)
-            else:
-                st.write("Nenhuma máquina encontrada na estrutura.")
-
-        st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-        col_p1, col_p2 = st.columns(2)
-        
-        with col_p1:
-            st.markdown("### 🔴 Pareto: Top 10 Paradas (Problemas)")
-            if not agrup_prob.empty:
-                max_dur_prob = agrup_prob['duracao'].max()
-                thresh_prob = max_dur_prob * 0.15 if max_dur_prob > 0 else 1
-                
-                base_prob = alt.Chart(agrup_prob).encode(
-                    x=alt.X('duracao:Q', title='Tempo Consumido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('descricao_quebrada:N', sort=ordem_prob, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
-                    tooltip=[alt.Tooltip('descricao_falha:N', title='Motivo'), alt.Tooltip('tempo_str:N', title='Tempo Consumido')]
-                )
-                bars_prob = base_prob.mark_bar(color='#c0392b')
-                text_prob_in = base_prob.transform_filter(alt.datum.duracao > thresh_prob).mark_text(
-                    align='right', dx=-5, color='white', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                text_prob_out = base_prob.transform_filter(alt.datum.duracao <= thresh_prob).mark_text(
-                    align='left', dx=5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                
-                chart_prob = (bars_prob + text_prob_in + text_prob_out).properties(height=altura_graficos).configure_axis(
-                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
-                )
-                st.altair_chart(chart_prob, use_container_width=True)
-            else:
-                st.write("Nenhum problema registrado no período.")
-
-        with col_p2:
-            st.markdown("### 🟠 Pareto: Top 10 Rotinas (Processos)")
-            if not agrup_rot.empty:
-                max_dur_rot = agrup_rot['duracao'].max()
-                thresh_rot = max_dur_rot * 0.15 if max_dur_rot > 0 else 1
-                
-                base_rot = alt.Chart(agrup_rot).encode(
-                    x=alt.X('duracao:Q', title='Tempo Consumido', axis=alt.Axis(labelExpr=expr_horas)),
-                    y=alt.Y('descricao_quebrada:N', sort=ordem_rot, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelExpr="split(datum.value, ' | ')")),
-                    tooltip=[alt.Tooltip('descricao_falha:N', title='Processo'), alt.Tooltip('tempo_str:N', title='Tempo Consumido')]
-                )
-                bars_rot = base_rot.mark_bar(color='#f39c12')
-                text_rot_in = base_rot.transform_filter(alt.datum.duracao > thresh_rot).mark_text(
-                    align='right', dx=-5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                text_rot_out = base_rot.transform_filter(alt.datum.duracao <= thresh_rot).mark_text(
-                    align='left', dx=5, color='#2c3e50', baseline='middle', size=tamanho_valores
-                ).encode(text='label:N')
-                
-                chart_rot = (bars_rot + text_rot_in + text_rot_out).properties(height=altura_graficos).configure_axis(
-                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
-                )
-                st.altair_chart(chart_rot, use_container_width=True)
-            else:
-                st.write("Nenhuma rotina registrada no período.")
-
-        # ==========================================
-        # 🔎 BLOCO 4: ANÁLISE DE IMPACTO POR OCORRÊNCIA
-        # ==========================================
+        # 7. ANÁLISE DE IMPACTO POR OCORRÊNCIA
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center; color: #2c3e50; margin-bottom: 25px;'>🔎 Análise de Impacto por Ocorrência</h3>", unsafe_allow_html=True)
 
-        if not df_paradas.empty and df_paradas['duracao'].sum() > 0:
-            total_tempo_geral = df_paradas['duracao'].sum()
+        if not df_ocorrencias.empty and df_ocorrencias['duracao'].sum() > 0:
+            total_tempo_geral = df_ocorrencias['duracao'].sum()
             
-            agrup_oco = df_paradas.groupby(['cod_ocorrencia', 'descricao_falha', 'classificacao'])['duracao'].sum().reset_index()
+            agrup_oco = df_ocorrencias.groupby(['cod_ocorrencia', 'descricao_falha', 'classificacao'])['duracao'].sum().reset_index()
             agrup_oco = agrup_oco[agrup_oco['duracao'] > 0].sort_values('duracao', ascending=False)
             
             opcoes_dropdown = []
             for _, row in agrup_oco.iterrows():
                 pct_oco = (row['duracao'] / total_tempo_geral) * 100
-                tag = "🔴 PARADA" if row['classificacao'] == "PARADA" else "🟠 ROTINA"
+                tag = "🔴 PARADA" if row['classificacao'] == "PARADA" else ("🟢 RETRABALHO" if row['classificacao'] == "RETRABALHO" else "🟠 ROTINA")
                 opcoes_dropdown.append(f"{row['cod_ocorrencia']} - {row['descricao_falha']} ({pct_oco:.1f}%) [{tag}]")
                 
             col_vazia1, col_menu, col_vazia2 = st.columns([1, 4, 1])
@@ -651,7 +717,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 
             if selecao:
                 cod_selecionado = selecao.split(" - ")[0].strip()
-                df_sel = df_paradas[df_paradas['cod_ocorrencia'] == cod_selecionado].copy()
+                df_sel = df_ocorrencias[df_ocorrencias['cod_ocorrencia'] == cod_selecionado].copy()
                 
                 tot_min_sel = df_sel['duracao'].sum()
                 qtd_sel = len(df_sel)
@@ -665,13 +731,13 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 st.markdown(f"""
                 <div class='box-resumo'>
                     <p style='margin-bottom: 8px;'><b>💡 Resumo da Ocorrência</b></p>
-                    <p>O apontamento <b>{nome_limpo}</b> gerou um total de <b>{formatar_minutos(tot_min_sel)}</b> de tempo perdido {texto_dia}, o que representa <b>{pct_sel:.1f}%</b> de todas as interrupções do setor.</p>
-                    <p>Foram registrados <b>{qtd_sel} apontamentos</b> dessa classificação, com uma média de <b>{int(media_sel)} min</b> por parada. A máquina mais impactada foi a <b>{maq_ofensor_sel}</b>.</p>
+                    <p>O apontamento <b>{nome_limpo}</b> gerou um total de <b>{formatar_minutos(tot_min_sel)}</b> de tempo consumido {texto_dia}, o que representa <b>{pct_sel:.1f}%</b> de todos os registros do setor.</p>
+                    <p>Foram registrados <b>{qtd_sel} apontamentos</b> dessa classificação, com uma média de <b>{int(media_sel)} min</b> de duração. A máquina mais impactada foi a <b>{maq_ofensor_sel}</b>.</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 ck1, ck2, ck3, ck4 = st.columns(4)
-                ck1.markdown(f"<div class='kpi-card'><div class='kpi-title'>TOTAL TEMPO PERDIDO</div><div class='kpi-value val-dark'>{formatar_minutos(tot_min_sel)}</div></div>", unsafe_allow_html=True)
+                ck1.markdown(f"<div class='kpi-card'><div class='kpi-title'>TOTAL TEMPO CONSUMIDO</div><div class='kpi-value val-dark'>{formatar_minutos(tot_min_sel)}</div></div>", unsafe_allow_html=True)
                 ck2.markdown(f"<div class='kpi-card'><div class='kpi-title'>QTD. OCORRÊNCIAS</div><div class='kpi-value val-dark'>{qtd_sel}</div></div>", unsafe_allow_html=True)
                 ck3.markdown(f"<div class='kpi-card'><div class='kpi-title'>MÉDIA POR OCORRÊNCIA</div><div class='kpi-value val-dark'>{int(media_sel)} min</div></div>", unsafe_allow_html=True)
                 ck4.markdown(f"<div class='kpi-card'><div class='kpi-title'>MÁQUINA MAIS AFETADA</div><div class='kpi-value val-dark' style='font-size:26px;'>{maq_ofensor_sel}</div></div>", unsafe_allow_html=True)
@@ -680,7 +746,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 cg1, cg2 = st.columns(2)
                 
                 with cg1:
-                    st.markdown(f"<div style='text-align: center; color: #2c3e50; font-weight: bold; margin-bottom: 10px;'>Distribuição do Tempo Perdido</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align: center; color: #2c3e50; font-weight: bold; margin-bottom: 10px;'>Distribuição do Tempo</div>", unsafe_allow_html=True)
                     agrup_pizza = df_sel.groupby('maquina')['duracao'].sum().reset_index()
                     agrup_pizza['pct'] = (agrup_pizza['duracao'] / tot_min_sel * 100).fillna(0)
                     agrup_pizza['label'] = agrup_pizza.apply(lambda x: f"{formatar_minutos(x['duracao'])} ({x['pct']:.1f}%)", axis=1)
@@ -706,7 +772,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     
                     base_linha = alt.Chart(agrup_linha).encode(
                         x=alt.X('data_curta:N', title='Data'),
-                        y=alt.Y('duracao:Q', title='Tempo Perdido', axis=alt.Axis(labelExpr=expr_horas)),
+                        y=alt.Y('duracao:Q', title='Tempo Gasto', axis=alt.Axis(labelExpr=expr_horas)),
                         color=alt.Color('maquina:N', title='Máquina'),
                         tooltip=['data_curta', 'maquina', 'duracao']
                     )
