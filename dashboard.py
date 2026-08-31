@@ -242,7 +242,14 @@ header[data-testid="stHeader"] { display: none !important; }
                 icone_mapa = "☕"
             else:
                 maquinas_paradas_criticas.append(info)
-                icone_mapa = "🟠" if tipo_parada == 'ROTINA' else "🔴"
+                
+                # REGRA ESPECÍFICA PARA O ÍCONE DO MAPA (Retrabalho = Verde, Rotina = Laranja, Resto = Vermelho)
+                if tipo_parada == 'ROTINA':
+                    icone_mapa = "🟠"
+                elif tipo_parada == 'RETRABALHO':
+                    icone_mapa = "🟢"
+                else:
+                    icone_mapa = "🔴"
                 
                 try:
                     h_ini = datetime.strptime(info['hora_inicio'], "%Y-%m-%d %H:%M:%S")
@@ -260,20 +267,22 @@ header[data-testid="stHeader"] { display: none !important; }
             
             ultima_p = info.get('ultima_peca_sel', '')
             ultimo_prod = info.get('ultimo_produto_sel', '')
+            
+            # FORMATANDO O TEXTO DA PRODUÇÃO (Com quebra de linha HTML)
             if str(cod_peca).startswith("VIRTUAL-") and ultima_p and ultimo_prod:
                 nome_cx = ultima_p.split(" (Cód:")[0].strip()
-                nome_peca_completo = f"{ultimo_prod} ➔ {nome_cx}"
+                nome_peca_completo = f"<b style='font-size:12px;'>{ultimo_prod}</b><br><span style='font-size:10px; opacity:0.9;'>{nome_cx}</span>"
                 prod_form = ultimo_prod
             elif cod_peca and not df_produtos.empty:
                 f_peca = df_produtos[df_produtos['cod'].astype(str) == str(cod_peca)]
                 if not f_peca.empty:
                     prod_form = f_peca.iloc[0]['produto_formula']
-                    nome_peca_completo = f"{prod_form} ➔ {f_peca.iloc[0]['descricao']}"
+                    nome_peca_completo = f"<b style='font-size:12px;'>{prod_form}</b><br><span style='font-size:10px; opacity:0.9;'>{f_peca.iloc[0]['descricao']}</span>"
                 elif not df_caixas.empty:
                     f_cx = df_caixas[df_caixas['cod_caixa'].astype(str) == str(cod_peca)]
                     if not f_cx.empty:
                         prod_form = f_cx.iloc[0]['produto_formula']
-                        nome_peca_completo = f"{prod_form} ➔ Caixa {f_cx.iloc[0]['num_caixa']}"
+                        nome_peca_completo = f"<b style='font-size:12px;'>{prod_form}</b><br><span style='font-size:10px; opacity:0.9;'>Caixa {f_cx.iloc[0]['num_caixa']}</span>"
             else:
                 prod_form = None
 
@@ -567,7 +576,10 @@ header[data-testid="stHeader"] { display: none !important; }
                 html_cards += "<div>" 
                 html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
                 html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina']}</div>"
-                html_cards += f"<div style='font-size:11px; height:30px; overflow:hidden;'>{desc_completa}</div>"
+                
+                # Container do texto (Aceita quebra de linha fluida)
+                html_cards += f"<div style='font-size:11px; min-height:34px; line-height:1.2; overflow:hidden; margin-bottom:4px; display:flex; flex-direction:column; justify-content:center;'>{desc_completa}</div>"
+                
                 html_cards += p.get('html_progresso', '')
                 html_cards += "</div>" 
                 
@@ -938,7 +950,6 @@ header[data-testid="stHeader"] { display: none !important; }
                                     playBeep();
                                 }}
                             }} else {{
-                                // Remove a classe caso a máquina saia do estado crítico ou mude para Produção
                                 cel.classList.remove("cd-critico");
                             }}
                         }}
