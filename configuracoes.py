@@ -6,6 +6,9 @@ import base64
 import json
 import os
 
+# Importando o seu novo módulo externo
+import auditoria_de_apontamentos
+
 def ler_breakpoints():
     if os.path.exists("layout_config.json"):
         try:
@@ -471,7 +474,7 @@ def renderizar_produtos_linha():
             st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# NOVO MÓDULO: REGISTRO DE ACESSOS 
+# MÓDULO: REGISTRO DE ACESSOS 
 # ==========================================
 def renderizar_registro_acessos():
     st.markdown("### 📡 Registro de Acessos")
@@ -580,7 +583,7 @@ def renderizar_registro_acessos():
     st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
 
 # ==========================================
-# NOVO MÓDULO: IDENTIFICAÇÃO POR CORES
+# MÓDULO: IDENTIFICAÇÃO POR CORES
 # ==========================================
 def renderizar_cores():
     st.markdown("### 🎨 Identificação por Cores")
@@ -613,3 +616,15 @@ def renderizar_cores():
             if nova_cor != cor_atual:
                 banco.atualizar_cor(tipo_nome, nova_cor)
                 st.rerun()
+
+# ==========================================
+# NOVO MÓDULO: AUDITORIA DE APONTAMENTOS (Ponte)
+# ==========================================
+def renderizar_auditoria():
+    # Apenas repassa a responsabilidade de renderizar para o seu arquivo externo
+    if hasattr(auditoria_de_apontamentos, 'renderizar_auditoria'):
+        auditoria_de_apontamentos.renderizar_auditoria()
+    elif hasattr(auditoria_de_apontamentos, 'renderizar'):
+        auditoria_de_apontamentos.renderizar()
+    else:
+        st.error("Função de renderização não encontrada no arquivo auditoria_de_apontamentos.py")

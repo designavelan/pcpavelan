@@ -423,7 +423,7 @@ elif st.session_state.aba_atual == "📦 Caixas":
 elif st.session_state.aba_atual == "🤖 Pergunte para a IA":
     assistente_ia.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos, aba_auditoria = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos", "🔎 Auditoria de Chão de Fábrica"])
     
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
@@ -437,6 +437,7 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
     with aba_backup: backups.renderizar()
     with aba_gerenciador: gerenciador.renderizar(df_nuvem)
     with aba_acessos: configuracoes.renderizar_registro_acessos()
+    with aba_auditoria: configuracoes.renderizar_auditoria()
 
 # BOTÕES DE CONTROLE DO MODO TV
 if st.session_state.aba_atual == "📺 Dashboard":
