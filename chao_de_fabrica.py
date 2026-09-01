@@ -163,12 +163,53 @@ def renderizar(df_nuvem, df_codigos):
     mapa_cores = banco.obter_mapa_cores()
 
     usuario = st.session_state.get('usuario_logado', {})
-    user_setor = usuario.get('setor', '[ Todos ]')
-    user_maq = usuario.get('maquina', '[ Todas ]')
+    user_setor = str(usuario.get('setor', '[ Todos ]')).strip()
+    user_maq = str(usuario.get('maquina', '[ Todas ]')).strip()
 
     is_travado = (user_setor != "[ Todos ]" and user_maq != "[ Todas ]" and user_setor != "" and user_maq != "")
     lista_setores_nuvem = sorted(df_est['setor'].dropna().unique().tolist())
 
+    # ==========================================
+    # BLOQUEIO DE SEGURANÇA PARA OPERADORES SEM MÁQUINA VINCULADA
+    # ==========================================
+    perfil_atual = usuario.get('perfis_acesso', {})
+    is_admin = perfil_atual.get('is_admin', False)
+
+    if not is_admin and not is_travado:
+        st.markdown(f"<div style='text-align: center; margin-top: 50px;'><h2 style='color: #2c3e50;'>👋 Olá, {usuario.get('nome', 'Operador')}!</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #7f8c8d; font-size: 16px; text-align: center;'>Para iniciarmos o seu turno, precisamos saber onde você vai trabalhar hoje.</p></div>", unsafe_allow_html=True)
+        
+        c1, c2, c3 = st.columns([2.5, 5, 2.5])
+        with c2:
+            st.info("💡 **Atenção:** Selecione a máquina correta que você irá operar para que o sistema registre sua produção e garanta a precisão dos indicadores.")
+            
+            idx_setor = lista_setores_nuvem.index(user_setor) if user_setor in lista_setores_nuvem else 0
+            novo_setor = st.selectbox("🏭 1. Selecione seu Setor:", lista_setores_nuvem, index=idx_setor)
+            
+            lista_maq_db = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
+            nova_maq = st.selectbox("⚙️ 2. Selecione sua Máquina:", lista_maq_db)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("✅ Confirmar Local de Trabalho", type="primary", use_container_width=True):
+                if nova_maq:
+                    try:
+                        supa.table("usuarios").update({
+                            "setor": novo_setor,
+                            "maquina": nova_maq
+                        }).eq("id", usuario['id']).execute()
+                        
+                        st.session_state['usuario_logado']['setor'] = novo_setor
+                        st.session_state['usuario_logado']['maquina'] = nova_maq
+                        
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao vincular máquina: {e}")
+                else:
+                    st.warning("Selecione uma máquina válida para continuar.")
+        return # Sai da função para bloquear o restante da tela
+
+    # Se passou pelo bloqueio, a lógica continua normalmente
     if is_travado:
         setor_selecionado = user_setor
         maquina_selecionada = user_maq
