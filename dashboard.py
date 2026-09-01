@@ -163,7 +163,13 @@ header[data-testid="stHeader"] { display: none !important; }
             try: ordem_setores[str(row['setor']).strip()] = float(row['ordem_fluxo'])
             except: pass
 
-    pares_maquinas = df_est[['setor', 'maquina']].dropna().drop_duplicates().values.tolist() if filtros_selecionados['setor'] == "[ Todos ]" else df_est[df_est['setor'] == filtros_selecionados['setor']][['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
+    # ==========================================
+    # CORREÇÃO: DASHBOARD IMUNE AOS FILTROS GLOBAIS
+    # Ele carrega TODAS as máquinas cadastradas na estrutura 
+    # independentemente do que foi selecionado na aba Análise
+    # ==========================================
+    pares_maquinas = df_est[['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
+    
     resp_status = supa.table("status_maquinas").select("*").execute()
     status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
