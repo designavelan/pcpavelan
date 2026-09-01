@@ -35,7 +35,23 @@ def cache_obter_ativos():
 
 @st.cache_data(ttl=120, show_spinner=False)
 def cache_obter_estrutura():
-    return banco.obter_estrutura()
+    df = banco.obter_estrutura()
+    if not df.empty and 'ordem_maquina' not in df.columns:
+        df['ordem_maquina'] = 99
+    elif df.empty:
+        df = pd.DataFrame(columns=['setor', 'maquina', 'ativo', 'permite_producao_dupla', 'ordem_maquina'])
+    return df
+
+def _fmt_maquina(maq_name, df_context, setor_name):
+    """Função invisível para o format_func: Mostra '1: Flex' mas salva 'Flex'"""
+    try:
+        row = df_context[(df_context['setor'] == setor_name) & (df_context['maquina'] == maq_name)]
+        if not row.empty:
+            ordem = int(row.iloc[0].get('ordem_maquina', 99))
+            if ordem < 99:
+                return f"{ordem}: {maq_name}"
+    except: pass
+    return maq_name
 
 # ==========================================
 # JANELAS FLUTUANTES (POP-UPS)
@@ -124,10 +140,11 @@ def abrir_dialog_troca_maquina(status_atual, df_est, usuario):
     idx_setor = lista_setores.index(usuario.get('setor')) if usuario.get('setor') in lista_setores else 0
     novo_setor = st.selectbox("🏭 Novo Setor:", lista_setores, index=idx_setor)
     
-    lista_maq = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
+    maq_df = df_est[df_est['setor'] == novo_setor].sort_values(['ordem_maquina', 'maquina'])
+    lista_maq = maq_df['maquina'].dropna().unique().tolist()
     
     idx_maq = lista_maq.index(usuario.get('maquina')) if usuario.get('maquina') in lista_maq else 0
-    nova_maq = st.selectbox("⚙️ Nova Máquina:", lista_maq, index=idx_maq)
+    nova_maq = st.selectbox("⚙️ Nova Máquina:", lista_maq, index=idx_maq, format_func=lambda x: _fmt_maquina(x, df_est, novo_setor))
     
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Confirmar Troca ✅", type="primary", use_container_width=True):
@@ -186,8 +203,10 @@ def renderizar(df_nuvem, df_codigos):
             idx_setor = lista_setores_nuvem.index(user_setor) if user_setor in lista_setores_nuvem else 0
             novo_setor = st.selectbox("🏭 1. Selecione seu Setor:", lista_setores_nuvem, index=idx_setor)
             
-            lista_maq_db = sorted(df_est[df_est['setor'] == novo_setor]['maquina'].dropna().unique().tolist())
-            nova_maq = st.selectbox("⚙️ 2. Selecione sua Máquina:", lista_maq_db)
+            maq_db_df = df_est[df_est['setor'] == novo_setor].sort_values(['ordem_maquina', 'maquina'])
+            lista_maq_db = maq_db_df['maquina'].dropna().unique().tolist()
+            
+            nova_maq = st.selectbox("⚙️ 2. Selecione sua Máquina:", lista_maq_db, format_func=lambda x: _fmt_maquina(x, df_est, novo_setor))
             
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -209,7 +228,6 @@ def renderizar(df_nuvem, df_codigos):
                     st.warning("Selecione uma máquina válida para continuar.")
         return # Sai da função para bloquear o restante da tela
 
-    # Se passou pelo bloqueio, a lógica continua normalmente
     if is_travado:
         setor_selecionado = user_setor
         maquina_selecionada = user_maq
@@ -219,7 +237,9 @@ def renderizar(df_nuvem, df_codigos):
         setor_selecionado = st.session_state.get("cf_setor", lista_setores_nuvem[0] if lista_setores_nuvem else "")
         if setor_selecionado not in lista_setores_nuvem and lista_setores_nuvem: setor_selecionado = lista_setores_nuvem[0]
             
-        lista_maquinas_nuvem = sorted(df_est[df_est['setor'] == setor_selecionado]['maquina'].dropna().unique().tolist())
+        maq_nuvem_df = df_est[df_est['setor'] == setor_selecionado].sort_values(['ordem_maquina', 'maquina'])
+        lista_maquinas_nuvem = maq_nuvem_df['maquina'].dropna().unique().tolist()
+        
         maquina_selecionada = st.session_state.get("cf_maquina", lista_maquinas_nuvem[0] if lista_maquinas_nuvem else "")
         if maquina_selecionada not in lista_maquinas_nuvem and lista_maquinas_nuvem: maquina_selecionada = lista_maquinas_nuvem[0]
 
@@ -940,14 +960,15 @@ def renderizar(df_nuvem, df_codigos):
     # 5. RODAPÉ DO TERMINAL
     # ==========================================
     st.markdown("<hr style='opacity: 0.2; margin-top: 15px;'>", unsafe_allow_html=True)
-    texto_rodape = f"{setor_selecionado} &nbsp;|&nbsp; {maquina_selecionada} &nbsp;|&nbsp; {nomes_operadores}"
+    maquina_selecionada_fmt = _fmt_maquina(maquina_selecionada, df_est, setor_selecionado)
+    texto_rodape = f"{setor_selecionado} &nbsp;|&nbsp; {maquina_selecionada_fmt} &nbsp;|&nbsp; {nomes_operadores}"
     st.markdown(f"<div style='text-align: center; color: #7f8c8d; font-size: 16px; margin-bottom: 25px; font-weight: 700; text-transform: uppercase;'>{texto_rodape}</div>", unsafe_allow_html=True)
 
     if not is_travado:
         st.info("💡 Modo de Gestão: Altere a máquina abaixo para visualizar seu status.")
         cr1, cr2 = st.columns(2)
         with cr1: st.selectbox("🏭 Setor", lista_setores_nuvem, key="cf_setor")
-        with cr2: st.selectbox("⚙️ Máquina", lista_maquinas_nuvem, key="cf_maquina")
+        with cr2: st.selectbox("⚙️ Máquina", lista_maquinas_nuvem, key="cf_maquina", format_func=lambda x: _fmt_maquina(x, df_est, setor_selecionado))
 
     cfg = banco.obter_configuracoes()
     titulo_app = cfg.get('titulo_programa', 'PCP Avelan')

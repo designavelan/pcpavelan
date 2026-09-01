@@ -332,6 +332,46 @@ def renderizar_estrutura():
         
     st.markdown("<hr style='opacity: 0.2; margin-top: 25px; margin-bottom: 25px;'>", unsafe_allow_html=True)
     
+    st.markdown("#### 🔢 Ordem das Máquinas por Setor")
+    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a ordem numérica (1, 2, 3...) em que as máquinas de cada setor devem aparecer no tablet do operador.</p>", unsafe_allow_html=True)
+    
+    if not df_est.empty:
+        if 'ordem_maquina' not in df_est.columns:
+            df_est['ordem_maquina'] = 99
+            
+        setores_cadastrados = sorted(df_est['setor'].dropna().unique().tolist())
+        
+        c_set, c_maq = st.columns([3, 7])
+        with c_set:
+            setor_ordem_maq = st.selectbox("1. Escolha o Setor:", setores_cadastrados)
+            
+        with c_maq:
+            df_maqs_setor = df_est[df_est['setor'] == setor_ordem_maq].sort_values(['ordem_maquina', 'maquina'])
+            maquinas_ordenadas_atuais = df_maqs_setor['maquina'].dropna().unique().tolist()
+            
+            nova_ordem_maquinas = st.multiselect(
+                "2. Arraste para organizar a ordem (1º, 2º...):", 
+                options=maquinas_ordenadas_atuais, 
+                default=maquinas_ordenadas_atuais
+            )
+            
+            if st.button(f"💾 Salvar Ordem ({setor_ordem_maq})", type="primary", use_container_width=True):
+                if len(nova_ordem_maquinas) == len(maquinas_ordenadas_atuais):
+                    with st.spinner("Atualizando a ordem das máquinas no banco de dados..."):
+                        try:
+                            for idx, maq_nome in enumerate(nova_ordem_maquinas):
+                                num_ordem = idx + 1
+                                supa.table("estrutura_fabrica").update({"ordem_maquina": num_ordem}).eq("setor", setor_ordem_maq).eq("maquina", maq_nome).execute()
+                            st.cache_data.clear()
+                            st.success(f"✅ Ordem atualizada com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar: {e}")
+                else:
+                    st.warning("⚠️ Selecione TODAS as máquinas deste setor para não perder a ordem.")
+
+    st.markdown("<hr style='opacity: 0.2; margin-top: 25px; margin-bottom: 25px;'>", unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
     
     with c1:
@@ -473,9 +513,6 @@ def renderizar_produtos_linha():
                         st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-# ==========================================
-# MÓDULO: REGISTRO DE ACESSOS 
-# ==========================================
 def renderizar_registro_acessos():
     st.markdown("### 📡 Registro de Acessos")
     st.markdown("Acompanhe o histórico de sessões e a utilização do sistema pelos usuários de forma centralizada.")
@@ -490,37 +527,11 @@ def renderizar_registro_acessos():
         df_sessoes = pd.DataFrame()
 
     if df_sessoes.empty:
-        st.info("ℹ️ Nenhum registro de sessão encontrado ainda. Comece a utilizar o sistema para gerar os primeiros dados.")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("""
-            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
-                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Usuários Ativos Hoje</div>
-                <div style='font-size: 28px; font-weight: 900; color: #2980b9;'>0</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c2:
-            st.markdown("""
-            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
-                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Aba Mais Utilizada</div>
-                <div style='font-size: 28px; font-weight: 900; color: #27ae60;'>--</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with c3:
-            st.markdown("""
-            <div style='background:#fff; padding:15px; border-radius:8px; border: 1px solid #eee; text-align:center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>
-                <div style='color:#7f8c8d; font-size: 14px; font-weight: bold; text-transform: uppercase;'>Tempo Médio Sessão</div>
-                <div style='font-size: 28px; font-weight: 900; color: #e67e22;'>0m</div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### 📋 Histórico Detalhado de Sessões")
-        st.dataframe(pd.DataFrame(columns=["ID da Sessão", "Usuário", "Início", "Última Atividade", "Última Aba Visitada", "Status", "Duração"]), use_container_width=True, hide_index=True)
+        st.info("ℹ️ Nenhum registro de sessão encontrado ainda.")
         return
 
     df_sessoes['inicio_dt'] = pd.to_datetime(df_sessoes['inicio'])
     df_sessoes['ultima_atividade_dt'] = pd.to_datetime(df_sessoes['ultima_atividade'])
-    
     df_sessoes['duracao_min'] = (df_sessoes['ultima_atividade_dt'] - df_sessoes['inicio_dt']).dt.total_seconds() / 60.0
     
     def format_duration(m):
@@ -582,9 +593,6 @@ def renderizar_registro_acessos():
     
     st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
 
-# ==========================================
-# MÓDULO: IDENTIFICAÇÃO POR CORES
-# ==========================================
 def renderizar_cores():
     st.markdown("### 🎨 Identificação por Cores")
     st.markdown("Defina as cores globais do sistema para cada Tipo de registro. Essas cores serão aplicadas automaticamente no Chão de Fábrica, Telas Ao Vivo, Gráficos e Relatórios.")
@@ -617,14 +625,80 @@ def renderizar_cores():
                 banco.atualizar_cor(tipo_nome, nova_cor)
                 st.rerun()
 
-# ==========================================
-# NOVO MÓDULO: AUDITORIA DE APONTAMENTOS (Ponte)
-# ==========================================
 def renderizar_auditoria():
-    # Apenas repassa a responsabilidade de renderizar para o seu arquivo externo
     if hasattr(auditoria_de_apontamentos, 'renderizar_auditoria'):
         auditoria_de_apontamentos.renderizar_auditoria()
     elif hasattr(auditoria_de_apontamentos, 'renderizar'):
         auditoria_de_apontamentos.renderizar()
     else:
         st.error("Função de renderização não encontrada no arquivo auditoria_de_apontamentos.py")
+
+# ==========================================
+# MÓDULO: DICIONÁRIO DE ABREVIAÇÕES
+# ==========================================
+def renderizar_abreviacoes():
+    st.markdown("### ✂️ Dicionário de Abreviações")
+    st.markdown("Defina regras para encurtar nomes de produtos e peças automaticamente nos painéis, economizando espaço visual. O sistema buscará essas palavras e as substituirá conforme a regra (deixe vazio para apenas remover a palavra).")
+    
+    supa = banco.conectar()
+    
+    try:
+        resp_mem = supa.table("memoria_sistema").select("*").eq("chave", "abrev_todas_vazias").execute()
+        val_atual_str = resp_mem.data[0]['valor'] if resp_mem.data else "False"
+        val_atual = True if val_atual_str == "True" else False
+    except:
+        val_atual = False
+        
+    todas_vazias = st.checkbox("Considerar todas as abreviações como vazias (ignorar o texto de substituição)", value=val_atual)
+    
+    if todas_vazias != val_atual:
+        novo_val_str = "True" if todas_vazias else "False"
+        try:
+            res = supa.table("memoria_sistema").select("id").eq("chave", "abrev_todas_vazias").execute()
+            if res.data:
+                supa.table("memoria_sistema").update({"valor": novo_val_str}).eq("id", res.data[0]['id']).execute()
+            else:
+                supa.table("memoria_sistema").insert({"aba": "Geral", "local_aplicacao": "Geral", "chave": "abrev_todas_vazias", "valor": novo_val_str}).execute()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao salvar configuração: {e}")
+
+    st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+    
+    c1, c2, c3 = st.columns([4, 4, 2])
+    with c1:
+        txt_orig = st.text_input("Texto Original (Ex: Roupeiro)", key="txt_orig_abrev")
+    with c2:
+        txt_sub = st.text_input("Substituir por (Ex: R.)", key="txt_sub_abrev", help="Deixe vazio se quiser apenas apagar a palavra original do nome.")
+    with c3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("➕ Adicionar Regra", type="primary", use_container_width=True):
+            if txt_orig:
+                supa.table("config_abreviacoes").insert({
+                    "texto_original": txt_orig.strip(),
+                    "texto_substituto": txt_sub.strip() if txt_sub else ""
+                }).execute()
+                st.success("✅ Regra adicionada!")
+                st.rerun()
+            else:
+                st.warning("⚠️ Preencha o texto original.")
+                
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    try:
+        resp = supa.table("config_abreviacoes").select("*").order("id").execute()
+        if resp.data:
+            st.markdown("#### 📋 Regras Cadastradas")
+            for row in resp.data:
+                col_txt, col_btn = st.columns([8, 2])
+                with col_txt:
+                    sub = row['texto_substituto'] if row['texto_substituto'] else "<i>(Remover palavra)</i>"
+                    st.markdown(f"<div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-bottom: 8px;'><b>{row['texto_original']}</b> ➔ {sub}</div>", unsafe_allow_html=True)
+                with col_btn:
+                    if st.button("🗑️ Excluir", key=f"del_abrev_{row['id']}", use_container_width=True):
+                        supa.table("config_abreviacoes").delete().eq("id", row['id']).execute()
+                        st.rerun()
+        else:
+            st.info("Nenhuma regra de abreviação cadastrada.")
+    except Exception as e:
+        st.error(f"Erro ao carregar o banco de dados. ({e})")

@@ -229,6 +229,10 @@ except: pass
 
 st.markdown("""
     <style>
+    /* REMOVER BARRA DE ROLAGEM GLOBALMENTE */
+    ::-webkit-scrollbar { display: none !important; }
+    html, body { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+    
     header[data-testid="stHeader"] { display: none !important; }
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     .cabecalho-responsivo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
@@ -423,7 +427,7 @@ elif st.session_state.aba_atual == "📦 Caixas":
 elif st.session_state.aba_atual == "🤖 Pergunte para a IA":
     assistente_ia.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
-    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos, aba_auditoria = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos", "🔎 Auditoria de Chão de Fábrica"])
+    aba_interna, aba_config_abas, aba_estrutura, aba_produtos_linha, aba_importacoes, aba_cores, aba_backup, aba_gerenciador, aba_acessos, aba_auditoria, aba_abreviacoes = st.tabs(["⚙️ Ajustes Gerais", "📑 Config. de Abas", "🏭 Estrutura", "🟢 Produtos em Linha", "📥 Importação", "🎨 Cores", "💾 Backup", "🛠️ Gerenciador de Dados", "📡 Registro de Acessos", "🔎 Auditoria de Chão de Fábrica", "✂️ Abreviações"])
     
     with aba_interna: configuracoes.renderizar()
     with aba_config_abas: configuracoes.renderizar_config_abas()
@@ -438,6 +442,7 @@ elif st.session_state.aba_atual == "⚙️ Configurações":
     with aba_gerenciador: gerenciador.renderizar(df_nuvem)
     with aba_acessos: configuracoes.renderizar_registro_acessos()
     with aba_auditoria: configuracoes.renderizar_auditoria()
+    with aba_abreviacoes: configuracoes.renderizar_abreviacoes()
 
 # BOTÕES DE CONTROLE DO MODO TV
 if st.session_state.aba_atual == "📺 Dashboard":
