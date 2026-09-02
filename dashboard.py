@@ -56,39 +56,72 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if h > 0: return f"{h}:{m:02d}h"
         return f"{m}m"
 
-    # CSS Global: Responsividade e Bordas Zeradas
-    st.markdown("""
+    supa = banco.conectar()
+    cfg = banco.obter_configuracoes()
+    
+    usuario_logado = st.session_state.get('usuario_logado', {})
+    is_dark = bool(usuario_logado.get('modo_escuro', False))
+
+    if is_dark:
+        css_tema = """
+        :root {
+            --bg-main: #0e1117;
+            --bg-card: #1e1e1e;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --border-color: #333333;
+            --bg-sem-op: #2a2a2a;
+            --text-sem-op: #7f8c8d;
+            --bg-corte-prog: #333333;
+        }
+        .stApp, [data-testid="stAppViewContainer"] {
+            background-color: var(--bg-main) !important;
+        }
+        """
+    else:
+        css_tema = """
+        :root {
+            --bg-main: #f0f2f6;
+            --bg-card: #ffffff;
+            --text-main: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border-color: #eeeeee;
+            --bg-sem-op: #f1f2f6;
+            --text-sem-op: #7f8c8d;
+            --bg-corte-prog: #ecf0f1;
+        }
+        .stApp, [data-testid="stAppViewContainer"] {
+            background-color: var(--bg-main) !important;
+        }
+        """
+
+    st.markdown(f"""
     <style>
-    ::-webkit-scrollbar { display: none; }
-    .block-container { 
+    {css_tema}
+    ::-webkit-scrollbar {{ display: none; }}
+    .block-container {{ 
         max-width: 100% !important; 
         padding-top: 1rem !important; 
         padding-bottom: 5rem !important; 
         padding-left: 1rem !important; 
         padding-right: 1rem !important; 
-    }
-    header[data-testid="stHeader"] { display: none !important; }
+    }}
+    header[data-testid="stHeader"] {{ display: none !important; }}
     
-    /* MÁGICA DA RESPONSIVIDADE E MARGEM NEGATIVA */
-    @media (min-width: 1024px) {
-        .pull-up { margin-top: -32px !important; }
-    }
-    @media (max-width: 1023px) {
-        .pull-up { margin-top: 0px !important; }
-    }
+    @media (min-width: 1024px) {{
+        .pull-up {{ margin-top: -32px !important; }}
+    }}
+    @media (max-width: 1023px) {{
+        .pull-up {{ margin-top: 0px !important; }}
+    }}
     
-    /* CSS DOS CRONÔMETROS */
-    .grid-dash { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }
-    .card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: left; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: all 0.3s ease; position: relative; }
-    .cd-critico { animation: p-crit 0.8s infinite alternate !important; z-index: 10; }
-    @keyframes p-crit { 0% { transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); } 100% { transform: scale(1.04); box-shadow: 0 12px 24px rgba(0,0,0,0.4); } }
+    .grid-dash {{ display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }}
+    .card-dash {{ flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: left; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: all 0.3s ease; position: relative; }}
+    .cd-critico {{ animation: p-crit 0.8s infinite alternate !important; z-index: 10; }}
+    @keyframes p-crit {{ 0% {{ transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }} 100% {{ transform: scale(1.04); box-shadow: 0 12px 24px rgba(0,0,0,0.4); }} }}
     </style>
     """, unsafe_allow_html=True)
 
-    supa = banco.conectar()
-    cfg = banco.obter_configuracoes()
-    
-    # Busca configurações da memoria_sistema
     try:
         resp_mem = supa.table("memoria_sistema").select("*").execute()
         mem_dict = {r['chave']: r['valor'] for r in resp_mem.data} if resp_mem.data else {}
@@ -132,14 +165,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if t == 'LIVRE': return '#3498db'
         return '#95a5a6'
 
-    # Busca a Tabela Genérica de Imagens (Para os Ícones de Setor)
     try:
         resp_img = supa.table("imagens_base64").select("nome, imagem_base64").eq("aplicacao", "Ícone de Setor").execute()
         icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data} if resp_img.data else {}
     except:
         icones_dict = {}
 
-    # Mapeamento do "Ordem Cards" do Excel/Banco
     ordem_map = {}
     if not df_codigos.empty:
         col_ordem = None
@@ -152,14 +183,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             c = str(r_cod.get('codigo', '')).strip()
             o_raw = r_cod[col_ordem] if col_ordem else pd.NA
             try:
-                if pd.isna(o_raw) or str(o_raw).strip() == '':
-                    o_val = 99
-                else:
-                    o_val = int(float(o_raw))
-            except:
-                o_val = 99
-            if c:
-                ordem_map[c] = o_val
+                if pd.isna(o_raw) or str(o_raw).strip() == '': o_val = 99
+                else: o_val = int(float(o_raw))
+            except: o_val = 99
+            if c: ordem_map[c] = o_val
 
     codigos_pausa = []
     if not df_codigos.empty and 'tipo' in df_codigos.columns:
@@ -215,9 +242,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     resp_status = supa.table("status_maquinas").select("*").execute()
     status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data} if resp_status.data else {}
 
-    resp_ops = supa.table("planejamento_ops").select("id, produto_formula, quantidade_planejada, data_inicio").eq("status", "Em Andamento").execute()
+    resp_ops = supa.table("planejamento_ops").select("id, produto_formula, quantidade_planejada, data_inicio").eq("status", "Em Andamento").order("id").execute()
     ops_ativas = resp_ops.data if resp_ops.data else []
-    ops_dict = {op['produto_formula']: op for op in ops_ativas}
+    ops_dict = {}
+    ops_numeracao = {}
+    
+    for idx_op, op in enumerate(ops_ativas):
+        nome_prod = op['produto_formula']
+        ops_dict[nome_prod] = op
+        ops_numeracao[nome_prod] = f"{idx_op + 1} - "
     
     df_hoje = pd.DataFrame()
     df_nuvem_operacao = pd.DataFrame()
@@ -259,13 +292,11 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         info['maquina_fmt'] = maq_formatada
         info['ordem'] = ordem_maq
         info['setor'] = setor
-        
-        # Puxa o Ícone do Setor para esse Card
         info['icone_b64'] = icones_dict.get(setor, None)
         
         operadores_maq = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == maq and str(u.get('setor', '')).strip() == setor and u.get('ativo') == True]
         info['setor_exibicao'] = f"{setor} / {' / '.join(operadores_maq)}" if operadores_maq else setor
-        operadores_texto = " / ".join(operadores_maq) if operadores_maq else "Sem Operador"
+        info['operadores'] = " / ".join(operadores_maq) if operadores_maq else "Sem Operador"
         
         if status_maq == 'Parado':
             cod = info.get('cod_ocorrencia')
@@ -298,7 +329,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         elif status_maq == 'Produzindo':
             info['tipo_registro'] = 'PRODUÇÃO'
             qtd_rodando += 1
-            info['ordem_card'] = ordem_map.get('P', 99) # Ordem para Produção
+            info['ordem_card'] = ordem_map.get('P', 99)
             
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo, html_progresso = "Peça Desconhecida", ""
@@ -393,20 +424,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         if is_turno and not is_lanche: minutos_acumulados_bd += 1
                             
         info['minutos_acumulados_bd'] = minutos_acumulados_bd
-        mapa_visual_dict[setor].append({"maquina": maq, "maquina_fmt": maq_formatada, "ordem": ordem_maq, "operadores": operadores_texto, "tipo": info['tipo_registro']})
+        mapa_visual_dict[setor].append(info)
 
-    # --- O FILTRO SUPREMO DOS CARDS (Ocultação por Ordem 0) ---
     cards_brutos = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
     cards_exibicao = []
     for p in cards_brutos:
-        # Se a Ordem definida no banco/excel for 0, o card desaparece da tela.
         if p.get('ordem_card', 99) == 0:
             continue
         cards_exibicao.append(p)
 
-    # A Ordenação Universal (Do menor para o maior na Ordem Cards)
     cards_exibicao = sorted(cards_exibicao, key=lambda x: (x.get('ordem_card', 99), x.get('setor', ''), x.get('ordem', 99)))
-
     perc_rodando = (qtd_rodando / total_maq_atual) * 100 if total_maq_atual > 0 else 0
 
     lista_js_timers = []
@@ -459,9 +486,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     for p in maquinas_produzindo: noticias.append(f"🟢 [{p['setor']}] {p['maquina']} produzindo: {str(p.get('cod_peca_atual',''))}")
     texto_letreiro = " &nbsp;&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;&nbsp; ".join(noticias) if noticias else "🟢 FÁBRICA OPERANDO COM 100% DE CAPACIDADE NESTE MOMENTO"
 
-    # ==========================================
-    # CÁLCULO DAS ÚLTIMAS PEÇAS (1 CARD COMPACTO POR SETOR)
-    # ==========================================
     html_ultimas_pecas_setor = {}
     setores_ordenados = sorted(mapa_visual_dict.keys(), key=lambda s: (ordem_setores.get(s, 999), s))
     
@@ -498,18 +522,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     c_abrev = aplicar_abreviacoes(peca_nome, df_abrev, todas_vazias)
                     
                     html_pecas += f"""
-                    <div style='display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f1f2f6; padding: 5px 0;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding: 5px 0;'>
                         <div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; flex-grow: 1; margin-right: 5px;'>
-                            <span style='font-weight: 800; color: #2c3e50;'>{p_abrev}</span> <span style='color: #7f8c8d;'>{c_abrev}</span>
+                            <span style='font-weight: 800; color: var(--text-main);'>{p_abrev}</span> <span style='color: var(--text-muted);'>{c_abrev}</span>
                         </div>
                         <div style='font-size: 13px; font-weight: 900; color: #27ae60; white-space: nowrap; margin-right: 8px;'>+{qtd_peca} un</div>
-                        <div style='font-size: 9px; color: #95a5a6; white-space: nowrap;'>{das_f} ➔ {as_hora_f}</div>
+                        <div style='font-size: 9px; color: var(--text-muted); white-space: nowrap;'>{das_f} ➔ {as_hora_f}</div>
                     </div>"""
                 html_ultimas_pecas_setor[s_nome] = html_pecas
 
-    # ==========================================
-    # CÁLCULO INTELIGENTE "EM CORTE AGORA"
-    # ==========================================
     def calc_corte_prog(nome_op):
         if nome_op not in ops_dict: return None
         op = ops_dict[nome_op]
@@ -531,8 +552,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             prod_corte += min(qtd_total, mapa_prod_corte.get(cod, 0))
         if meta_corte > 0:
             perc = min(100.0, (prod_corte / meta_corte) * 100)
+            prefixo_op = ops_numeracao.get(nome_op, "")
             nome_abrev = aplicar_abreviacoes(nome_op, df_abrev, todas_vazias)
-            return {'nome': nome_abrev, 'meta': meta_corte, 'prod': prod_corte, 'perc': perc}
+            return {'nome': f"{prefixo_op}{nome_abrev}", 'meta': meta_corte, 'prod': prod_corte, 'perc': perc}
         return None
 
     produto_em_corte = None
@@ -564,9 +586,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if prog:
             produtos_para_exibir.append(prog)
 
-    # ==========================================
-    # CÁLCULO DE STATUS DAS OPs
-    # ==========================================
     html_ops = ""
     if ops_ativas:
         html_ops = "<div>"
@@ -612,16 +631,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         prod_global += min(qtd_plan, prod_cx_real)
 
             perc_op = min(100, (prod_global / meta_global * 100)) if meta_global > 0 else 0
+            prefixo_op = ops_numeracao.get(nome_op, "")
             nome_abrev = aplicar_abreviacoes(nome_op, df_abrev, todas_vazias)
+            nome_final = f"{prefixo_op}{nome_abrev}"
+            
             html_ops += f"<div style='margin-bottom: 12px;'>"
-            html_ops += f"<div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: #34495e; margin-bottom: 3px;'><span>📦 {nome_abrev}</span><span>{perc_op:.1f}% ({int(prod_global)}/{int(meta_global)})</span></div>"
-            html_ops += f"<div style='width: 100%; background: #ecf0f1; height: 10px; border-radius: 5px; overflow: hidden; border: 1px solid #bdc3c7;'><div style='width: {perc_op}%; background: #e74c3c; height: 100%; transition: width 0.5s ease;'></div></div>"
+            html_ops += f"<div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: var(--text-main); margin-bottom: 3px;'><span>📦 {nome_final}</span><span>{perc_op:.1f}% ({int(prod_global)}/{int(meta_global)})</span></div>"
+            html_ops += f"<div style='width: 100%; background: var(--bg-corte-prog); height: 10px; border-radius: 5px; overflow: hidden; border: 1px solid var(--border-color);'><div style='width: {perc_op}%; background: #e74c3c; height: 100%; transition: width 0.5s ease;'></div></div>"
             html_ops += f"</div>"
         html_ops += "</div>"
 
-    # ==========================================
-    # CÁLCULO DE DESEMPENHO (GRÁFICO)
-    # ==========================================
     df_desemp = pd.DataFrame()
     ordem_maquinas_chart = []
     altura_dinamica_desemp = 150
@@ -650,9 +669,13 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         return t_cod
             if 'DESCONSIDERAR' in t: return 'NÃO CONTA'
             return t
+            
         df_chart['classificacao'] = df_chart.apply(map_class, axis=1)
-        df_desemp = df_chart[df_chart['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO'])].groupby(['setor', 'maquina', 'classificacao'])['duracao'].sum().reset_index()
+        
+        tipos_permitidos = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA']
+        df_desemp = df_chart[df_chart['classificacao'].isin(tipos_permitidos)].groupby(['setor', 'maquina', 'classificacao'])['duracao'].sum().reset_index()
         df_desemp = df_desemp[df_desemp['duracao'] > 0]
+        
         if not df_desemp.empty:
             df_desemp['setor_fmt'] = df_desemp['setor'].astype(str).str.title()
             def maq_formatada_gr(maq_nome, setor_nome):
@@ -669,14 +692,16 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 elif row['pct'] >= 5: return f"{int(round(row['pct']))}%" 
                 return ""
             df_desemp['label_exibicao'] = df_desemp.apply(get_label_maq, axis=1)
-            df_desemp['ordem'] = df_desemp['classificacao'].map({'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4})
+            
+            mapa_ordem_barras = {'PRODUÇÃO': 1, 'PASSAGEM ADICIONAL': 2, 'RETRABALHO': 3, 'ROTINA': 4, 'PARADA': 5}
+            df_desemp['ordem'] = df_desemp['classificacao'].map(mapa_ordem_barras)
+            
             df_desemp = df_desemp.sort_values(by=['total_maq', 'maquina_exibicao', 'ordem'], ascending=[False, True, True])
             ordem_maquinas_chart = df_desemp[['maquina_exibicao', 'total_maq']].drop_duplicates().sort_values('total_maq', ascending=False)['maquina_exibicao'].tolist()
             df_desemp['cum_duracao'] = df_desemp.groupby('maquina_exibicao')['duracao'].cumsum()
             df_desemp['midpos'] = df_desemp['cum_duracao'] - (df_desemp['duracao'] / 2)
             altura_dinamica_desemp = max(150, len(ordem_maquinas_chart) * 60)
 
-    # Dicionário de Contexto (Ponte para as Colunas)
     ctx = {
         'perc_rodando': perc_rodando, 'qtd_rodando': qtd_rodando, 'total_maq_atual': total_maq_atual,
         'maquinas_paradas_criticas': maquinas_paradas_criticas, 'maquinas_pausas': maquinas_pausas, 'qtd_livres': qtd_livres,
@@ -687,20 +712,14 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         'setores_ordenados': setores_ordenados, 'mapa_visual_dict': mapa_visual_dict,
         'html_ultimas_pecas_setor': html_ultimas_pecas_setor, 'cards_exibicao': cards_exibicao,
         'df_desemp': df_desemp, 'ordem_maquinas_chart': ordem_maquinas_chart, 'altura_dinamica_desemp': altura_dinamica_desemp,
-        'lista_js_timers': lista_js_timers, 'max_cards_row': max_cards_row
+        'lista_js_timers': lista_js_timers, 'max_cards_row': max_cards_row,
+        'get_color': get_color, 'is_dark': is_dark
     }
 
-    # ==========================================
-    # DESENHO DA TELA (COLUNAS AJUSTÁVEIS)
-    # ==========================================
     col_esq, col_dir = st.columns([largura_col1, 100 - largura_col1], gap="small")
-    
     with col_esq: dashboard_coluna_1.renderizar_coluna_1(ctx, ordem_c1_str.split(','))
     with col_dir: dashboard_coluna_2.renderizar_coluna_2(ctx, ordem_c2_str.split(','), get_color)
 
-    # ==========================================
-    # RODAPÉ (LETREIRO + ORGANIZADOR DINÂMICO)
-    # ==========================================
     st.markdown(f"""
     <div style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #34495e; color: white; padding: 10px 0; z-index: 9998; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);">
         <marquee scrollamount="{vel_barra}" style="font-size: 16px; font-weight: 600; letter-spacing: 1px;">{texto_letreiro}</marquee>
@@ -709,20 +728,24 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     """, unsafe_allow_html=True)
 
     with st.expander("🛠️ Organizar Layout do Dashboard"):
-        st.markdown("<p style='font-size:13px; color:#7f8c8d; margin-top:-10px;'>Personalize as colunas e a distribuição visual da tela principal.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:13px; color:var(--text-muted); margin-top:-10px;'>Personalize as colunas e a distribuição visual da tela principal.</p>", unsafe_allow_html=True)
         opcoes_c1 = ["Status da Produção", "Resumo de Indicadores", "Evolução (Ao Vivo)", "Em Corte Agora", "Status das OPs"]
         opcoes_c2 = ["Chão de Fábrica", "Cronômetros de Parada", "Desempenho da Fábrica"]
         
-        c_layout1, c_layout2 = st.columns(2)
+        c_layout1, c_layout2, c_layout3 = st.columns([2, 2, 1])
         with c_layout1:
             st.markdown("#### 📐 Proporção das Colunas")
             nova_largura_col1 = st.slider("Largura da Coluna 1 (%)", min_value=20, max_value=50, value=largura_col1, step=1)
-            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:#7f8c8d;'>A Coluna 2 preencherá os <b>{100 - nova_largura_col1}%</b> restantes.</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:var(--text-muted);'>A Coluna 2 preencherá os <b>{100 - nova_largura_col1}%</b> restantes.</div>", unsafe_allow_html=True)
         with c_layout2:
             st.markdown("#### ⏱️ Cronômetros de Parada")
             nova_max_cards = st.slider("Limite Máximo de Cards por Linha", min_value=4, max_value=10, value=max_cards_row, step=1)
-            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:#7f8c8d;'>O sistema usará matemática para distribuir o excedente.</div>", unsafe_allow_html=True)
-        
+            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:var(--text-muted);'>O sistema usará matemática para distribuir o excedente.</div>", unsafe_allow_html=True)
+        with c_layout3:
+            st.markdown("#### 🌗 Tema Visual")
+            st.markdown(f"<div style='font-size:12px; color:var(--text-muted); margin-top:-10px; margin-bottom: 5px;'>Salvo para: <b>{usuario_logado.get('nome', 'Usuário')}</b></div>", unsafe_allow_html=True)
+            novo_tema_escuro = st.toggle("Modo Escuro", value=is_dark)
+
         st.markdown("<br>", unsafe_allow_html=True)
         col_org_1, col_org_2 = st.columns(2)
         with col_org_1:
@@ -743,14 +766,19 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     upsert_memoria("ordem_dash_col2", ",".join(n_ordem_c2))
                     upsert_memoria("dash_largura_col1", str(nova_largura_col1))
                     upsert_memoria("dash_max_cards_row", str(nova_max_cards))
-                    st.success("✅ Layout salvo! Recarregue a página (F5) para aplicar a nova proporção.")
+                    
+                    username_atual = usuario_logado.get('username')
+                    if username_atual:
+                        supa.table("usuarios").update({"modo_escuro": novo_tema_escuro}).eq("username", username_atual).execute()
+                        st.session_state['usuario_logado']['modo_escuro'] = novo_tema_escuro
+                        
+                    st.success("✅ Layout salvo! Recarregue a página (F5) para aplicar as configurações.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
             else:
                 st.warning("⚠️ Você precisa adicionar todos os elementos antes de salvar para não esconder nenhum indicador.")
 
-    # Injeção JS Limpa e Conectada
     json_timers = json.dumps(ctx['lista_js_timers'])
     js_engine = f"""
     <script>

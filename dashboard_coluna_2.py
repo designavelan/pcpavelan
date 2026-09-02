@@ -6,8 +6,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
     primeiro = True
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
-        
-        # A Mágica do CSS no arquivo 2
         mt_class = "pull-up" if primeiro else ""
         
         if elemento == "Chão de Fábrica":
@@ -16,19 +14,28 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 
                 for setor in ctx['setores_ordenados']:
                     maquinas_lista = ctx['mapa_visual_dict'][setor]
-                    html_mapa += "<div style='display: flex; flex-direction: column; background: #fff; border: 1px solid #ecf0f1; border-radius: 6px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>"
+                    html_mapa += "<div style='display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>"
                     html_mapa += f"<div style='background: #34495e; color: white; padding: 6px; border-radius: 4px; text-align: center; font-weight: bold; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; flex-shrink: 0;'>{setor}</div>"
                     
                     html_mapa += "<div style='flex-grow: 1; margin-bottom: 10px;'>"
-                    for m in sorted(maquinas_lista, key=lambda x: (x['ordem'], x['maquina'])):
-                        cor_fundo = get_color(m['tipo'])
-                        html_mapa += f"<div style='background: {cor_fundo}; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;'>"
-                        html_mapa += f"<span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{m['maquina_fmt']}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px; white-space:nowrap; margin-left:5px;'>{m['operadores']}</span></div>"
+                    for m in sorted(maquinas_lista, key=lambda x: (x.get('ordem', 99), x.get('maquina', ''))):
+                        
+                        if m.get('operadores', '') == "Sem Operador":
+                            cor_fundo = "var(--bg-sem-op)"
+                            cor_texto = "var(--text-sem-op)"
+                            borda_estilo = "1px dashed var(--border-color)"
+                        else:
+                            cor_fundo = get_color(m.get('tipo_registro', 'LIVRE'))
+                            cor_texto = "white"
+                            borda_estilo = "none"
+                            
+                        html_mapa += f"<div style='background: {cor_fundo}; border: {borda_estilo}; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: {cor_texto}; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;'>"
+                        html_mapa += f"<span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{m.get('maquina_fmt', '')}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px; white-space:nowrap; margin-left:5px;'>{m.get('operadores', '')}</span></div>"
                     html_mapa += "</div>"
                     
                     if s_html_pecas := ctx['html_ultimas_pecas_setor'].get(setor):
-                        html_mapa += "<div style='border-top: 1px dashed #bdc3c7; padding-top: 8px; flex-shrink: 0;'>"
-                        html_mapa += "<div style='font-size: 10px; font-weight: bold; color: #7f8c8d; text-align: center; margin-bottom: 6px; text-transform: uppercase;'>Últimas Peças</div>"
+                        html_mapa += "<div style='border-top: 1px dashed var(--border-color); padding-top: 8px; flex-shrink: 0;'>"
+                        html_mapa += "<div style='font-size: 10px; font-weight: bold; color: var(--text-muted); text-align: center; margin-bottom: 6px; text-transform: uppercase;'>Últimas Peças</div>"
                         html_mapa += s_html_pecas
                         html_mapa += "</div>"
                         
@@ -48,10 +55,8 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 
                 cards_por_linha = []
                 for i in range(num_linhas):
-                    if i < resto:
-                        cards_por_linha.append(base_cards + 1)
-                    else:
-                        cards_por_linha.append(base_cards)
+                    if i < resto: cards_por_linha.append(base_cards + 1)
+                    else: cards_por_linha.append(base_cards)
                         
                 idx_atual = 0
                 
@@ -71,7 +76,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         
                         html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card}; min-width: 150px;' data-tipo='{tipo_reg}'>"
                         
-                        # Injeção Inteligente da Imagem/Ícone do Setor no Canto Superior Direito
                         icone_b64 = p.get('icone_b64')
                         if icone_b64:
                             html_cards += f"<img src='data:image/png;base64,{icone_b64}' style='position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; object-fit: contain; opacity: 0.7; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));' />"
@@ -83,7 +87,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_cards += p.get('html_progresso', '')
                         html_cards += "</div>" 
                         
-                        # Cronômetro e Subtítulo centralizados horizontalmente na base do card
                         if is_fim_expediente: 
                             html_cards += f"<div style='font-size:14px; font-weight:bold; margin-top:auto; padding-top: 15px; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
@@ -104,13 +107,18 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                     
                 expr_horas = "floor(datum.value / 60) > 0 ? floor(datum.value / 60) + ':' + (datum.value % 60 < 10 ? '0' : '') + (datum.value % 60) + 'm' : (datum.value % 60) + 'm'"
                 
+                chart_domain = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA']
+                chart_range = [ctx['get_color'](t) for t in chart_domain]
+                
+                is_dark = ctx.get('is_dark', False)
+                chart_font_color = '#ffffff' if is_dark else '#2c3e50'
+                grid_color = '#333333' if is_dark else '#eeeeee'
+                names_color = '#ffffff' if is_dark else '#34495e'
+                
                 bars_desemp = alt.Chart(ctx['df_desemp']).mark_bar(size=25).encode(
                     x=alt.X('duracao:Q', stack='zero', title='Tempo Total Utilizado', axis=alt.Axis(grid=True, labelExpr=expr_horas)),
                     y=alt.Y('maquina_exibicao:N', sort=ctx['ordem_maquinas_chart'], title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
-                    color=alt.Color('classificacao:N', scale=alt.Scale(
-                        domain=['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA'],
-                        range=['#27ae60', '#2ecc71', '#f39c12', '#c0392b']
-                    ), legend=alt.Legend(title="", orient="top", labelFontSize=10, padding=5)),
+                    color=alt.Color('classificacao:N', scale=alt.Scale(domain=chart_domain, range=chart_range), legend=alt.Legend(title="", orient="top", labelFontSize=10, padding=5)),
                     order=alt.Order('ordem:Q'),
                     tooltip=[alt.Tooltip('maquina_exibicao:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
                 )
@@ -123,12 +131,27 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 )
                 
                 names_desemp = alt.Chart(ctx['df_desemp'][['maquina_exibicao', 'total_maq']].drop_duplicates()).mark_text(
-                    align='left', baseline='bottom', dy=-15, size=11, fontWeight='bold', color='#34495e'
+                    align='left', baseline='bottom', dy=-15, size=11, fontWeight='bold', color=names_color
                 ).encode(
                     x=alt.value(0),
                     y=alt.Y('maquina_exibicao:N', sort=ctx['ordem_maquinas_chart'], axis=None),
                     text='maquina_exibicao:N'
                 )
                 
-                chart_desemp = alt.layer(bars_desemp, text_desemp, names_desemp).properties(height=ctx['altura_dinamica_desemp']).configure_axis(labelFontSize=10, titleFontSize=11).configure_view(strokeWidth=0)
+                chart_desemp = alt.layer(bars_desemp, text_desemp, names_desemp).properties(
+                    height=ctx['altura_dinamica_desemp'],
+                    background='transparent'
+                ).configure_axis(
+                    labelFontSize=10, 
+                    titleFontSize=11,
+                    labelColor=chart_font_color,
+                    titleColor=chart_font_color,
+                    gridColor=grid_color,
+                    domainColor=grid_color,
+                    tickColor=grid_color
+                ).configure_legend(
+                    labelColor=chart_font_color,
+                    titleColor=chart_font_color
+                ).configure_view(strokeWidth=0)
+                
                 st.altair_chart(chart_desemp, use_container_width=True)

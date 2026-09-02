@@ -7,8 +7,6 @@ def renderizar_coluna_1(ctx, ordem_elementos):
     
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
-        
-        # A Mágica do CSS: Puxa para cima APENAS no computador, ignora no celular
         mt_class = "pull-up" if primeiro else ""
         
         if elemento == "Status da Produção":
@@ -35,23 +33,23 @@ def renderizar_coluna_1(ctx, ordem_elementos):
                 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.markdown(f"""<div style='background:#fff; padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
-                <div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Perdido Hoje</div>
+                st.markdown(f"""<div style='background: var(--bg-card); padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid var(--border-color); margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
+                <div style='color: var(--text-muted); font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Perdido Hoje</div>
                 <div style='font-size:16px; font-weight:900; color:#c0392b; margin-top: 2px;'>{ctx['h_perdido']:02d}h{ctx['m_perdido']:02d}</div>
                 </div>""", unsafe_allow_html=True)
             with c2:
-                st.markdown(f"""<div style='background:#fff; padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
-                <div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Ofensor Atual</div>
+                st.markdown(f"""<div style='background: var(--bg-card); padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid var(--border-color); margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
+                <div style='color: var(--text-muted); font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Ofensor Atual</div>
                 <div style='font-size:11px; font-weight:900; color:#e67e22; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title="{ctx['top_ofensor']}">{ctx['top_ofensor']}</div>
                 </div>""", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"""<div style='background:#fff; padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
-                <div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Médio/Sol.</div>
+                st.markdown(f"""<div style='background: var(--bg-card); padding:10px 2px; border-radius:8px; text-align:center; border: 1px solid var(--border-color); margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
+                <div style='color: var(--text-muted); font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Médio/Sol.</div>
                 <div style='font-size:16px; font-weight:900; color:#2980b9; margin-top: 2px;'>{ctx['mttr_str']}</div>
                 </div>""", unsafe_allow_html=True)
             with c4:
-                st.markdown(f"""<div style='background:#fff; padding:6px 2px; border-radius:8px; text-align:center; border: 1px solid #eee; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
-                <div style='color:#7f8c8d; font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Vol. Corte (Un)</div>
+                st.markdown(f"""<div style='background: var(--bg-card); padding:6px 2px; border-radius:8px; text-align:center; border: 1px solid var(--border-color); margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); height: 65px; display:flex; flex-direction:column; justify-content:center;'>
+                <div style='color: var(--text-muted); font-size: 9px; font-weight: bold; text-transform: uppercase; white-space:nowrap;'>Vol. Corte (Un)</div>
                 <div style='font-size:15px; font-weight:900; color:#27ae60; line-height: 1.1; margin-top: 1px;'>{ctx['vol_corte_un']}</div>
                 </div>""", unsafe_allow_html=True)
 
@@ -68,11 +66,25 @@ def renderizar_coluna_1(ctx, ordem_elementos):
                 ticks_x.append(curr_tick.isoformat())
                 curr_tick += timedelta(hours=1)
                 
+            is_dark = ctx.get('is_dark', False)
+            chart_font_color = '#ffffff' if is_dark else '#2c3e50'
+            grid_color = '#333333' if is_dark else '#eeeeee'
+
             chart = alt.Chart(ctx['df_plot']).mark_area(line={'color': '#2980b9'}, color='#2980b9', opacity=0.4).encode(
                 x=alt.X('Hora:T', title='', scale=alt.Scale(domain=[ctx['hora_inicio_turno'].isoformat(), ctx['hora_fim_turno'].isoformat()]), axis=alt.Axis(values=ticks_x, format='%H', labelExpr="parseInt(datum.label) + 'H'", grid=True)),
                 y=alt.Y('Em Operação (%):Q', title='', scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(values=[0, 25, 50, 75, 100], format='.0f', grid=True)),
                 tooltip=['Hora:T', 'Em Operação (%):Q']
-            ).properties(height=180)
+            ).properties(
+                height=180,
+                background='transparent'
+            ).configure_axis(
+                labelColor=chart_font_color,
+                titleColor=chart_font_color,
+                gridColor=grid_color,
+                domainColor=grid_color,
+                tickColor=grid_color
+            ).configure_view(strokeWidth=0)
+            
             st.altair_chart(chart, use_container_width=True)
 
         elif elemento == "Em Corte Agora":
@@ -81,12 +93,12 @@ def renderizar_coluna_1(ctx, ordem_elementos):
                 for p in ctx['produtos_para_exibir']:
                     is_concluido = p['perc'] >= 99.9 or p['prod'] >= p['meta']
                     cor_barra = "#27ae60" if is_concluido else "#f39c12" 
-                    html_corte_agora += f"<div style='margin-bottom: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #eaeaea; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>"
-                    html_corte_agora += f"<div style='font-size: 16px; font-weight: 900; color: #2c3e50; margin-bottom: 10px; line-height: 1.1; text-align: center; text-transform: uppercase;'>🪚 Cortando agora: {p['nome']}</div>"
+                    html_corte_agora += f"<div style='margin-bottom: 15px; background: var(--bg-card); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>"
+                    html_corte_agora += f"<div style='font-size: 16px; font-weight: 900; color: var(--text-main); margin-bottom: 10px; line-height: 1.1; text-align: center; text-transform: uppercase;'>🪚 Cortando agora: {p['nome']}</div>"
                     
                     if is_concluido: html_corte_agora += "<div style='text-align: center; margin-bottom: 12px;'><span style='color:#27ae60; font-size:12px; font-weight:bold; background:#eafaf1; padding:4px 8px; border-radius:4px;'>✅ Lote Concluído no Corte</span></div>"
-                    html_corte_agora += f"<div style='display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; color: #7f8c8d; margin-bottom: 6px;'><span>Progresso</span><span>{p['perc']:.1f}% ({int(p['prod'])}/{int(p['meta'])})</span></div>"
-                    html_corte_agora += f"<div style='width: 100%; background: #ecf0f1; height: 14px; border-radius: 7px; overflow: hidden; border: 1px solid #bdc3c7;'><div style='width: {p['perc']}%; background: {cor_barra}; height: 100%; transition: width 0.5s ease;'></div></div>"
+                    html_corte_agora += f"<div style='display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; color: var(--text-muted); margin-bottom: 6px;'><span>Progresso</span><span>{p['perc']:.1f}% ({int(p['prod'])}/{int(p['meta'])})</span></div>"
+                    html_corte_agora += f"<div style='width: 100%; background: var(--bg-corte-prog); height: 14px; border-radius: 7px; overflow: hidden; border: 1px solid var(--border-color);'><div style='width: {p['perc']}%; background: {cor_barra}; height: 100%; transition: width 0.5s ease;'></div></div>"
                     html_corte_agora += "</div>"
                 html_corte_agora += "</div>"
                 st.markdown(html_corte_agora, unsafe_allow_html=True)
