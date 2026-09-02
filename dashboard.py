@@ -98,7 +98,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     ordem_c2_str = mem_dict.get('ordem_dash_col2', 'Chão de Fábrica,Cronômetros de Parada,Desempenho da Fábrica')
     todas_vazias = True if mem_dict.get('abrev_todas_vazias', 'False') == 'True' else False
     
-    # Parâmetros Numéricos Salvos
     largura_col1 = int(mem_dict.get('dash_largura_col1', 33))
     max_cards_row = int(mem_dict.get('dash_max_cards_row', 7))
 
@@ -332,6 +331,19 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             info['tipo_registro'] = 'LIVRE'
             qtd_livres += 1
             
+            # --- AUTO CORES PARA INTERVALO ---
+            # Se a máquina estiver Livre (sem operador / aguardando) e for hora do almoço/intervalo,
+            # altera a cor visual para "NÃO CONTA" (Amarelo) para comunicação visual no mapa de chão de fábrica,
+            # mantendo os números no topo contando como "Livre".
+            is_intervalo = False
+            if m_as_min <= agora_min < t_das_min: is_intervalo = True
+            elif lm_das_min >= 0 and lm_as_min >= 0 and lm_das_min <= agora_min < lm_as_min: is_intervalo = True
+            elif lt_das_min >= 0 and lt_as_min >= 0 and lt_das_min <= agora_min < lt_as_min: is_intervalo = True
+            elif agora_min >= t_as_min or agora_min < m_das_min: is_intervalo = True
+            
+            if is_intervalo:
+                info['tipo_registro'] = 'NÃO CONTA'
+            
         minutos_acumulados_bd = 0
         if not df_hoje.empty and info.get('tipo_registro') not in ['LIVRE', 'A REALIZAR']:
             df_maq_hoje = df_hoje[(df_hoje['maquina'] == maq) & (df_hoje['setor'] == setor)]
@@ -350,27 +362,34 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         info['minutos_acumulados_bd'] = minutos_acumulados_bd
         mapa_visual_dict[setor].append({"maquina": maq, "maquina_fmt": maq_formatada, "ordem": ordem_maq, "operadores": operadores_texto, "tipo": info['tipo_registro']})
 
-    cards_exibicao = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
+    # --- FILTRO DOS CRONÔMETROS GIGANTES ---
+    # Junta as máquinas que tem problemas reais, pausas ou produção
+    cards_brutos = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
+    cards_exibicao = []
+    
+    # Remove as ocorrências "00" (Almoço) e "000" (Fim do Expediente) da lista de exibição grande
+    for p in cards_brutos:
+        cod_oco = str(p.get('cod_ocorrencia', '')).strip()
+        if cod_oco in ['00', '000']:
+            continue
+        cards_exibicao.append(p)
+
     perc_rodando = (qtd_rodando / total_maq_atual) * 100 if total_maq_atual > 0 else 0
 
-    # MAPEAMENTO DOS CRONÔMETROS PARA O JS
+    # MAPEAMENTO DOS CRONÔMETROS PARA O JS (Usa apenas a lista já filtrada)
     lista_js_timers = []
     for p in cards_exibicao:
         p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
         tipo_reg = p.get('tipo_registro', 'LIVRE')
-        desc_completa = p.get('descricao_completa', '')
-        is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
-        
-        if not is_fim_expediente:
-            hora_inicio = p.get('hora_inicio', '')
-            if hora_inicio:
-                lista_js_timers.append({
-                    "id": p_id, 
-                    "inicio_iso": str(hora_inicio).replace(" ", "T"),
-                    "past_ms": p.get('minutos_acumulados_bd', 0) * 60000,
-                    "min_passados": 1, 
-                    "tipo": tipo_reg
-                })
+        hora_inicio = p.get('hora_inicio', '')
+        if hora_inicio:
+            lista_js_timers.append({
+                "id": p_id, 
+                "inicio_iso": str(hora_inicio).replace(" ", "T"),
+                "past_ms": p.get('minutos_acumulados_bd', 0) * 60000,
+                "min_passados": 1, 
+                "tipo": tipo_reg
+            })
 
     minutos_finalizados = 0
     top_ofensor = "Nenhum"
@@ -699,6 +718,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             else:
                 st.warning("⚠️ Você precisa adicionar todos os elementos antes de salvar para não esconder nenhum indicador.")
 
+    # Injeção JS Limpa e Conectada
     json_timers = json.dumps(ctx['lista_js_timers'])
     js_engine = f"""
     <script>
