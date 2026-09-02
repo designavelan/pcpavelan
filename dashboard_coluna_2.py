@@ -83,10 +83,13 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_cards += p.get('html_progresso', '')
                         html_cards += "</div>" 
                         
-                        if is_fim_expediente: html_cards += f"<div style='font-size:14px; font-weight:bold; background:rgba(0,0,0,0.2); border-radius:5px; margin-top:auto; padding: 15px 0; text-transform:uppercase;'>Turno Encerrado</div>"
+                        # Cronômetro e Subtítulo centralizados horizontalmente na base do card
+                        if is_fim_expediente: 
+                            html_cards += f"<div style='font-size:14px; font-weight:bold; margin-top:auto; padding-top: 15px; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
-                            html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
-                            html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
+                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; margin-top:auto; padding-top: 12px; text-align: center; width: 100%;'>00:00:00</div>"
+                            html_cards += f"<div id='sub_timer_{p_id}' style='font-size:12px; font-style:italic; opacity:0.9; text-align: center; width: 100%; margin-top: 2px;'>Calculando...</div>"
+                        
                         html_cards += "</div>"
                     html_cards += "</div>"
                     st.markdown(html_cards, unsafe_allow_html=True)
