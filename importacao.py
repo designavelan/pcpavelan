@@ -159,14 +159,16 @@ def renderizar_codigos():
             # Padroniza os cabeçalhos para letras minúsculas
             df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
             
-            # Mapeamento atualizado para incluir a nova coluna
+            # Mapeamento atualizado para incluir a nova coluna de Ordem dos Cards
             mapa = {
                 'cod': 'codigo', 'código': 'codigo', 
                 'descrição': 'descricao', 'descricao': 'descricao',
                 'tipo': 'tipo',
                 'cronico': 'cronico', 'crônico': 'cronico',
                 'exibir na lista': 'exibir_na_lista',
-                'exibir_na_lista': 'exibir_na_lista'
+                'exibir_na_lista': 'exibir_na_lista',
+                'ordem cards': 'ordem_cards',
+                'ordem_cards': 'ordem_cards'
             }
             df_novo = df_novo.rename(columns=mapa)
             

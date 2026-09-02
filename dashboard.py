@@ -79,7 +79,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     
     /* CSS DOS CRONÔMETROS */
     .grid-dash { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }
-    .card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: all 0.3s ease; position: relative; }
+    .card-dash { flex: 1 1 180px; padding: 12px; border-radius: 8px; color: white; text-align: left; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; transition: all 0.3s ease; position: relative; }
     .cd-critico { animation: p-crit 0.8s infinite alternate !important; z-index: 10; }
     @keyframes p-crit { 0% { transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.1); } 100% { transform: scale(1.04); box-shadow: 0 12px 24px rgba(0,0,0,0.4); } }
     </style>
@@ -88,6 +88,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     supa = banco.conectar()
     cfg = banco.obter_configuracoes()
     
+    # Busca configurações da memoria_sistema
     try:
         resp_mem = supa.table("memoria_sistema").select("*").execute()
         mem_dict = {r['chave']: r['valor'] for r in resp_mem.data} if resp_mem.data else {}
@@ -130,6 +131,35 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if t == 'NÃO CONTA': return '#f39c12'
         if t == 'LIVRE': return '#3498db'
         return '#95a5a6'
+
+    # Busca a Tabela Genérica de Imagens (Para os Ícones de Setor)
+    try:
+        resp_img = supa.table("imagens_base64").select("nome, imagem_base64").eq("aplicacao", "Ícone de Setor").execute()
+        icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data} if resp_img.data else {}
+    except:
+        icones_dict = {}
+
+    # Mapeamento do "Ordem Cards" do Excel/Banco
+    ordem_map = {}
+    if not df_codigos.empty:
+        col_ordem = None
+        for col in df_codigos.columns:
+            if 'ordem' in col.lower() and 'card' in col.lower():
+                col_ordem = col
+                break
+                
+        for _, r_cod in df_codigos.iterrows():
+            c = str(r_cod.get('codigo', '')).strip()
+            o_raw = r_cod[col_ordem] if col_ordem else pd.NA
+            try:
+                if pd.isna(o_raw) or str(o_raw).strip() == '':
+                    o_val = 99
+                else:
+                    o_val = int(float(o_raw))
+            except:
+                o_val = 99
+            if c:
+                ordem_map[c] = o_val
 
     codigos_pausa = []
     if not df_codigos.empty and 'tipo' in df_codigos.columns:
@@ -230,6 +260,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         info['ordem'] = ordem_maq
         info['setor'] = setor
         
+        # Puxa o Ícone do Setor para esse Card
+        info['icone_b64'] = icones_dict.get(setor, None)
+        
         operadores_maq = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == maq and str(u.get('setor', '')).strip() == setor and u.get('ativo') == True]
         info['setor_exibicao'] = f"{setor} / {' / '.join(operadores_maq)}" if operadores_maq else setor
         operadores_texto = " / ".join(operadores_maq) if operadores_maq else "Sem Operador"
@@ -249,6 +282,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             info['tipo_registro'] = tipo_parada
             info['descricao_completa'] = f"{desc} ({cod})"
             info['is_pausa'] = str(cod).strip() in codigos_pausa
+            info['ordem_card'] = ordem_map.get(str(cod).strip(), 99) if cod else 99
             
             if info['is_pausa']:
                 maquinas_pausas.append(info)
@@ -264,6 +298,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         elif status_maq == 'Produzindo':
             info['tipo_registro'] = 'PRODUÇÃO'
             qtd_rodando += 1
+            info['ordem_card'] = ordem_map.get('P', 99) # Ordem para Produção
+            
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo, html_progresso = "Peça Desconhecida", ""
             
@@ -330,11 +366,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         else:
             info['tipo_registro'] = 'LIVRE'
             qtd_livres += 1
+            info['ordem_card'] = 99
             
-            # --- AUTO CORES PARA INTERVALO ---
-            # Se a máquina estiver Livre (sem operador / aguardando) e for hora do almoço/intervalo,
-            # altera a cor visual para "NÃO CONTA" (Amarelo) para comunicação visual no mapa de chão de fábrica,
-            # mantendo os números no topo contando como "Livre".
             is_intervalo = False
             if m_as_min <= agora_min < t_das_min: is_intervalo = True
             elif lm_das_min >= 0 and lm_as_min >= 0 and lm_das_min <= agora_min < lm_as_min: is_intervalo = True
@@ -362,21 +395,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         info['minutos_acumulados_bd'] = minutos_acumulados_bd
         mapa_visual_dict[setor].append({"maquina": maq, "maquina_fmt": maq_formatada, "ordem": ordem_maq, "operadores": operadores_texto, "tipo": info['tipo_registro']})
 
-    # --- FILTRO DOS CRONÔMETROS GIGANTES ---
-    # Junta as máquinas que tem problemas reais, pausas ou produção
+    # --- O FILTRO SUPREMO DOS CARDS (Ocultação por Ordem 0) ---
     cards_brutos = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
     cards_exibicao = []
-    
-    # Remove as ocorrências "00" (Almoço) e "000" (Fim do Expediente) da lista de exibição grande
     for p in cards_brutos:
-        cod_oco = str(p.get('cod_ocorrencia', '')).strip()
-        if cod_oco in ['00', '000']:
+        # Se a Ordem definida no banco/excel for 0, o card desaparece da tela.
+        if p.get('ordem_card', 99) == 0:
             continue
         cards_exibicao.append(p)
 
+    # A Ordenação Universal (Do menor para o maior na Ordem Cards)
+    cards_exibicao = sorted(cards_exibicao, key=lambda x: (x.get('ordem_card', 99), x.get('setor', ''), x.get('ordem', 99)))
+
     perc_rodando = (qtd_rodando / total_maq_atual) * 100 if total_maq_atual > 0 else 0
 
-    # MAPEAMENTO DOS CRONÔMETROS PARA O JS (Usa apenas a lista já filtrada)
     lista_js_timers = []
     for p in cards_exibicao:
         p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()

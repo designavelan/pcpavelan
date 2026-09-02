@@ -42,7 +42,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 total_cards = len(ctx['cards_exibicao'])
                 max_row = ctx['max_cards_row']
                 
-                # A Matemática da Divisão Equilibrada
                 num_linhas = math.ceil(total_cards / max_row) if total_cards > 0 else 1
                 base_cards = total_cards // num_linhas
                 resto = total_cards % num_linhas
@@ -70,8 +69,13 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
                         cor_card = get_color(tipo_reg)
                         
-                        # Removida a limitação rígida de 180px para que o flex-grow preencha a linha inteira simetricamente
                         html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card}; min-width: 150px;' data-tipo='{tipo_reg}'>"
+                        
+                        # Injeção Inteligente da Imagem/Ícone do Setor no Canto Superior Direito
+                        icone_b64 = p.get('icone_b64')
+                        if icone_b64:
+                            html_cards += f"<img src='data:image/png;base64,{icone_b64}' style='position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; object-fit: contain; opacity: 0.7; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));' />"
+                        
                         html_cards += "<div>" 
                         html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
                         html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina_fmt']}</div>"

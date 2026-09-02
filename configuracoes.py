@@ -298,6 +298,13 @@ def renderizar_estrutura():
     df_est = banco.obter_estrutura_completa()
     supa = banco.conectar()
     
+    # Busca ícones genéricos (Base64)
+    try:
+        resp_img = supa.table("imagens_base64").select("nome, imagem_base64").eq("aplicacao", "Ícone de Setor").execute()
+        icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data} if resp_img.data else {}
+    except:
+        icones_dict = {}
+    
     st.markdown("#### 🛤️ Ordem do Fluxo de Produção (Roteamento)")
     st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequência cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
     
@@ -420,6 +427,13 @@ def renderizar_estrutura():
             e_setor = st.text_input("Renomear Setor", value=setor_ant)
             e_maq = st.text_input("Renomear Máquina", value=maq_ant)
             
+            st.markdown(f"#### 🖼️ Ícone do Setor ({setor_ant})")
+            icone_atual = icones_dict.get(setor_ant)
+            if icone_atual:
+                st.markdown(f"<div style='margin-bottom:10px;'><img src='data:image/png;base64,{icone_atual}' style='width: 50px; height: 50px; object-fit: contain; border-radius: 8px; background: #ecf0f1; padding: 5px; border: 1px solid #bdc3c7;'></div>", unsafe_allow_html=True)
+            
+            up_icone = st.file_uploader("Enviar/Substituir Ícone (PNG c/ Fundo Transparente)", type=['png'], key=f"up_ic_{id_est}")
+            
             st.markdown("#### ⚙️ Status da Máquina no Sistema")
             e_ativo = st.toggle("🟢 Máquina Ativa e Visível", value=val_ativo_ant, key=f"ativo_{id_est}")
             if not e_ativo:
@@ -432,17 +446,31 @@ def renderizar_estrutura():
                     mudou_nome = (e_setor.strip() != setor_ant or e_maq.strip() != maq_ant)
                     mudou_dupla = (e_dupla != val_dupla_ant)
                     mudou_ativo = (e_ativo != val_ativo_ant)
+                    mudou_icone = (up_icone is not None)
                     
-                    if mudou_nome or mudou_dupla or mudou_ativo:
-                        with st.spinner("Atualizando todo o sistema (Isso pode levar alguns segundos)..."):
+                    if mudou_nome or mudou_dupla or mudou_ativo or mudou_icone:
+                        with st.spinner("Atualizando todo o sistema..."):
                             try:
                                 if mudou_nome:
                                     banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
+                                    # Se o setor mudou de nome, renomeia o ícone no banco para não perder a referência!
+                                    res_ic = supa.table("imagens_base64").select("id").eq("aplicacao", "Ícone de Setor").eq("nome", setor_ant).execute()
+                                    if res_ic.data:
+                                        supa.table("imagens_base64").update({"nome": e_setor.strip()}).eq("id", res_ic.data[0]['id']).execute()
                                 
                                 supa.table("estrutura_fabrica").update({
                                     "permite_producao_dupla": e_dupla,
                                     "ativo": e_ativo
                                 }).eq("id", id_est).execute()
+                                
+                                if mudou_icone:
+                                    b64 = base64.b64encode(up_icone.getvalue()).decode()
+                                    nome_setor_salvar = e_setor.strip()
+                                    res_ic = supa.table("imagens_base64").select("id").eq("aplicacao", "Ícone de Setor").eq("nome", nome_setor_salvar).execute()
+                                    if res_ic.data:
+                                        supa.table("imagens_base64").update({"imagem_base64": b64}).eq("id", res_ic.data[0]['id']).execute()
+                                    else:
+                                        supa.table("imagens_base64").insert({"aplicacao": "Ícone de Setor", "nome": nome_setor_salvar, "imagem_base64": b64}).execute()
                                 
                                 st.cache_data.clear()
                                 st.success("✅ Estrutura atualizada com sucesso!")
