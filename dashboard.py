@@ -56,7 +56,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if h > 0: return f"{h}:{m:02d}h"
         return f"{m}m"
 
-    # CSS Global: ZERANDO BORDAS LATERAIS E FORÇANDO LARGURA TOTAL
+    # CSS Global: Responsividade e Bordas Zeradas
     st.markdown("""
     <style>
     ::-webkit-scrollbar { display: none; }
@@ -64,10 +64,18 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         max-width: 100% !important; 
         padding-top: 1rem !important; 
         padding-bottom: 5rem !important; 
-        padding-left: 1rem !important; /* Pequeno espaçamento lateral esquerdo */
-        padding-right: 1rem !important; /* Pequeno espaçamento lateral direito */
+        padding-left: 1rem !important; 
+        padding-right: 1rem !important; 
     }
     header[data-testid="stHeader"] { display: none !important; }
+    
+    /* MÁGICA DA RESPONSIVIDADE E MARGEM NEGATIVA */
+    @media (min-width: 1024px) {
+        .pull-up { margin-top: -32px !important; }
+    }
+    @media (max-width: 1023px) {
+        .pull-up { margin-top: 0px !important; }
+    }
     
     /* CSS DOS CRONÔMETROS */
     .grid-dash { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; }
@@ -90,8 +98,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     ordem_c2_str = mem_dict.get('ordem_dash_col2', 'Chão de Fábrica,Cronômetros de Parada,Desempenho da Fábrica')
     todas_vazias = True if mem_dict.get('abrev_todas_vazias', 'False') == 'True' else False
     
-    # Lendo a largura da Coluna 1 da memória (Padrão 33%)
+    # Parâmetros Numéricos Salvos
     largura_col1 = int(mem_dict.get('dash_largura_col1', 33))
+    max_cards_row = int(mem_dict.get('dash_max_cards_row', 7))
 
     refresh_segundos = int(cfg.get('ao_vivo_refresh', 60))
     tempo_critico = int(cfg.get('ao_vivo_critico', 15))
@@ -244,13 +253,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             
             if info['is_pausa']:
                 maquinas_pausas.append(info)
-                icone_mapa = "☕"
             else:
                 maquinas_paradas_criticas.append(info)
-                if tipo_parada == 'ROTINA': icone_mapa = "🟠"
-                elif tipo_parada == 'RETRABALHO': icone_mapa = "🟢"
-                else: icone_mapa = "🔴"
-                
                 try:
                     h_ini = datetime.strptime(info['hora_inicio'], "%Y-%m-%d %H:%M:%S")
                     if h_ini.date() == agora.date():
@@ -261,7 +265,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         elif status_maq == 'Produzindo':
             info['tipo_registro'] = 'PRODUÇÃO'
             qtd_rodando += 1
-            icone_mapa = "🟢"
             cod_peca = info.get('cod_peca_atual')
             nome_peca_completo, html_progresso = "Peça Desconhecida", ""
             
@@ -328,7 +331,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         else:
             info['tipo_registro'] = 'LIVRE'
             qtd_livres += 1
-            icone_mapa = "🔵"
             
         minutos_acumulados_bd = 0
         if not df_hoje.empty and info.get('tipo_registro') not in ['LIVRE', 'A REALIZAR']:
@@ -346,7 +348,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         if is_turno and not is_lanche: minutos_acumulados_bd += 1
                             
         info['minutos_acumulados_bd'] = minutos_acumulados_bd
-        mapa_visual_dict[setor].append({"maquina": maq, "maquina_fmt": maq_formatada, "ordem": ordem_maq, "operadores": operadores_texto, "tipo": info['tipo_registro'], "icone": icone_mapa})
+        mapa_visual_dict[setor].append({"maquina": maq, "maquina_fmt": maq_formatada, "ordem": ordem_maq, "operadores": operadores_texto, "tipo": info['tipo_registro']})
 
     cards_exibicao = maquinas_paradas_criticas + maquinas_pausas + maquinas_produzindo
     perc_rodando = (qtd_rodando / total_maq_atual) * 100 if total_maq_atual > 0 else 0
@@ -394,18 +396,12 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     h_perdido, m_perdido = int(total_perdido_hoje // 60), int(total_perdido_hoje % 60)
     
     vol_corte_un = 0
-    vol_corte_m2 = 0.0
     if not df_hoje.empty and not df_produtos.empty:
         df_corte_hoje = df_hoje[(df_hoje['setor'].astype(str).str.strip().str.upper() == 'CORTE') & (df_hoje['tipo'].astype(str).str.strip().str.upper() == 'PRODUÇÃO')]
         for _, r in df_corte_hoje.iterrows():
             qtd = pd.to_numeric(r.get('quantidade', 0), errors='coerce')
             if pd.isna(qtd): qtd = 0
             vol_corte_un += int(qtd)
-            f_prod = df_produtos[df_produtos['cod'].astype(str) == str(r.get('cod_peca', '')).strip()]
-            if not f_prod.empty:
-                comp = pd.to_numeric(f_prod.iloc[0].get('comp', 0), errors='coerce')
-                larg = pd.to_numeric(f_prod.iloc[0].get('larg', 0), errors='coerce')
-                if pd.notna(comp) and pd.notna(larg): vol_corte_m2 += (comp / 1000.0) * (larg / 1000.0) * qtd
 
     for p in maquinas_paradas_criticas: noticias.append(f"🔴 [{p['setor']}] {p['maquina']} parada: {p['descricao_completa']}")
     for p in maquinas_pausas: noticias.append(f"☕ [{p['setor']}] {p['maquina']}: {p['descricao_completa']}")
@@ -489,7 +485,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         return None
 
     produto_em_corte = None
-    
     for maq_info in maquinas_produzindo:
         if str(maq_info.get('setor', '')).strip().upper() == 'CORTE':
             prod_agora = maq_info.get('ultimo_produto_sel')
@@ -500,10 +495,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     if not produto_em_corte and not df_nuvem_operacao.empty:
         df_corte_recentes = df_nuvem_operacao[df_nuvem_operacao['setor'].astype(str).str.strip().str.upper() == 'CORTE']
         if not df_corte_recentes.empty:
-            if 'id' in df_corte_recentes.columns: 
-                df_corte_recentes = df_corte_recentes.sort_values('id', ascending=False)
-            else: 
-                df_corte_recentes = df_corte_recentes.iloc[::-1]
+            if 'id' in df_corte_recentes.columns: df_corte_recentes = df_corte_recentes.sort_values('id', ascending=False)
+            else: df_corte_recentes = df_corte_recentes.iloc[::-1]
             for _, row in df_corte_recentes.iterrows():
                 cod_peca = str(row.get('cod_peca', '')).strip()
                 prod_nome = None
@@ -637,19 +630,18 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         'perc_rodando': perc_rodando, 'qtd_rodando': qtd_rodando, 'total_maq_atual': total_maq_atual,
         'maquinas_paradas_criticas': maquinas_paradas_criticas, 'maquinas_pausas': maquinas_pausas, 'qtd_livres': qtd_livres,
         'h_perdido': h_perdido, 'm_perdido': m_perdido, 'top_ofensor': top_ofensor, 'mttr_str': mttr_str,
-        'vol_corte_un': vol_corte_un, 'vol_corte_m2': vol_corte_m2, 'df_plot': df_plot,
+        'vol_corte_un': vol_corte_un, 'df_plot': df_plot,
         'hora_inicio_turno': hora_inicio_turno, 'hora_fim_turno': hora_fim_turno,
         'produtos_para_exibir': produtos_para_exibir, 'html_ops': html_ops,
         'setores_ordenados': setores_ordenados, 'mapa_visual_dict': mapa_visual_dict,
         'html_ultimas_pecas_setor': html_ultimas_pecas_setor, 'cards_exibicao': cards_exibicao,
         'df_desemp': df_desemp, 'ordem_maquinas_chart': ordem_maquinas_chart, 'altura_dinamica_desemp': altura_dinamica_desemp,
-        'lista_js_timers': lista_js_timers
+        'lista_js_timers': lista_js_timers, 'max_cards_row': max_cards_row
     }
 
     # ==========================================
     # DESENHO DA TELA (COLUNAS AJUSTÁVEIS)
     # ==========================================
-    # Usa a proporção selecionada (Ex: 33 e 67) com "small" gap para remover espaços mortos
     col_esq, col_dir = st.columns([largura_col1, 100 - largura_col1], gap="small")
     
     with col_esq: dashboard_coluna_1.renderizar_coluna_1(ctx, ordem_c1_str.split(','))
@@ -666,14 +658,21 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     """, unsafe_allow_html=True)
 
     with st.expander("🛠️ Organizar Layout do Dashboard"):
-        st.markdown("<p style='font-size:13px; color:#7f8c8d; margin-top:-10px;'>Personalize as colunas da tela principal.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:13px; color:#7f8c8d; margin-top:-10px;'>Personalize as colunas e a distribuição visual da tela principal.</p>", unsafe_allow_html=True)
         opcoes_c1 = ["Status da Produção", "Resumo de Indicadores", "Evolução (Ao Vivo)", "Em Corte Agora", "Status das OPs"]
         opcoes_c2 = ["Chão de Fábrica", "Cronômetros de Parada", "Desempenho da Fábrica"]
         
-        st.markdown("#### 📐 Proporção das Colunas")
-        nova_largura_col1 = st.slider("Largura da Coluna 1 (%)", min_value=20, max_value=50, value=largura_col1, step=1)
-        st.markdown(f"<div style='margin-top:-10px; margin-bottom:15px; font-size:12px; color:#7f8c8d;'>A Coluna 2 preencherá os <b>{100 - nova_largura_col1}%</b> restantes automaticamente.</div>", unsafe_allow_html=True)
+        c_layout1, c_layout2 = st.columns(2)
+        with c_layout1:
+            st.markdown("#### 📐 Proporção das Colunas")
+            nova_largura_col1 = st.slider("Largura da Coluna 1 (%)", min_value=20, max_value=50, value=largura_col1, step=1)
+            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:#7f8c8d;'>A Coluna 2 preencherá os <b>{100 - nova_largura_col1}%</b> restantes.</div>", unsafe_allow_html=True)
+        with c_layout2:
+            st.markdown("#### ⏱️ Cronômetros de Parada")
+            nova_max_cards = st.slider("Limite Máximo de Cards por Linha", min_value=4, max_value=10, value=max_cards_row, step=1)
+            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:#7f8c8d;'>O sistema usará matemática para distribuir o excedente.</div>", unsafe_allow_html=True)
         
+        st.markdown("<br>", unsafe_allow_html=True)
         col_org_1, col_org_2 = st.columns(2)
         with col_org_1:
             n_ordem_c1 = st.multiselect("Ordem Coluna 1 (Esquerda)", opcoes_c1, default=[x for x in ordem_c1_str.split(',') if x in opcoes_c1])
@@ -692,6 +691,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     upsert_memoria("ordem_dash_col1", ",".join(n_ordem_c1))
                     upsert_memoria("ordem_dash_col2", ",".join(n_ordem_c2))
                     upsert_memoria("dash_largura_col1", str(nova_largura_col1))
+                    upsert_memoria("dash_max_cards_row", str(nova_max_cards))
                     st.success("✅ Layout salvo! Recarregue a página (F5) para aplicar a nova proporção.")
                     st.rerun()
                 except Exception as e:
@@ -699,7 +699,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             else:
                 st.warning("⚠️ Você precisa adicionar todos os elementos antes de salvar para não esconder nenhum indicador.")
 
-    # Injeção JS Limpa e Conectada
     json_timers = json.dumps(ctx['lista_js_timers'])
     js_engine = f"""
     <script>

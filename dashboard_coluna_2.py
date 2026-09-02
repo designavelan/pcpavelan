@@ -1,17 +1,18 @@
 import streamlit as st
 import altair as alt
+import math
 
 def renderizar_coluna_2(ctx, ordem_elementos, get_color):
     primeiro = True
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
         
-        # O segredo: Subir agressivamente apenas o primeiro bloco impresso na coluna
-        mt = "-32px" if primeiro else "0px"
+        # A Mágica do CSS no arquivo 2
+        mt_class = "pull-up" if primeiro else ""
         
         if elemento == "Chão de Fábrica":
             if ctx['mapa_visual_dict']:
-                html_mapa = f"<div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; margin-top: {mt}; align-items: stretch;'>"
+                html_mapa = f"<div class='{mt_class}' style='display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; align-items: stretch;'>"
                 
                 for setor in ctx['setores_ordenados']:
                     maquinas_lista = ctx['mapa_visual_dict'][setor]
@@ -22,7 +23,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                     for m in sorted(maquinas_lista, key=lambda x: (x['ordem'], x['maquina'])):
                         cor_fundo = get_color(m['tipo'])
                         html_mapa += f"<div style='background: {cor_fundo}; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;'>"
-                        # Ícone removido da linha abaixo para um visual mais limpo
                         html_mapa += f"<span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{m['maquina_fmt']}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px; white-space:nowrap; margin-left:5px;'>{m['operadores']}</span></div>"
                     html_mapa += "</div>"
                     
@@ -39,35 +39,60 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
 
         elif elemento == "Cronômetros de Parada":
             if ctx['cards_exibicao']:
-                html_cards = f"<div class='grid-dash' style='margin-top: {mt};'>"
-                for p in ctx['cards_exibicao']:
-                    p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
-                    tipo_reg = p.get('tipo_registro', 'LIVRE')
-                    desc_completa = p.get('descricao_completa', '')
-                    is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
-                    cor_card = get_color(tipo_reg)
-                    
-                    html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card};' data-tipo='{tipo_reg}'>"
-                    html_cards += "<div>" 
-                    html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
-                    html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina_fmt']}</div>"
-                    html_cards += f"<div style='font-size:11px; min-height:34px; line-height:1.2; overflow:hidden; margin-bottom:4px; display:flex; flex-direction:column; justify-content:center;'>{desc_completa}</div>"
-                    html_cards += p.get('html_progresso', '')
-                    html_cards += "</div>" 
-                    
-                    if is_fim_expediente: html_cards += f"<div style='font-size:14px; font-weight:bold; background:rgba(0,0,0,0.2); border-radius:5px; margin-top:auto; padding: 15px 0; text-transform:uppercase;'>Turno Encerrado</div>"
+                total_cards = len(ctx['cards_exibicao'])
+                max_row = ctx['max_cards_row']
+                
+                # A Matemática da Divisão Equilibrada
+                num_linhas = math.ceil(total_cards / max_row) if total_cards > 0 else 1
+                base_cards = total_cards // num_linhas
+                resto = total_cards % num_linhas
+                
+                cards_por_linha = []
+                for i in range(num_linhas):
+                    if i < resto:
+                        cards_por_linha.append(base_cards + 1)
                     else:
-                        html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
-                        html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
+                        cards_por_linha.append(base_cards)
+                        
+                idx_atual = 0
+                
+                for i_linha, qtd in enumerate(cards_por_linha):
+                    chunk = ctx['cards_exibicao'][idx_atual : idx_atual + qtd]
+                    idx_atual += qtd
+                    
+                    current_mt_class = mt_class if (i_linha == 0) else ""
+                    html_cards = f"<div class='grid-dash {current_mt_class}'>"
+                    
+                    for p in chunk:
+                        p_id = f"{p['setor']}_{p['maquina']}".replace(" ", "_").replace("/", "_").strip()
+                        tipo_reg = p.get('tipo_registro', 'LIVRE')
+                        desc_completa = p.get('descricao_completa', '')
+                        is_fim_expediente = ('FIM DO EXPEDIENTE' in tipo_reg.upper() or 'FIM DO EXPEDIENTE' in desc_completa.upper())
+                        cor_card = get_color(tipo_reg)
+                        
+                        # Removida a limitação rígida de 180px para que o flex-grow preencha a linha inteira simetricamente
+                        html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card}; min-width: 150px;' data-tipo='{tipo_reg}'>"
+                        html_cards += "<div>" 
+                        html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
+                        html_cards += f"<div style='font-size:18px; font-weight:900; margin-bottom:5px;'>{p['maquina_fmt']}</div>"
+                        html_cards += f"<div style='font-size:11px; min-height:34px; line-height:1.2; overflow:hidden; margin-bottom:4px; display:flex; flex-direction:column; justify-content:center;'>{desc_completa}</div>"
+                        html_cards += p.get('html_progresso', '')
+                        html_cards += "</div>" 
+                        
+                        if is_fim_expediente: html_cards += f"<div style='font-size:14px; font-weight:bold; background:rgba(0,0,0,0.2); border-radius:5px; margin-top:auto; padding: 15px 0; text-transform:uppercase;'>Turno Encerrado</div>"
+                        else:
+                            html_cards += f"<div id='timer_{p_id}' style='font-size:24px; font-weight:bold; font-family:monospace; background:rgba(0,0,0,0.2); border-radius:5px 5px 0 0; margin-top:auto; padding: 6px 0 2px 0;'>00:00:00</div>"
+                            html_cards += f"<div id='sub_timer_{p_id}' style='font-size:11px; font-style:italic; opacity:0.85; background:rgba(0,0,0,0.2); border-radius:0 0 5px 5px; padding: 0 0 6px 0; margin-top:0px;'>Calculando...</div>"
+                        html_cards += "</div>"
                     html_cards += "</div>"
-                html_cards += "</div>"
-                st.markdown(html_cards, unsafe_allow_html=True)
+                    st.markdown(html_cards, unsafe_allow_html=True)
+                    
                 primeiro = False
 
         elif elemento == "Desempenho da Fábrica":
             if not ctx['df_desemp'].empty:
                 if primeiro:
-                    st.markdown(f"<div style='margin-top: {mt};'></div>", unsafe_allow_html=True)
+                    st.markdown("<div class='pull-up'></div>", unsafe_allow_html=True)
                     primeiro = False
                     
                 expr_horas = "floor(datum.value / 60) > 0 ? floor(datum.value / 60) + ':' + (datum.value % 60 < 10 ? '0' : '') + (datum.value % 60) + 'm' : (datum.value % 60) + 'm'"

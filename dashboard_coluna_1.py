@@ -8,11 +8,11 @@ def renderizar_coluna_1(ctx, ordem_elementos):
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
         
-        # O segredo: Puxa o primeiro elemento que renderizar na tela para cima agressivamente (-32px)
-        mt = "-32px" if primeiro else "0px"
+        # A Mágica do CSS: Puxa para cima APENAS no computador, ignora no celular
+        mt_class = "pull-up" if primeiro else ""
         
         if elemento == "Status da Produção":
-            html_hero = f"""<div style="margin-top: {mt}; background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; border-radius: 10px; padding: 20px 10px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); margin-bottom: 15px;">
+            html_hero = f"""<div class="{mt_class}" style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; border-radius: 10px; padding: 20px 10px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); margin-bottom: 15px;">
             <div style="font-size: 16px; text-transform: uppercase; letter-spacing: 2px; color: #bdc3c7; font-weight: 700; margin-bottom: 5px;">Status da Produção</div>
             <div style="font-size: 65px; font-weight: 900; line-height: 1; margin-bottom: 5px; color: #2ecc71;">{ctx['perc_rodando']:.0f}%</div>
             <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; margin-top: 15px;">
@@ -30,7 +30,7 @@ def renderizar_coluna_1(ctx, ordem_elementos):
 
         elif elemento == "Resumo de Indicadores":
             if primeiro:
-                st.markdown(f"<div style='margin-top: {mt};'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='pull-up'></div>", unsafe_allow_html=True)
                 primeiro = False
                 
             c1, c2, c3, c4 = st.columns(4)
@@ -57,7 +57,7 @@ def renderizar_coluna_1(ctx, ordem_elementos):
 
         elif elemento == "Evolução (Ao Vivo)":
             if primeiro:
-                st.markdown(f"<div style='margin-top: {mt};'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='pull-up'></div>", unsafe_allow_html=True)
                 primeiro = False
                 
             ticks_x = []
@@ -77,13 +77,11 @@ def renderizar_coluna_1(ctx, ordem_elementos):
 
         elif elemento == "Em Corte Agora":
             if ctx['produtos_para_exibir']:
-                html_corte_agora = f"<div style='margin-top: {mt};'>"
+                html_corte_agora = f"<div class='{mt_class}'>"
                 for p in ctx['produtos_para_exibir']:
                     is_concluido = p['perc'] >= 99.9 or p['prod'] >= p['meta']
                     cor_barra = "#27ae60" if is_concluido else "#f39c12" 
                     html_corte_agora += f"<div style='margin-bottom: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #eaeaea; box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>"
-                    
-                    # Unificado na mesma linha conforme solicitado
                     html_corte_agora += f"<div style='font-size: 16px; font-weight: 900; color: #2c3e50; margin-bottom: 10px; line-height: 1.1; text-align: center; text-transform: uppercase;'>🪚 Cortando agora: {p['nome']}</div>"
                     
                     if is_concluido: html_corte_agora += "<div style='text-align: center; margin-bottom: 12px;'><span style='color:#27ae60; font-size:12px; font-weight:bold; background:#eafaf1; padding:4px 8px; border-radius:4px;'>✅ Lote Concluído no Corte</span></div>"
@@ -97,6 +95,6 @@ def renderizar_coluna_1(ctx, ordem_elementos):
         elif elemento == "Status das OPs":
             if ctx['html_ops']:
                 if primeiro:
-                    st.markdown(f"<div style='margin-top: {mt};'></div>", unsafe_allow_html=True)
+                    st.markdown("<div class='pull-up'></div>", unsafe_allow_html=True)
                     primeiro = False
                 st.markdown(ctx['html_ops'], unsafe_allow_html=True)
