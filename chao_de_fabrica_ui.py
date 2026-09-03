@@ -9,11 +9,13 @@ def injetar_css_global():
         div[data-testid="stTabs"] { margin-top: -15px; }
         footer { display: none !important; }
         #MainMenu { visibility: hidden; }
+        
         /* Oculta os inputs do JavaScript para não piscarem na tela */
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_codigo_js_int"]),
         div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js"]),
-        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]) {
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_int"]),
+        div[data-testid="stElementContainer"]:has(input[aria-label="input_qtd_js_macro"]) {
             position: absolute !important; left: -9999px !important; width: 0px !important; height: 0px !important; overflow: hidden !important; border: none !important; margin: 0 !important; padding: 0 !important;
         }
         div[data-testid="stElementContainer"]:has(iframe[height="0"]) {
@@ -24,6 +26,13 @@ def injetar_css_global():
         button[data-baseweb="tab"] { font-size: 20px !important; font-weight: 800 !important; padding: 20px 25px !important; }
         div[data-testid="stRadio"] label { padding: 5px 15px; cursor: pointer; font-size: 18px !important; }
         ::-webkit-scrollbar { display: none; }
+        
+        /* Regra UX: Esconde os botões de + e - dos campos numéricos nativos (caso usados) */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        input[type="number"] { -moz-appearance: textfield; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -47,16 +56,18 @@ def injetar_css_kanban():
         </style>
     """, unsafe_allow_html=True)
 
-def injetar_js_botoes():
+def injetar_js_botoes(nome_btn_macro=""):
     """Formata e infla os botões de ação e bloqueia o teclado nos selects."""
-    js_cores = """
+    js_cores = f"""
     <script>
-        setInterval(() => {
+        setInterval(() => {{
+            const nomeMacro = `{nome_btn_macro.upper()}`;
             const btns = window.parent.document.querySelectorAll('button');
-            btns.forEach(btn => {
+            btns.forEach(btn => {{
                 const texto = btn.innerText ? btn.innerText.toUpperCase() : "";
                 
-                if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ FINALIZAR REGISTRO' || texto === '✅ FINALIZAR INTERVALO') {
+                // Mapeamento Dinâmico do Botão Rápido (MACRO) -> Azul Destacado
+                if (nomeMacro !== "" && texto === nomeMacro) {{
                     btn.style.setProperty('min-height', '90px', 'important');
                     btn.style.setProperty('height', 'auto', 'important');
                     btn.style.setProperty('padding', '15px 10px', 'important');
@@ -65,17 +76,36 @@ def injetar_js_botoes():
                     btn.style.setProperty('border-radius', '12px', 'important');
                     btn.style.setProperty('white-space', 'normal', 'important');
                     btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
+                    if (!btn.disabled) {{
+                        btn.style.setProperty('background-color', '#2980b9', 'important');
+                        btn.style.setProperty('border-color', '#2980b9', 'important');
+                        btn.style.setProperty('color', 'white', 'important');
+                    }} else {{
+                        btn.style.setProperty('background-color', '#ecf0f1', 'important');
+                        btn.style.setProperty('border-color', '#bdc3c7', 'important');
+                        btn.style.setProperty('color', '#95a5a6', 'important');
+                    }}
+                }}
+                else if(texto.includes('▶️ INICIAR:') || texto === '💾 CONFIRMAR E SALVAR' || texto === '✅ FINALIZAR (CONCLUÍDO)' || texto === '✅ FINALIZAR REGISTRO' || texto === '✅ FINALIZAR INTERVALO' || texto === '💾 CONFIRMAR E FINALIZAR') {{
+                    btn.style.setProperty('min-height', '90px', 'important');
+                    btn.style.setProperty('height', 'auto', 'important');
+                    btn.style.setProperty('padding', '15px 10px', 'important');
+                    btn.style.setProperty('font-size', '22px', 'important');
+                    btn.style.setProperty('font-weight', '900', 'important');
+                    btn.style.setProperty('border-radius', '12px', 'important');
+                    btn.style.setProperty('white-space', 'normal', 'important');
+                    btn.style.setProperty('line-height', '1.3', 'important');
+                    if (!btn.disabled) {{
                         btn.style.setProperty('background-color', '#27ae60', 'important');
                         btn.style.setProperty('border-color', '#27ae60', 'important');
                         btn.style.setProperty('color', 'white', 'important');
-                    } else {
+                    }} else {{
                         btn.style.setProperty('background-color', '#ecf0f1', 'important');
                         btn.style.setProperty('border-color', '#bdc3c7', 'important');
                         btn.style.setProperty('color', '#95a5a6', 'important');
-                    }
-                }
-                else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 INTERROMPER (POR FALHA)' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {
+                    }}
+                }}
+                else if(texto === '🔴 CONFIRMAR PARADA' || texto === '🔴 FINALIZAR E PARAR' || texto === '🔴 CONFIRMAR INTERRUPÇÃO') {{
                     btn.style.setProperty('min-height', '90px', 'important');
                     btn.style.setProperty('height', 'auto', 'important');
                     btn.style.setProperty('padding', '15px 10px', 'important');
@@ -84,17 +114,17 @@ def injetar_js_botoes():
                     btn.style.setProperty('border-radius', '12px', 'important');
                     btn.style.setProperty('white-space', 'normal', 'important');
                     btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
+                    if (!btn.disabled) {{
                         btn.style.setProperty('background-color', '#c0392b', 'important');
                         btn.style.setProperty('border-color', '#c0392b', 'important');
                         btn.style.setProperty('color', 'white', 'important');
-                    } else {
+                    }} else {{
                         btn.style.setProperty('background-color', '#ecf0f1', 'important');
                         btn.style.setProperty('border-color', '#bdc3c7', 'important');
                         btn.style.setProperty('color', '#95a5a6', 'important');
-                    }
-                }
-                else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {
+                    }}
+                }}
+                else if(texto.includes('CANCELAR PRODUÇÃO (ERRO') || texto.includes('CANCELAR PARADA (ERRO')) {{
                     btn.style.setProperty('min-height', '90px', 'important');
                     btn.style.setProperty('height', 'auto', 'important');
                     btn.style.setProperty('padding', '15px 10px', 'important');
@@ -103,27 +133,32 @@ def injetar_js_botoes():
                     btn.style.setProperty('border-radius', '12px', 'important');
                     btn.style.setProperty('white-space', 'normal', 'important');
                     btn.style.setProperty('line-height', '1.3', 'important');
-                    if (!btn.disabled) {
+                    if (!btn.disabled) {{
                         btn.style.setProperty('background-color', '#e67e22', 'important');
                         btn.style.setProperty('border-color', '#e67e22', 'important');
                         btn.style.setProperty('color', 'white', 'important');
-                    }
-                }
-            });
+                    }}
+                }}
+            }});
             
             // BLOQUEIO DO TECLADO NATIVO NOS MENUS DROP-DOWN
             const selects = window.parent.document.querySelectorAll('div[data-baseweb="select"] input');
-            selects.forEach(sel => {
+            selects.forEach(sel => {{
                 sel.setAttribute('inputmode', 'none');
                 sel.readOnly = true;
-            });
+            }});
 
-        }, 300);
+        }}, 300);
     </script>
     """
     components.html(js_cores, height=0)
 
-def obter_html_teclado_qtd(label):
+def obter_html_teclado_qtd(label, default_val="0", auto_clear_first=False):
+    """
+    Teclado numérico com suporte a valor padrão e auto-limpeza no primeiro toque.
+    """
+    auto_clear_js = "true" if auto_clear_first else "false"
+    
     return f"""
     <style>
         body {{ font-family: sans-serif; margin: 0; padding: 10px; }}
@@ -137,7 +172,7 @@ def obter_html_teclado_qtd(label):
         .btn-del {{ color: #e67e22; }}
     </style>
     <div class="lcd">
-        <h2 id="lcd-val" class="lcd-val">0</h2>
+        <h2 id="lcd-val" class="lcd-val">{default_val}</h2>
         <p class="lcd-desc">Peças Produzidas</p>
     </div>
     <div class="grid">
@@ -155,7 +190,9 @@ def obter_html_teclado_qtd(label):
         <button type="button" class="btn-key btn-del" onclick="pressKey('<')">⌫</button>
     </div>
     <script>
-        let currentQty = "";
+        let currentQty = "{default_val}";
+        let autoClear = {auto_clear_js};
+        
         function updateLCD() {{
             const lcdVal = document.getElementById("lcd-val");
             lcdVal.innerText = currentQty === "" ? "0" : currentQty;
@@ -168,15 +205,23 @@ def obter_html_teclado_qtd(label):
             }}
         }}
         function pressKey(k) {{ 
-            if (k === 'C') currentQty = ""; 
-            else if (k === '<') currentQty = currentQty.slice(0, -1); 
-            else currentQty += k; 
+            if (k === 'C') {{ currentQty = ""; autoClear = false; }}
+            else if (k === '<') {{ currentQty = currentQty.slice(0, -1); autoClear = false; }}
+            else {{
+                if (autoClear) {{
+                    currentQty = k; // Apaga o valor padrão no 1º toque e digita o novo
+                    autoClear = false;
+                }} else {{
+                    currentQty += k;
+                }}
+            }}
             
             if (currentQty.length > 1 && currentQty.startsWith("0")) currentQty = currentQty.substring(1);
             if (currentQty.length > 6) currentQty = currentQty.slice(0, 6);
             
             updateLCD(); 
         }}
+        // Garante que o valor inicial já vá pro Python
         setTimeout(updateLCD, 500);
     </script>
     """
@@ -237,7 +282,7 @@ def obter_html_teclado_parada(valid_codes_json, label_input, texto_botao):
     </script>
     """
 
-def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso):
+def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso, nome_btn_macro=""):
     return f"""
     <style>
         body {{ margin: 0; padding: 0; font-family: sans-serif; }}
@@ -253,6 +298,8 @@ def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso)
     </div>
     <script>
         const startTime = new Date("{hora_inicio_iso}").getTime();
+        const nomeMacro = `{nome_btn_macro.upper()}`;
+        
         setInterval(function() {{
             const now = new Date().getTime(); const distance = now - startTime;
             if (distance > 0) {{
@@ -260,7 +307,6 @@ def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso)
                 document.getElementById("stopwatch").innerHTML = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
             }}
             
-            // --- CORREÇÃO BUG 2: Transição Mágica (Automática após 60 seg) ---
             const isLess1Min = distance < 60000;
             const btns = window.parent.document.querySelectorAll('button');
             btns.forEach(btn => {{
@@ -269,7 +315,8 @@ def obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso)
                     let divBtn = btn.closest('div[data-testid="stButton"]');
                     if (divBtn) divBtn.style.display = isLess1Min ? 'block' : 'none';
                 }}
-                if(txt === '✅ FINALIZAR (CONCLUÍDO)' || txt === '🔴 INTERROMPER (POR FALHA)') {{
+                
+                if(txt === '✅ FINALIZAR (CONCLUÍDO)' || txt === '🔴 FINALIZAR E PARAR' || (nomeMacro !== "" && txt === nomeMacro)) {{
                     let colContainer = btn.closest('div[data-testid="column"]');
                     if (colContainer) {{
                         colContainer.style.display = isLess1Min ? 'none' : 'block';

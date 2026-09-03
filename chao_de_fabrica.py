@@ -39,11 +39,10 @@ def cache_obter_estrutura():
     if not df.empty and 'ordem_maquina' not in df.columns:
         df['ordem_maquina'] = 99
     elif df.empty:
-        df = pd.DataFrame(columns=['setor', 'maquina', 'ativo', 'permite_producao_dupla', 'ordem_maquina'])
+        df = pd.DataFrame(columns=['setor', 'maquina', 'ativo', 'permite_producao_dupla', 'habilita_botao_rapido', 'ordem_maquina'])
     return df
 
 def _fmt_maquina(maq_name, df_context, setor_name):
-    """Função invisível para o format_func: Mostra '1: Flex' mas salva 'Flex'"""
     try:
         row = df_context[(df_context['setor'] == setor_name) & (df_context['maquina'] == maq_name)]
         if not row.empty:
@@ -176,6 +175,16 @@ def renderizar(df_nuvem, df_codigos):
     if df_est.empty:
         st.warning("⚠️ Nenhuma estrutura de fábrica cadastrada. Vá na aba Configurações > Estrutura.")
         return
+        
+    try:
+        resp_mem = supa.table("memoria_sistema").select("*").execute()
+        mem_dict = {r['chave']: r['valor'] for r in resp_mem.data} if resp_mem.data else {}
+    except:
+        mem_dict = {}
+
+    nome_btn_macro = mem_dict.get('cf_btn_nome', '📦 FINALIZAR PALLET / MOVIMENTAR')
+    codigo_macro = mem_dict.get('cf_btn_codigo', '12')
+    qtd_padrao_macro = int(mem_dict.get('cf_btn_qtd_padrao', 100))
 
     mapa_cores = banco.obter_mapa_cores()
 
@@ -186,9 +195,6 @@ def renderizar(df_nuvem, df_codigos):
     is_travado = (user_setor != "[ Todos ]" and user_maq != "[ Todas ]" and user_setor != "" and user_maq != "")
     lista_setores_nuvem = sorted(df_est['setor'].dropna().unique().tolist())
 
-    # ==========================================
-    # BLOQUEIO DE SEGURANÇA PARA OPERADORES SEM MÁQUINA VINCULADA
-    # ==========================================
     perfil_atual = usuario.get('perfis_acesso', {})
     is_admin = perfil_atual.get('is_admin', False)
 
@@ -226,7 +232,7 @@ def renderizar(df_nuvem, df_codigos):
                         st.error(f"Erro ao vincular máquina: {e}")
                 else:
                     st.warning("Selecione uma máquina válida para continuar.")
-        return # Sai da função para bloquear o restante da tela
+        return
 
     if is_travado:
         setor_selecionado = user_setor
@@ -250,15 +256,19 @@ def renderizar(df_nuvem, df_codigos):
         ]
         nomes_operadores = " / ".join(operadores_vinculados) if operadores_vinculados else "Sem Operador"
 
-    df_produtos = cache_obter_produtos()
-    produtos_ativos = cache_obter_ativos()
-    is_embalagem = (str(setor_selecionado).strip().upper() == "EMBALAGEM")
-
-    permite_dupla = False
     maq_row = df_est[(df_est['setor'] == setor_selecionado) & (df_est['maquina'] == maquina_selecionada)]
+    permite_dupla = False
+    is_macro_enabled = False
     if not maq_row.empty:
         val_raw = maq_row.iloc[0].get('permite_producao_dupla', False)
         permite_dupla = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
+        
+        val_btn_raw = maq_row.iloc[0].get('habilita_botao_rapido', False)
+        is_macro_enabled = True if str(val_btn_raw).strip().lower() == 'true' or val_btn_raw is True else False
+
+    df_produtos = cache_obter_produtos()
+    produtos_ativos = cache_obter_ativos()
+    is_embalagem = (str(setor_selecionado).strip().upper() == "EMBALAGEM")
 
     hoje_str = logica.obter_hora_atual().strftime("%Y-%m-%d")
     producao_hoje_pecas = {}
@@ -638,7 +648,7 @@ def renderizar(df_nuvem, df_codigos):
 
         hora_inicio_iso = hora_inicio_str.replace(" ", "T") if hora_inicio_str else ""
         
-        ui.components.html(ui.obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso), height=250)
+        ui.components.html(ui.obter_html_cronometro_produzindo(nome_peca, cod_peca_atual, hora_inicio_iso, nome_btn_macro), height=250)
         
         chave_estado_fin = f"fin_estado_{setor_selecionado}_{maquina_selecionada}"
         estado_fin = st.session_state.get(chave_estado_fin, None)
@@ -655,11 +665,17 @@ def renderizar(df_nuvem, df_codigos):
             
             btn_canc = st.button("❌ CANCELAR PRODUÇÃO (Erro de Seleção)", use_container_width=True, key=f"btn_canc_{maquina_selecionada}")
             
+            btn_macro = False
+            if is_macro_enabled:
+                st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
+                btn_macro = st.button(nome_btn_macro, use_container_width=True, type="primary", key=f"btn_macro_{maquina_selecionada}")
+                st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
+            
             c1, c2 = st.columns(2)
             with c1: 
                 btn_fin = st.button("✅ FINALIZAR (Concluído)", use_container_width=True, type="primary", key=f"btn_fin_{maquina_selecionada}")
             with c2: 
-                btn_int = st.button("🔴 INTERROMPER (Por Falha)", use_container_width=True, type="primary", key=f"btn_int_{maquina_selecionada}")
+                btn_int = st.button("🔴 FINALIZAR E PARAR", use_container_width=True, type="primary", key=f"btn_int_{maquina_selecionada}")
 
             if btn_canc:
                 if duracao_calc < 60:
@@ -672,6 +688,13 @@ def renderizar(df_nuvem, df_codigos):
                     st.rerun()
                 else:
                     st.error("⚠️ O período de cancelamento (1 minuto) já foi encerrado.")
+                    
+            if btn_macro:
+                if duracao_calc >= 60:
+                    st.session_state[chave_estado_fin] = "MACRO_PALLET"
+                    st.rerun()
+                else:
+                    st.error("⚠️ Aguarde o período inicial de 1 minuto para finalizar.")
                     
             if btn_fin:
                 if duracao_calc >= 60:
@@ -686,6 +709,46 @@ def renderizar(df_nuvem, df_codigos):
                     st.rerun()
                 else:
                     st.error("⚠️ Aguarde o período inicial de 1 minuto para interromper.")
+
+        # --- A NOVA TELA DO BOTÃO MACRO COM O TECLADO NUMÉRICO ---
+        elif estado_fin == "MACRO_PALLET":
+            with st.form(key=f"form_macro_{setor_selecionado}_{maquina_selecionada}"):
+                st.markdown(f"<div style='font-size: 18px; font-weight: 800; color: #2c3e50; margin:0;'>{nome_btn_macro}</div>", unsafe_allow_html=True)
+                st.markdown("<hr style='opacity: 0.2; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                
+                # Injeta o valor do teclado no input invisível (com o valor inicial configurado)
+                qtd_str_macro = st.text_input("input_qtd_js_macro", value=str(qtd_padrao_macro), label_visibility="collapsed")
+                
+                # Chama o componente enviando o valor padrão e ligando o Auto-Limpar (True)
+                ui.components.html(ui.obter_html_teclado_qtd("input_qtd_js_macro", default_val=str(qtd_padrao_macro), auto_clear_first=True), height=550)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    btn_salvar_macro = st.form_submit_button("💾 CONFIRMAR E FINALIZAR", type="primary", use_container_width=True)
+                with cb2:
+                    btn_cancelar_macro = st.form_submit_button("❌ Cancelar Operação", use_container_width=True)
+                    
+                if btn_salvar_macro:
+                    try: qtd_final = int(qtd_str_macro)
+                    except: qtd_final = 0
+                    
+                    cod_final = codigo_macro.split("-")[0].strip() if codigo_macro else None
+                    
+                    sucesso, msg = logica.salvar_producao(supa, setor_selecionado, maquina_selecionada, nomes_operadores, hora_inicio_str, cod_peca_atual, nome_peca, qtd_final, "Simples", cod_final, df_codigos, df_est)
+                    
+                    st.session_state[chave_estado_fin] = None
+                    st.session_state['tk_counter'] += 1
+                    st.session_state['prod_counter'] = st.session_state.get('prod_counter', 0) + 1
+                    chave_w_p = f"sel_prod_{setor_selecionado}_{maquina_selecionada}"
+                    if chave_w_p in st.session_state: del st.session_state[chave_w_p]
+                    st.cache_data.clear()
+                    st.rerun()
+                    
+                if btn_cancelar_macro:
+                    st.session_state[chave_estado_fin] = None
+                    st.session_state['tk_counter'] += 1
+                    st.rerun()
 
         elif estado_fin == "CONCLUIDO":
             with st.form(key=f"form_conc_{setor_selecionado}_{maquina_selecionada}"):
@@ -989,4 +1052,4 @@ def renderizar(df_nuvem, df_codigos):
             except: st.experimental_set_query_params()
             st.rerun()
 
-    ui.injetar_js_botoes()
+    ui.injetar_js_botoes(nome_btn_macro)

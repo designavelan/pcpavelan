@@ -209,6 +209,14 @@ def renderizar():
 
 def renderizar_config_abas():
     cfg = banco.obter_configuracoes()
+    supa = banco.conectar()
+    
+    try:
+        resp_mem = supa.table("memoria_sistema").select("*").execute()
+        mem_dict = {r['chave']: r['valor'] for r in resp_mem.data} if resp_mem.data else {}
+    except:
+        mem_dict = {}
+        
     m_cronico = cfg.get('mostrar_cronico', True)
     m_especifico = cfg.get('mostrar_especifico', True)
     meta_atual = float(cfg.get('meta_disponibilidade', 85.0))
@@ -224,7 +232,29 @@ def renderizar_config_abas():
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    with st.expander("📦 Aba: Produtos (Integração com Excel)", expanded=True):
+    with st.expander("📱 Aba: Chão de Fábrica", expanded=True):
+        st.markdown("Configure o comportamento e a inteligência da interface do operador.")
+        st.markdown("#### ⚡ Botão Rápido de Fim de Produção (Macro)")
+        st.markdown("<p style='font-size: 13px; color: #7f8c8d; margin-top:-10px;'>Este botão finaliza a produção atual e dispara automaticamente uma parada pré-configurada (ex: Movimentação de Pallet).</p>", unsafe_allow_html=True)
+        
+        cf_nome_atual = mem_dict.get('cf_btn_nome', '📦 FINALIZAR PALLET / MOVIMENTAR')
+        cf_cod_atual = mem_dict.get('cf_btn_codigo', '')
+        cf_qtd_atual = int(mem_dict.get('cf_btn_qtd_padrao', 100))
+        
+        df_codigos = banco.obter_codigos()
+        lista_codigos = []
+        if not df_codigos.empty:
+            df_codigos['display'] = df_codigos['codigo'].astype(str) + " - " + df_codigos['descricao'].astype(str)
+            lista_codigos = df_codigos['display'].tolist()
+            
+        idx_cod = lista_codigos.index(cf_cod_atual) if cf_cod_atual in lista_codigos else 0
+        
+        c_cf1, c_cf2, c_cf3 = st.columns([4, 4, 2])
+        with c_cf1: novo_cf_nome = st.text_input("Nome que aparecerá no botão:", value=cf_nome_atual)
+        with c_cf2: novo_cf_cod = st.selectbox("Código disparado automaticamente:", options=lista_codigos, index=idx_cod)
+        with c_cf3: novo_cf_qtd = st.number_input("Qtd Padrão (Ex: Pallet):", value=cf_qtd_atual, step=10)
+
+    with st.expander("📦 Aba: Produtos (Integração com Excel)"):
         st.markdown("Defina o caminho local da sua planilha **Matriz** para permitir a sincronização automática nos computadores da fábrica.")
         caminho_atual = ler_caminho_matriz()
         
@@ -278,7 +308,6 @@ def renderizar_config_abas():
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Salvar Configurações de Abas e Telas", type="primary"):
         try:
-            supa = banco.conectar()
             dados = {
                 "meta_disponibilidade": nova_meta, "mostrar_cronico": novo_cronico, "mostrar_especifico": novo_especifico,
                 "top_gerais": novo_top_g, "top_individuais": novo_top_i, "perc_individual": novo_perc_i,
@@ -286,6 +315,18 @@ def renderizar_config_abas():
             }
             supa.table("configuracoes").update(dados).eq("id", 1).execute()
             salvar_breakpoints(novo_cel, novo_tab)
+            
+            def upsert_memoria(chave, valor):
+                res = supa.table("memoria_sistema").select("id").eq("chave", chave).execute()
+                if res.data:
+                    supa.table("memoria_sistema").update({"valor": valor}).eq("id", res.data[0]['id']).execute()
+                else:
+                    supa.table("memoria_sistema").insert({"aba": "Chão de Fábrica", "local_aplicacao": "Geral", "chave": chave, "valor": valor}).execute()
+            
+            upsert_memoria('cf_btn_nome', novo_cf_nome)
+            upsert_memoria('cf_btn_codigo', novo_cf_cod)
+            upsert_memoria('cf_btn_qtd_padrao', str(novo_cf_qtd))
+            
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -298,7 +339,6 @@ def renderizar_estrutura():
     df_est = banco.obter_estrutura_completa()
     supa = banco.conectar()
     
-    # Busca ícones genéricos (Base64)
     try:
         resp_img = supa.table("imagens_base64").select("nome, imagem_base64").eq("aplicacao", "Ícone de Setor").execute()
         icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data} if resp_img.data else {}
@@ -386,6 +426,7 @@ def renderizar_estrutura():
         n_setor = st.text_input("Nome do Setor", placeholder="Ex: Montagem")
         n_maq = st.text_input("Nome da Máquina", placeholder="Ex: Esteira 1")
         n_dupla = st.checkbox("Esta máquina permite produção dupla (simultânea)", value=False)
+        n_botao = st.checkbox("✅ Habilitar botão rápido", value=False)
         
         if st.button("💾 Cadastrar Estrutura", type="primary"):
             if n_setor and n_maq:
@@ -393,9 +434,10 @@ def renderizar_estrutura():
                     banco.adicionar_estrutura(n_setor.strip(), n_maq.strip())
                     supa.table("estrutura_fabrica").update({
                         "permite_producao_dupla": n_dupla,
+                        "habilita_botao_rapido": n_botao,
                         "ativo": True 
                     }).eq("setor", n_setor.strip()).eq("maquina", n_maq.strip()).execute()
-                    
+                            
                     st.cache_data.clear()
                     st.success("✅ Máquina cadastrada com sucesso!")
                     st.rerun()
@@ -421,6 +463,9 @@ def renderizar_estrutura():
             val_raw = linha.get('permite_producao_dupla', False)
             val_dupla_ant = True if str(val_raw).strip().lower() == 'true' or val_raw is True else False
             
+            val_botao_raw = linha.get('habilita_botao_rapido', False)
+            val_botao_ant = True if str(val_botao_raw).strip().lower() == 'true' or val_botao_raw is True else False
+            
             val_ativo_raw = linha.get('ativo', True)
             val_ativo_ant = True if str(val_ativo_raw).strip().lower() == 'true' or val_ativo_raw is True else False
             
@@ -440,26 +485,28 @@ def renderizar_estrutura():
                 st.warning("⚠️ Atenção: Esta máquina ficará invisível nos painéis, gráficos e filtros. O histórico continuará salvo no banco de dados.")
                 
             e_dupla = st.checkbox("Esta máquina permite produção dupla (simultânea)", value=val_dupla_ant, key=f"chk_{id_est}")
+            e_botao = st.checkbox("✅ Habilitar botão rápido", value=val_botao_ant, key=f"btn_{id_est}")
             
             if st.button("🔄 Salvar e Atualizar", type="primary"):
                 if e_setor and e_maq:
                     mudou_nome = (e_setor.strip() != setor_ant or e_maq.strip() != maq_ant)
                     mudou_dupla = (e_dupla != val_dupla_ant)
+                    mudou_botao = (e_botao != val_botao_ant)
                     mudou_ativo = (e_ativo != val_ativo_ant)
                     mudou_icone = (up_icone is not None)
                     
-                    if mudou_nome or mudou_dupla or mudou_ativo or mudou_icone:
+                    if mudou_nome or mudou_dupla or mudou_ativo or mudou_icone or mudou_botao:
                         with st.spinner("Atualizando todo o sistema..."):
                             try:
                                 if mudou_nome:
                                     banco.atualizar_estrutura_cascata(id_est, setor_ant, maq_ant, e_setor.strip(), e_maq.strip())
-                                    # Se o setor mudou de nome, renomeia o ícone no banco para não perder a referência!
                                     res_ic = supa.table("imagens_base64").select("id").eq("aplicacao", "Ícone de Setor").eq("nome", setor_ant).execute()
                                     if res_ic.data:
                                         supa.table("imagens_base64").update({"nome": e_setor.strip()}).eq("id", res_ic.data[0]['id']).execute()
                                 
                                 supa.table("estrutura_fabrica").update({
                                     "permite_producao_dupla": e_dupla,
+                                    "habilita_botao_rapido": e_botao,
                                     "ativo": e_ativo
                                 }).eq("id", id_est).execute()
                                 
