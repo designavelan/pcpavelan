@@ -165,7 +165,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if t == 'LIVRE': return '#3498db'
         return '#95a5a6'
 
-    # --- NOVO BLOCO: PUXANDO ÍCONES DO SETOR E DE OCORRÊNCIA NUMA SÓ REQUISIÇÃO ---
     try:
         resp_img = supa.table("imagens_base64").select("nome, aplicacao, imagem_base64").in_("aplicacao", ["Ícone de Setor", "Ícone de Ocorrência"]).execute()
         icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data if r['aplicacao'] == 'Ícone de Setor'} if resp_img.data else {}
@@ -318,7 +317,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             info['is_pausa'] = str(cod).strip() in codigos_pausa
             info['ordem_card'] = ordem_map.get(str(cod).strip(), 99) if cod else 99
             
-            # --- INJETANDO O ÍCONE DA OCORRÊNCIA NA MÁQUINA PARADA ---
             info['icone_ocorrencia_b64'] = icones_oco_dict.get(str(cod).strip(), None)
             
             if info['is_pausa']:
@@ -820,7 +818,15 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         const m = Math.floor((distance % 3600000) / 60000); 
                         const s = Math.floor((distance % 60000) / 1000);
                         const tel = window.parent.document.getElementById("timer_" + p.id);
-                        if (tel) tel.innerHTML = (h<10?"0":"")+h + ":" + (m<10?"0":"")+m + ":" + (s<10?"0":"")+s;
+                        
+                        // NOVA LÓGICA DO CRONÔMETRO: Oculta as horas se for zero e retira zero à esquerda dos minutos
+                        if (tel) {{
+                            if (h > 0) {{
+                                tel.innerHTML = h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+                            }} else {{
+                                tel.innerHTML = m + ":" + (s < 10 ? "0" : "") + s;
+                            }}
+                        }}
                         
                         const subTel = window.parent.document.getElementById("sub_timer_" + p.id);
                         if (subTel) {{

@@ -107,14 +107,14 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         
                         html_cards += f"<div style='margin-top:auto; flex-grow: 1; display:flex; flex-direction:column; align-items:center; justify-content: flex-end; padding-top: 10px;'>"
                         
-                        # Injeta o ícone da Ocorrência usando height dinâmica e width auto baseada no painel
                         if icone_oco_b64:
                             html_cards += f"<div style='width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 8px;'><img src='data:image/png;base64,{icone_oco_b64}' style='width: auto; height: {altura_icone_oco}px; object-fit: contain; opacity: 0.95; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));' /></div>"
                         
                         if is_fim_expediente: 
                             html_cards += f"<div style='font-size:14px; font-weight:bold; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
-                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%; line-height: 1;'>00:00:00</div>"
+                            # AQUI A ALTERAÇÃO DO ESTADO INICIAL
+                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%; line-height: 1;'>0:00</div>"
                             html_cards += f"<div id='sub_timer_{p_id}' style='font-size:12px; font-style:italic; opacity:0.9; text-align: center; width: 100%; margin-top: 2px;'>Calculando...</div>"
                         
                         html_cards += "</div>" # Fecha o novo bloco inferior
