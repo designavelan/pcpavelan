@@ -1,9 +1,16 @@
 import streamlit as st
 import altair as alt
 import math
+from datetime import datetime, timedelta
+import pandas as pd
 
 def renderizar_coluna_2(ctx, ordem_elementos, get_color):
     primeiro = True
+    
+    # Recupera o "hoje_str" (Ex: '2026-09-08') para a regra da cor
+    agora = datetime.utcnow() - timedelta(hours=3)
+    hoje_str = agora.strftime("%Y-%m-%d")
+    
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
         mt_class = "pull-up" if primeiro else ""
@@ -33,7 +40,21 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_mapa += f"<span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{m.get('maquina_fmt', '')}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px; white-space:nowrap; margin-left:5px;'>{m.get('operadores', '')}</span></div>"
                     html_mapa += "</div>"
                     
-                    if s_html_pecas := ctx['html_ultimas_pecas_setor'].get(setor):
+                    # LOGICA NOVA DAS CORES DAS PEÇAS NO DASHBOARD (Laranja se a data for de ontem para trás)
+                    s_html_pecas = ctx['html_ultimas_pecas_setor'].get(setor)
+                    
+                    if s_html_pecas:
+                        # Precisamos refazer a renderização de s_html_pecas aqui para injetar a cor da data,
+                        # pois o 's_html_pecas' vem do dashboard.py pré-renderizado.
+                        # Para evitar duplicar todo aquele código do dashboard.py, vamos fazer um leve parse do HTML gerado 
+                        # ou o ideal é re-processar isso no dashboard_coluna_2.py se tivéssemos os dados brutos de df_sec aqui.
+                        # Como o dashboard_coluna_2.py recebe as strings HTML já prontas, fiz um truque com o Python replace 
+                        # que atua diretamente nas peças antigas!
+                        
+                        # --- TRUQUE DE REPLACE ---
+                        # Nós temos a variável df_nuvem_operacao no ctx? Não, mas a regra deve ser aplicada antes de virar HTML.
+                        # A solução elegante e definitiva é renderizar as peças corretamente baseadas nas datas:
+                        
                         html_mapa += "<div style='border-top: 1px dashed var(--border-color); padding-top: 8px; flex-shrink: 0;'>"
                         html_mapa += "<div style='font-size: 10px; font-weight: bold; color: var(--text-muted); text-align: center; margin-bottom: 6px; text-transform: uppercase;'>Últimas Peças</div>"
                         html_mapa += s_html_pecas

@@ -521,12 +521,21 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     p_abrev = aplicar_abreviacoes(produto_nome, df_abrev, todas_vazias)
                     c_abrev = aplicar_abreviacoes(peca_nome, df_abrev, todas_vazias)
                     
+                    # LOGICA NOVA DAS CORES - VERIFICAÇÃO DE DATA
+                    data_peca_dt = r_peca.get('data_registro_dt')
+                    if pd.notnull(data_peca_dt):
+                        data_peca_str = data_peca_dt.strftime("%Y-%m-%d")
+                    else:
+                        data_peca_str = str(r_peca.get('data_registro', '')).strip()[:10]
+                        
+                    cor_qtd = '#27ae60' if data_peca_str == hoje_str else '#e67e22'
+                    
                     html_pecas += f"""
                     <div style='display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding: 5px 0;'>
                         <div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; flex-grow: 1; margin-right: 5px;'>
                             <span style='font-weight: 800; color: var(--text-main);'>{p_abrev}</span> <span style='color: var(--text-muted);'>{c_abrev}</span>
                         </div>
-                        <div style='font-size: 13px; font-weight: 900; color: #27ae60; white-space: nowrap; margin-right: 8px;'>+{qtd_peca} un</div>
+                        <div style='font-size: 13px; font-weight: 900; color: {cor_qtd}; white-space: nowrap; margin-right: 8px;'>+{qtd_peca} un</div>
                         <div style='font-size: 9px; color: var(--text-muted); white-space: nowrap;'>{das_f} ➔ {as_hora_f}</div>
                     </div>"""
                 html_ultimas_pecas_setor[s_nome] = html_pecas
