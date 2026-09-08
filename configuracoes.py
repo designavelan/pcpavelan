@@ -227,6 +227,9 @@ def renderizar_config_abas():
     ao_vivo_ref = int(cfg.get('ao_vivo_refresh', 60))
     ao_vivo_crit = int(cfg.get('ao_vivo_critico', 15))
     vel_atual = int(cfg.get('ao_vivo_vel_barra', 8))
+    
+    # NOVA VARIÁVEL: Altura do Ícone
+    tamanho_icone_oco = int(mem_dict.get('tamanho_icone_oco', 50))
 
     st.markdown("### 📑 Configurações Específicas por Aba")
     st.markdown("<br>", unsafe_allow_html=True)
@@ -234,7 +237,6 @@ def renderizar_config_abas():
     with st.expander("📱 Aba: Chão de Fábrica", expanded=True):
         st.markdown("Configure o comportamento e a inteligência da interface do operador.")
         
-        # --- BLOCO 1: BOTÃO MACRO (MOVIMENTAÇÃO DE PALLET) ---
         st.markdown("#### ⚡ Botão Rápido de Fim de Produção (Macro)")
         
         cf_nome_atual = mem_dict.get('cf_btn_nome', '📦 FINALIZAR PALLET / MOVIMENTAR')
@@ -254,7 +256,6 @@ def renderizar_config_abas():
         with c_cf2: novo_cf_cod = st.selectbox("Código disparado automaticamente:", options=lista_codigos, index=idx_cod)
         with c_cf3: novo_cf_qtd = st.number_input("Qtd Padrão (Ex: Pallet):", value=cf_qtd_atual, step=10)
 
-        # --- BLOCO 2: INTERVALO INTELIGENTE ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### ☕ Pausa Programada Inteligente (Lanche / Almoço)")
         
@@ -269,7 +270,6 @@ def renderizar_config_abas():
         with c_int2: novo_cf_pausa_antes = st.number_input("Aparecer quantos min. antes?", value=cf_pausa_antes, min_value=0, step=1)
         with c_int3: novo_cf_pausa_duracao = st.number_input("Ficar visível por (minutos):", value=cf_pausa_duracao, min_value=1, step=1)
 
-        # --- BLOCO 3: TAMANHOS E FONTES ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 📏 Tamanhos e Interface")
         
@@ -325,11 +325,14 @@ def renderizar_config_abas():
         novo_cronico = st.checkbox("Ativar marcação CRÔNICO", value=m_cronico)
         novo_especifico = st.checkbox("Ativar marcação ESPECÍFICO", value=m_especifico)
         
-    # --- NOVO BLOCO: ÍCONES DE OCORRÊNCIA ---
     with st.expander("🛑 Ícones de Ocorrência (Dashboard)"):
         st.markdown("Personalize os cards de parada adicionando um ícone (PNG Transparente) para cada motivo. O ícone aparecerá bem grande no monitor da fábrica para fácil identificação.")
-        df_codigos_oco = banco.obter_codigos()
         
+        st.markdown("#### 📏 Tamanho do Ícone no Dashboard")
+        novo_tamanho_icone = st.slider("Altura do Ícone (A largura se ajusta automaticamente)", min_value=20, max_value=150, value=tamanho_icone_oco, step=5)
+        st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+        
+        df_codigos_oco = banco.obter_codigos()
         if not df_codigos_oco.empty:
             df_codigos_oco['display'] = df_codigos_oco['codigo'].astype(str) + " - " + df_codigos_oco['descricao'].astype(str)
             lista_oco = df_codigos_oco['display'].tolist()
@@ -412,6 +415,8 @@ def renderizar_config_abas():
             upsert_memoria('cf_fonte_cards_sub', str(novo_cf_font_sub))
             upsert_memoria('cf_fonte_cards_crono', str(novo_cf_font_cro))
             
+            upsert_memoria('tamanho_icone_oco', str(novo_tamanho_icone))
+            
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -431,7 +436,7 @@ def renderizar_estrutura():
         icones_dict = {}
     
     st.markdown("#### 🛤️ Ordem do Fluxo de Produção (Roteamento)")
-    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequence cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequência cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
     
     if not df_est.empty:
         if 'ordem_fluxo' not in df_est.columns:

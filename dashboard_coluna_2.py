@@ -3,13 +3,21 @@ import altair as alt
 import math
 from datetime import datetime, timedelta
 import pandas as pd
+import banco
 
 def renderizar_coluna_2(ctx, ordem_elementos, get_color):
     primeiro = True
     
-    # Recupera o "hoje_str" (Ex: '2026-09-08') para a regra da cor
     agora = datetime.utcnow() - timedelta(hours=3)
     hoje_str = agora.strftime("%Y-%m-%d")
+    
+    # Recupera o tamanho personalizado do ícone de ocorrência
+    supa = banco.conectar()
+    try:
+        res_mem = supa.table("memoria_sistema").select("valor").eq("chave", "tamanho_icone_oco").execute()
+        altura_icone_oco = int(res_mem.data[0]['valor']) if res_mem.data else 50
+    except:
+        altura_icone_oco = 50
     
     for elemento in ordem_elementos:
         elemento = str(elemento).strip()
@@ -87,7 +95,6 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         icone_setor_b64 = p.get('icone_b64')
                         icone_oco_b64 = p.get('icone_ocorrencia_b64')
                         
-                        # Ícone do Setor fixo e intocável no canto superior direito
                         if icone_setor_b64:
                             html_cards += f"<img src='data:image/png;base64,{icone_setor_b64}' style='position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; object-fit: contain; opacity: 0.7; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));' />"
                         
@@ -98,17 +105,16 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_cards += p.get('html_progresso', '')
                         html_cards += "</div>" 
                         
-                        # Novo Bloco Agrupado: Ícone da Ocorrência + Cronômetro (ancorados no final do card)
-                        html_cards += f"<div style='margin-top:auto; display:flex; flex-direction:column; align-items:center; padding-top: 10px;'>"
+                        html_cards += f"<div style='margin-top:auto; flex-grow: 1; display:flex; flex-direction:column; align-items:center; justify-content: flex-end; padding-top: 10px;'>"
                         
-                        # Injeta o ícone da Ocorrência centralizado
+                        # Injeta o ícone da Ocorrência usando height dinâmica e width auto baseada no painel
                         if icone_oco_b64:
-                            html_cards += f"<img src='data:image/png;base64,{icone_oco_b64}' style='width: 50px; height: 50px; object-fit: contain; opacity: 0.95; margin-bottom: 8px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));' />"
+                            html_cards += f"<div style='width: 100%; display: flex; justify-content: center; align-items: center; margin-bottom: 8px;'><img src='data:image/png;base64,{icone_oco_b64}' style='width: auto; height: {altura_icone_oco}px; object-fit: contain; opacity: 0.95; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));' /></div>"
                         
                         if is_fim_expediente: 
                             html_cards += f"<div style='font-size:14px; font-weight:bold; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
-                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%;'>00:00:00</div>"
+                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%; line-height: 1;'>00:00:00</div>"
                             html_cards += f"<div id='sub_timer_{p_id}' style='font-size:12px; font-style:italic; opacity:0.9; text-align: center; width: 100%; margin-top: 2px;'>Calculando...</div>"
                         
                         html_cards += "</div>" # Fecha o novo bloco inferior
