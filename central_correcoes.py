@@ -3,8 +3,28 @@ import pandas as pd
 from datetime import datetime
 import banco
 
+# Funções de Cache para evitar que a janela feche
+def set_batch_action(pid, acao, p_data):
+    if "batch_correcoes" not in st.session_state:
+        st.session_state.batch_correcoes = {}
+    st.session_state.batch_correcoes[pid] = (acao, p_data)
+
+def clear_batch_action(pid):
+    if "batch_correcoes" in st.session_state and pid in st.session_state.batch_correcoes:
+        del st.session_state.batch_correcoes[pid]
+
+def marcar_todos_aprovar(pendentes):
+    if "batch_correcoes" not in st.session_state:
+        st.session_state.batch_correcoes = {}
+    for p in pendentes:
+        st.session_state.batch_correcoes[p['id']] = ('aprovar', p)
+
 @st.dialog("⚖️ Central de Correções", width="large")
 def abrir_janela(admin_nome):
+    # Inicia o cache se for a primeira vez que abre
+    if "batch_correcoes" not in st.session_state:
+        st.session_state.batch_correcoes = {}
+        
     st.markdown("### ⚖️ Gestão de Correções de Produção")
     
     tab_pend, tab_recentes, tab_manual = st.tabs(["Fila de Aprovações", "Últimos Apontamentos", "Edição e Exclusão Avançada"])
@@ -16,7 +36,12 @@ def abrir_janela(admin_nome):
         pendentes = banco.obter_solicitacoes_pendentes()
         if not pendentes:
             st.success("🎉 Nenhuma solicitação pendente no momento.")
+            st.session_state.batch_correcoes = {} # Limpa cache se não houver pendentes
         else:
+            # NOVO: BOTÃO APROVAR TODOS
+            col_espaco, col_btn_todos = st.columns([7, 3])
+            col_btn_todos.button("✅ Marcar Todos para Aprovar", on_click=marcar_todos_aprovar, args=(pendentes,), use_container_width=True)
+            
             for p in pendentes:
                 prod_info = p.get('producao_diaria', {})
                 if isinstance(prod_info, list) and len(prod_info) > 0: prod_info = prod_info[0]
@@ -25,7 +50,6 @@ def abrir_janela(admin_nome):
                 setor = prod_info.get('setor', '')
                 maq = prod_info.get('maquina', '')
                 
-                # Pegando as novas variáveis (se existirem)
                 cod_peca_antigo = p.get('cod_peca_antigo')
                 cod_peca_novo = p.get('cod_peca_novo')
                 nome_peca_antigo = p.get('nome_peca_antigo')
@@ -55,21 +79,61 @@ def abrir_janela(admin_nome):
                 if p.get('motivo'):
                     st.info(f"**Motivo:** {p['motivo']}")
                 
-                c1, c2 = st.columns(2)
-                if c1.button("✅ Aprovar e Corrigir", key=f"apr_{p['id']}", type="primary", use_container_width=True):
-                    banco.aprovar_solicitacao(
-                        p['id'], 
-                        p['id_producao'], 
-                        p['qtd_nova'], 
-                        admin_nome,
-                        cod_peca_novo=cod_peca_novo,
-                        nome_peca_novo=nome_peca_novo
-                    )
-                    st.rerun()
-                if c2.button("❌ Recusar Pedido", key=f"rec_{p['id']}", use_container_width=True):
-                    banco.recusar_solicitacao(p['id'], admin_nome)
-                    st.rerun()
+                # ==========================================
+                # LÓGICA DE CACHE (MARCAR PARA APROVAR/RECUSAR)
+                # ==========================================
+                estado_atual = st.session_state.batch_correcoes.get(p['id'], 'pendente')
+                
+                if estado_atual == 'pendente':
+                    c1, c2 = st.columns(2)
+                    # O 'on_click' impede que o modal feche!
+                    c1.button("✅ Aprovar e Corrigir", key=f"apr_{p['id']}", type="primary", use_container_width=True, on_click=set_batch_action, args=(p['id'], 'aprovar', p))
+                    c2.button("❌ Recusar Pedido", key=f"rec_{p['id']}", use_container_width=True, on_click=set_batch_action, args=(p['id'], 'recusar', p))
+                elif isinstance(estado_atual, tuple) and estado_atual[0] == 'aprovar':
+                    c1, c2 = st.columns([7, 3])
+                    c1.success("✅ **Marcado para: Aprovar e Corrigir**")
+                    c2.button("Desfazer", key=f"desf_{p['id']}", use_container_width=True, on_click=clear_batch_action, args=(p['id'],))
+                elif isinstance(estado_atual, tuple) and estado_atual[0] == 'recusar':
+                    c1, c2 = st.columns([7, 3])
+                    c1.error("❌ **Marcado para: Recusar Pedido**")
+                    c2.button("Desfazer", key=f"desf_{p['id']}", use_container_width=True, on_click=clear_batch_action, args=(p['id'],))
+
                 st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
+                
+            # ==========================================
+            # RODAPÉ: BOTÕES GLOBAIS DE APLICAR / CANCELAR
+            # ==========================================
+            acoes_pendentes = len(st.session_state.batch_correcoes)
+            if acoes_pendentes > 0:
+                st.markdown(f"<div style='background-color: #f1f2f6; padding: 20px; border-radius: 8px; border: 2px solid #bdc3c7; text-align: center; margin-top: 20px;'>", unsafe_allow_html=True)
+                st.markdown(f"<h4 style='color: #2c3e50; margin-bottom: 15px;'>💾 Fila de Processamento: {acoes_pendentes} ação(ões) marcada(s)</h4>", unsafe_allow_html=True)
+                
+                c_app, c_can = st.columns(2)
+                
+                if c_app.button("✅ Aplicar Alterações", type="primary", use_container_width=True):
+                    with st.spinner("Processando solicitações..."):
+                        # Executa as ações no banco
+                        for pid, (acao, p_data) in st.session_state.batch_correcoes.items():
+                            if acao == 'aprovar':
+                                banco.aprovar_solicitacao(
+                                    p_data['id'], 
+                                    p_data['id_producao'], 
+                                    p_data['qtd_nova'], 
+                                    admin_nome,
+                                    cod_peca_novo=p_data.get('cod_peca_novo'),
+                                    nome_peca_novo=p_data.get('nome_peca_novo')
+                                )
+                            elif acao == 'recusar':
+                                banco.recusar_solicitacao(p_data['id'], admin_nome)
+                    
+                    st.session_state.batch_correcoes = {}
+                    st.rerun() # O Rerun aqui é o que faz a janela fechar!
+                    
+                if c_can.button("🚫 Cancelar Tudo", use_container_width=True):
+                    st.session_state.batch_correcoes = {}
+                    st.rerun() # O Rerun aqui é o que faz a janela fechar!
+                
+                st.markdown("</div>", unsafe_allow_html=True)
 
     # ==========================================
     # ABA 2: ÚLTIMOS APONTAMENTOS (BUSCA RÁPIDA)
