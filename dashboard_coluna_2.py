@@ -40,21 +40,8 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_mapa += f"<span style='white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{m.get('maquina_fmt', '')}</span><span style='opacity: 0.8; font-weight: normal; font-size: 10px; white-space:nowrap; margin-left:5px;'>{m.get('operadores', '')}</span></div>"
                     html_mapa += "</div>"
                     
-                    # LOGICA NOVA DAS CORES DAS PEÇAS NO DASHBOARD (Laranja se a data for de ontem para trás)
                     s_html_pecas = ctx['html_ultimas_pecas_setor'].get(setor)
-                    
                     if s_html_pecas:
-                        # Precisamos refazer a renderização de s_html_pecas aqui para injetar a cor da data,
-                        # pois o 's_html_pecas' vem do dashboard.py pré-renderizado.
-                        # Para evitar duplicar todo aquele código do dashboard.py, vamos fazer um leve parse do HTML gerado 
-                        # ou o ideal é re-processar isso no dashboard_coluna_2.py se tivéssemos os dados brutos de df_sec aqui.
-                        # Como o dashboard_coluna_2.py recebe as strings HTML já prontas, fiz um truque com o Python replace 
-                        # que atua diretamente nas peças antigas!
-                        
-                        # --- TRUQUE DE REPLACE ---
-                        # Nós temos a variável df_nuvem_operacao no ctx? Não, mas a regra deve ser aplicada antes de virar HTML.
-                        # A solução elegante e definitiva é renderizar as peças corretamente baseadas nas datas:
-                        
                         html_mapa += "<div style='border-top: 1px dashed var(--border-color); padding-top: 8px; flex-shrink: 0;'>"
                         html_mapa += "<div style='font-size: 10px; font-weight: bold; color: var(--text-muted); text-align: center; margin-bottom: 6px; text-transform: uppercase;'>Últimas Peças</div>"
                         html_mapa += s_html_pecas
@@ -97,9 +84,12 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         
                         html_cards += f"<div id='card_{p_id}' class='card-dash' style='background-color: {cor_card}; min-width: 150px;' data-tipo='{tipo_reg}'>"
                         
-                        icone_b64 = p.get('icone_b64')
-                        if icone_b64:
-                            html_cards += f"<img src='data:image/png;base64,{icone_b64}' style='position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; object-fit: contain; opacity: 0.7; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));' />"
+                        icone_setor_b64 = p.get('icone_b64')
+                        icone_oco_b64 = p.get('icone_ocorrencia_b64')
+                        
+                        # Ícone do Setor fixo e intocável no canto superior direito
+                        if icone_setor_b64:
+                            html_cards += f"<img src='data:image/png;base64,{icone_setor_b64}' style='position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; object-fit: contain; opacity: 0.7; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));' />"
                         
                         html_cards += "<div>" 
                         html_cards += f"<div style='font-size:11px; font-weight:bold; opacity:0.9;'>{p.get('setor_exibicao', p['setor'])}</div>"
@@ -108,13 +98,21 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         html_cards += p.get('html_progresso', '')
                         html_cards += "</div>" 
                         
+                        # Novo Bloco Agrupado: Ícone da Ocorrência + Cronômetro (ancorados no final do card)
+                        html_cards += f"<div style='margin-top:auto; display:flex; flex-direction:column; align-items:center; padding-top: 10px;'>"
+                        
+                        # Injeta o ícone da Ocorrência centralizado
+                        if icone_oco_b64:
+                            html_cards += f"<img src='data:image/png;base64,{icone_oco_b64}' style='width: 50px; height: 50px; object-fit: contain; opacity: 0.95; margin-bottom: 8px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));' />"
+                        
                         if is_fim_expediente: 
-                            html_cards += f"<div style='font-size:14px; font-weight:bold; margin-top:auto; padding-top: 15px; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
+                            html_cards += f"<div style='font-size:14px; font-weight:bold; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
-                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; margin-top:auto; padding-top: 12px; text-align: center; width: 100%;'>00:00:00</div>"
+                            html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%;'>00:00:00</div>"
                             html_cards += f"<div id='sub_timer_{p_id}' style='font-size:12px; font-style:italic; opacity:0.9; text-align: center; width: 100%; margin-top: 2px;'>Calculando...</div>"
                         
-                        html_cards += "</div>"
+                        html_cards += "</div>" # Fecha o novo bloco inferior
+                        html_cards += "</div>" # Fecha o card-dash
                     html_cards += "</div>"
                     st.markdown(html_cards, unsafe_allow_html=True)
                     

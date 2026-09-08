@@ -165,11 +165,14 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         if t == 'LIVRE': return '#3498db'
         return '#95a5a6'
 
+    # --- NOVO BLOCO: PUXANDO ÍCONES DO SETOR E DE OCORRÊNCIA NUMA SÓ REQUISIÇÃO ---
     try:
-        resp_img = supa.table("imagens_base64").select("nome, imagem_base64").eq("aplicacao", "Ícone de Setor").execute()
-        icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data} if resp_img.data else {}
+        resp_img = supa.table("imagens_base64").select("nome, aplicacao, imagem_base64").in_("aplicacao", ["Ícone de Setor", "Ícone de Ocorrência"]).execute()
+        icones_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data if r['aplicacao'] == 'Ícone de Setor'} if resp_img.data else {}
+        icones_oco_dict = {r['nome']: r['imagem_base64'] for r in resp_img.data if r['aplicacao'] == 'Ícone de Ocorrência'} if resp_img.data else {}
     except:
         icones_dict = {}
+        icones_oco_dict = {}
 
     ordem_map = {}
     if not df_codigos.empty:
@@ -314,6 +317,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             info['descricao_completa'] = f"{desc} ({cod})"
             info['is_pausa'] = str(cod).strip() in codigos_pausa
             info['ordem_card'] = ordem_map.get(str(cod).strip(), 99) if cod else 99
+            
+            # --- INJETANDO O ÍCONE DA OCORRÊNCIA NA MÁQUINA PARADA ---
+            info['icone_ocorrencia_b64'] = icones_oco_dict.get(str(cod).strip(), None)
             
             if info['is_pausa']:
                 maquinas_pausas.append(info)
@@ -521,7 +527,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     p_abrev = aplicar_abreviacoes(produto_nome, df_abrev, todas_vazias)
                     c_abrev = aplicar_abreviacoes(peca_nome, df_abrev, todas_vazias)
                     
-                    # LOGICA NOVA DAS CORES - VERIFICAÇÃO DE DATA
                     data_peca_dt = r_peca.get('data_registro_dt')
                     if pd.notnull(data_peca_dt):
                         data_peca_str = data_peca_dt.strftime("%Y-%m-%d")

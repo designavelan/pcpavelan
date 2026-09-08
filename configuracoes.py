@@ -6,7 +6,6 @@ import base64
 import json
 import os
 
-# Importando o seu novo módulo externo
 import auditoria_de_apontamentos
 
 def ler_breakpoints():
@@ -102,7 +101,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        opcoes_abas = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -111,7 +110,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        todas_abas_padrao = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -234,8 +233,9 @@ def renderizar_config_abas():
     
     with st.expander("📱 Aba: Chão de Fábrica", expanded=True):
         st.markdown("Configure o comportamento e a inteligência da interface do operador.")
+        
+        # --- BLOCO 1: BOTÃO MACRO (MOVIMENTAÇÃO DE PALLET) ---
         st.markdown("#### ⚡ Botão Rápido de Fim de Produção (Macro)")
-        st.markdown("<p style='font-size: 13px; color: #7f8c8d; margin-top:-10px;'>Este botão finaliza a produção atual e dispara automaticamente uma parada pré-configurada (ex: Movimentação de Pallet).</p>", unsafe_allow_html=True)
         
         cf_nome_atual = mem_dict.get('cf_btn_nome', '📦 FINALIZAR PALLET / MOVIMENTAR')
         cf_cod_atual = mem_dict.get('cf_btn_codigo', '')
@@ -250,9 +250,39 @@ def renderizar_config_abas():
         idx_cod = lista_codigos.index(cf_cod_atual) if cf_cod_atual in lista_codigos else 0
         
         c_cf1, c_cf2, c_cf3 = st.columns([4, 4, 2])
-        with c_cf1: novo_cf_nome = st.text_input("Nome que aparecerá no botão:", value=cf_nome_atual)
+        with c_cf1: novo_cf_nome = st.text_input("Nome do Botão Macro:", value=cf_nome_atual)
         with c_cf2: novo_cf_cod = st.selectbox("Código disparado automaticamente:", options=lista_codigos, index=idx_cod)
         with c_cf3: novo_cf_qtd = st.number_input("Qtd Padrão (Ex: Pallet):", value=cf_qtd_atual, step=10)
+
+        # --- BLOCO 2: INTERVALO INTELIGENTE ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### ☕ Pausa Programada Inteligente (Lanche / Almoço)")
+        
+        cf_cod_int_atual = mem_dict.get('cf_btn_codigo_intervalo', '')
+        idx_cod_int = lista_codigos.index(cf_cod_int_atual) if cf_cod_int_atual in lista_codigos else 0
+        
+        cf_pausa_antes = int(mem_dict.get('cf_btn_pausa_min_antes', 5))
+        cf_pausa_duracao = int(mem_dict.get('cf_btn_pausa_duracao', 10))
+        
+        c_int1, c_int2, c_int3 = st.columns([4, 3, 3])
+        with c_int1: novo_cf_cod_int = st.selectbox("Código para Intervalo/Lanche:", options=[""] + lista_codigos, index=idx_cod_int + 1 if cf_cod_int_atual in lista_codigos else 0)
+        with c_int2: novo_cf_pausa_antes = st.number_input("Aparecer quantos min. antes?", value=cf_pausa_antes, min_value=0, step=1)
+        with c_int3: novo_cf_pausa_duracao = st.number_input("Ficar visível por (minutos):", value=cf_pausa_duracao, min_value=1, step=1)
+
+        # --- BLOCO 3: TAMANHOS E FONTES ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📏 Tamanhos e Interface")
+        
+        cf_font_btn = int(mem_dict.get('cf_fonte_botoes', 22))
+        cf_font_tit = int(mem_dict.get('cf_fonte_cards_tit', 32))
+        cf_font_sub = int(mem_dict.get('cf_fonte_cards_sub', 16))
+        cf_font_cro = int(mem_dict.get('cf_fonte_cards_crono', 55))
+        
+        c_f1, c_f2, c_f3, c_f4 = st.columns(4)
+        with c_f1: novo_cf_font_btn = st.number_input("Fonte Botões (px):", value=cf_font_btn, min_value=10, step=1)
+        with c_f2: novo_cf_font_tit = st.number_input("Fonte Título Card (px):", value=cf_font_tit, min_value=10, step=1)
+        with c_f3: novo_cf_font_sub = st.number_input("Fonte Subtítulo (px):", value=cf_font_sub, min_value=10, step=1)
+        with c_f4: novo_cf_font_cro = st.number_input("Fonte Cronômetro (px):", value=cf_font_cro, min_value=10, step=1)
 
     with st.expander("📦 Aba: Produtos (Integração com Excel)"):
         st.markdown("Defina o caminho local da sua planilha **Matriz** para permitir a sincronização automática nos computadores da fábrica.")
@@ -294,6 +324,52 @@ def renderizar_config_abas():
         st.markdown("Controle de exibição dos alertas de inteligência na tabela de ocorrências:")
         novo_cronico = st.checkbox("Ativar marcação CRÔNICO", value=m_cronico)
         novo_especifico = st.checkbox("Ativar marcação ESPECÍFICO", value=m_especifico)
+        
+    # --- NOVO BLOCO: ÍCONES DE OCORRÊNCIA ---
+    with st.expander("🛑 Ícones de Ocorrência (Dashboard)"):
+        st.markdown("Personalize os cards de parada adicionando um ícone (PNG Transparente) para cada motivo. O ícone aparecerá bem grande no monitor da fábrica para fácil identificação.")
+        df_codigos_oco = banco.obter_codigos()
+        
+        if not df_codigos_oco.empty:
+            df_codigos_oco['display'] = df_codigos_oco['codigo'].astype(str) + " - " + df_codigos_oco['descricao'].astype(str)
+            lista_oco = df_codigos_oco['display'].tolist()
+            
+            sel_oco = st.selectbox("1. Selecione a Ocorrência que deseja ilustrar:", lista_oco)
+            cod_puro = sel_oco.split(" - ")[0].strip()
+            
+            try:
+                res_ic = supa.table("imagens_base64").select("id, imagem_base64").eq("aplicacao", "Ícone de Ocorrência").eq("nome", cod_puro).execute()
+                icone_atual = res_ic.data[0]['imagem_base64'] if res_ic.data else None
+                id_icone = res_ic.data[0]['id'] if res_ic.data else None
+            except:
+                icone_atual = None
+                id_icone = None
+                
+            c_ic1, c_ic2 = st.columns([2, 8])
+            with c_ic1:
+                st.markdown("**Ícone Atual:**")
+                if icone_atual:
+                    st.markdown(f"<div style='margin-top:5px; margin-bottom:10px;'><img src='data:image/png;base64,{icone_atual}' style='width: 70px; height: 70px; object-fit: contain; border-radius: 8px; background: #ecf0f1; padding: 5px; border: 1px solid #bdc3c7;'></div>", unsafe_allow_html=True)
+                    if st.button("🗑️ Remover"):
+                        supa.table("imagens_base64").delete().eq("id", id_icone).execute()
+                        st.rerun()
+                else:
+                    st.info("Sem ícone")
+            with c_ic2:
+                up_oco = st.file_uploader("2. Enviar Novo Ícone (PNG Transparente)", type=['png'], key="up_oco")
+                if st.button("💾 Salvar Ícone de Ocorrência", type="primary", key="btn_save_oco"):
+                    if up_oco:
+                        b64_oco = base64.b64encode(up_oco.getvalue()).decode()
+                        if icone_atual:
+                            supa.table("imagens_base64").update({"imagem_base64": b64_oco}).eq("id", id_icone).execute()
+                        else:
+                            supa.table("imagens_base64").insert({"aplicacao": "Ícone de Ocorrência", "nome": cod_puro, "imagem_base64": b64_oco}).execute()
+                        st.success("✅ Ícone salvo com sucesso! Já aparecerá no Dashboard.")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Selecione um arquivo PNG primeiro.")
+        else:
+            st.info("Nenhum código cadastrado no banco de dados.")
 
     with st.expander("📱 Ajustes de Layout (Celular, Tablet e PC)"):
         st.markdown("Defina os limites de largura (em pixels) para que o sistema organize os gráficos automaticamente.")
@@ -327,6 +403,15 @@ def renderizar_config_abas():
             upsert_memoria('cf_btn_codigo', novo_cf_cod)
             upsert_memoria('cf_btn_qtd_padrao', str(novo_cf_qtd))
             
+            upsert_memoria('cf_btn_codigo_intervalo', novo_cf_cod_int)
+            upsert_memoria('cf_btn_pausa_min_antes', str(novo_cf_pausa_antes))
+            upsert_memoria('cf_btn_pausa_duracao', str(novo_cf_pausa_duracao))
+            
+            upsert_memoria('cf_fonte_botoes', str(novo_cf_font_btn))
+            upsert_memoria('cf_fonte_cards_tit', str(novo_cf_font_tit))
+            upsert_memoria('cf_fonte_cards_sub', str(novo_cf_font_sub))
+            upsert_memoria('cf_fonte_cards_crono', str(novo_cf_font_cro))
+            
             st.success("✅ Configurações salvas com sucesso! Recarregue a página (F5) para aplicar.")
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -346,7 +431,7 @@ def renderizar_estrutura():
         icones_dict = {}
     
     st.markdown("#### 🛤️ Ordem do Fluxo de Produção (Roteamento)")
-    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequência cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 14px; color: #7f8c8d; margin-top: -10px;'>Defina a sequence cronológica dos seus setores. Essa ordem será usada no Painel de OPs para medir o avanço do produto.</p>", unsafe_allow_html=True)
     
     if not df_est.empty:
         if 'ordem_fluxo' not in df_est.columns:
