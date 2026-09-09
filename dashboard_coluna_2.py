@@ -113,12 +113,11 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                         if is_fim_expediente: 
                             html_cards += f"<div style='font-size:14px; font-weight:bold; text-transform:uppercase; text-align: center; width: 100%;'>Turno Encerrado</div>"
                         else:
-                            # AQUI A ALTERAÇÃO DO ESTADO INICIAL
                             html_cards += f"<div id='timer_{p_id}' style='font-size:26px; font-weight:900; font-family:monospace; text-align: center; width: 100%; line-height: 1;'>0:00</div>"
                             html_cards += f"<div id='sub_timer_{p_id}' style='font-size:12px; font-style:italic; opacity:0.9; text-align: center; width: 100%; margin-top: 2px;'>Calculando...</div>"
                         
-                        html_cards += "</div>" # Fecha o novo bloco inferior
-                        html_cards += "</div>" # Fecha o card-dash
+                        html_cards += "</div>" 
+                        html_cards += "</div>" 
                     html_cards += "</div>"
                     st.markdown(html_cards, unsafe_allow_html=True)
                     
@@ -132,7 +131,7 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                     
                 expr_horas = "floor(datum.value / 60) > 0 ? floor(datum.value / 60) + ':' + (datum.value % 60 < 10 ? '0' : '') + (datum.value % 60) + 'm' : (datum.value % 60) + 'm'"
                 
-                chart_domain = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA']
+                chart_domain = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA', 'NÃO APONTADO']
                 chart_range = [ctx['get_color'](t) for t in chart_domain]
                 
                 is_dark = ctx.get('is_dark', False)
@@ -140,32 +139,68 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 grid_color = '#333333' if is_dark else '#eeeeee'
                 names_color = '#ffffff' if is_dark else '#34495e'
                 
-                bars_desemp = alt.Chart(ctx['df_desemp']).mark_bar(size=25).encode(
-                    x=alt.X('duracao:Q', stack='zero', title='Tempo Total Utilizado', axis=alt.Axis(grid=True, labelExpr=expr_horas)),
-                    y=alt.Y('maquina_exibicao:N', sort=ctx['ordem_maquinas_chart'], title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
-                    color=alt.Color('classificacao:N', scale=alt.Scale(domain=chart_domain, range=chart_range), legend=alt.Legend(title="", orient="top", labelFontSize=10, padding=5)),
-                    order=alt.Order('ordem:Q'),
-                    tooltip=[alt.Tooltip('maquina_exibicao:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
+                base = alt.Chart().encode(
+                    y=alt.Y('label_eixo_y:N', 
+                            sort=ctx['ordem_maquinas_chart'], 
+                            title=None, 
+                            axis=alt.Axis(
+                                labels=True,           
+                                ticks=False, 
+                                domain=False,
+                                labelFontWeight='bold',
+                                labelFontSize=12,
+                                labelColor=names_color,
+                                labelLimit=300,
+                                labelExpr="split(datum.value, '&&')",
+                                labelLineHeight=16,
+                                labelPadding=10
+                            )
+                    )
                 )
                 
-                text_desemp = alt.Chart(ctx['df_desemp']).mark_text(align='center', baseline='middle', size=11).encode(
+                bars_desemp = base.mark_bar(size=30).encode(
+                    x=alt.X('duracao:Q', stack='zero', title='Tempo Total Utilizado (Geral)', axis=alt.Axis(grid=True, labelExpr=expr_horas)),
+                    color=alt.Color('classificacao:N', scale=alt.Scale(domain=chart_domain, range=chart_range), legend=alt.Legend(title="", orient="top", labelFontSize=10, padding=5)),
+                    order=alt.Order('ordem:Q'),
+                    tooltip=[
+                        alt.Tooltip('setor_fmt:N', title='Setor'), 
+                        alt.Tooltip('maquina_exibicao:N', title='Máquina'), 
+                        alt.Tooltip('classificacao:N', title='Categoria'), 
+                        alt.Tooltip('tempo_str:N', title='Tempo'), 
+                        alt.Tooltip('pct:Q', title='%', format='.1f')
+                    ]
+                )
+                
+                text_desemp = base.mark_text(align='center', baseline='middle', size=11).encode(
                     x=alt.X('midpos:Q', axis=None),
-                    y=alt.Y('maquina_exibicao:N', sort=ctx['ordem_maquinas_chart'], axis=None),
                     text='label_exibicao:N',
                     color=alt.condition(alt.datum.classificacao == 'ROTINA', alt.value('#2c3e50'), alt.value('white'))
                 )
                 
-                names_desemp = alt.Chart(ctx['df_desemp'][['maquina_exibicao', 'total_maq']].drop_duplicates()).mark_text(
-                    align='left', baseline='bottom', dy=-15, size=11, fontWeight='bold', color=names_color
-                ).encode(
-                    x=alt.value(0),
-                    y=alt.Y('maquina_exibicao:N', sort=ctx['ordem_maquinas_chart'], axis=None),
-                    text='maquina_exibicao:N'
+                # --- RECUPERANDO A VARIÁVEL DE LARGURA DO CONTEXTO ---
+                layer = alt.layer(bars_desemp, text_desemp, data=ctx['df_desemp']).properties(
+                    height=alt.Step(65),
+                    width=ctx.get('largura_grafico', 1000) 
                 )
                 
-                chart_desemp = alt.layer(bars_desemp, text_desemp, names_desemp).properties(
-                    height=ctx['altura_dinamica_desemp'],
-                    background='transparent'
+                chart_desemp = layer.facet(
+                    row=alt.Row('setor_fmt:N', sort=ctx['ordem_setores_chart'], title=None, header=alt.Header(
+                        labelOrient='top',
+                        labelAnchor='start',
+                        labelAngle=0,
+                        labelFontSize=13,
+                        labelFontWeight='bold',
+                        labelColor=names_color,
+                        labelPadding=10,
+                        title=None
+                    )),
+                    spacing=15
+                ).properties(
+                    background='transparent' 
+                ).resolve_scale(
+                    y='independent' 
+                ).configure(
+                    background='transparent' 
                 ).configure_axis(
                     labelFontSize=10, 
                     titleFontSize=11,
@@ -177,6 +212,9 @@ def renderizar_coluna_2(ctx, ordem_elementos, get_color):
                 ).configure_legend(
                     labelColor=chart_font_color,
                     titleColor=chart_font_color
-                ).configure_view(strokeWidth=0)
+                ).configure_view(
+                    strokeWidth=0,
+                    fill='transparent' 
+                )
                 
                 st.altair_chart(chart_desemp, use_container_width=True)

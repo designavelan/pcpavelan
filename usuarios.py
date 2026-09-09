@@ -15,11 +15,12 @@ def renderizar(df_nuvem):
     supa = banco.conectar()
     df_perfis = banco.obter_perfis()
     
-    # ⚠️ LISTA ATUALIZADA: Painel de OPs, Desempenho, Produtos, Caixas e Permissão Virtual da Central
+    # ⚠️ LISTA ATUALIZADA COM AS NOVAS ABAS DE ESTOQUE
     todas_abas_sistema = [
-        "📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", 
+        "👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "🎯 Painel de OPs", 
         "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", 
         "📋 Apontamentos", "🔎 Ocorrências", "📦 Produtos", "📦 Caixas",
+        "📦 App Conferente", "⚖️ Auditoria de Estoque", # <--- ADICIONADO AQUI
         "⚙️ Configurações", "👥 Controle de Acessos", "🔔 Central de Correções", "📺 Dashboard"
     ]
     

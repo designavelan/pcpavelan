@@ -101,7 +101,7 @@ def renderizar():
         up_logo = st.file_uploader("Enviar Nova Logomarca (PNG ou JPG)", type=['png', 'jpg', 'jpeg'])
         
         st.markdown("##### 🖥️ Inicialização e Ordem das Abas")
-        opcoes_abas = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        opcoes_abas = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "📦 App Conferente", "⚖️ Auditoria de Estoque", "⚙️ Configurações", "👥 Controle de Acessos"]
         idx = opcoes_abas.index(aba_padrao_salva) if aba_padrao_salva in opcoes_abas else 1
         
         nova_aba = st.selectbox("Qual tela deve abrir por padrão ao iniciar o sistema?", opcoes_abas, index=idx)
@@ -110,7 +110,7 @@ def renderizar():
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: -10px;'>Se ativado, o sistema abre onde você parou. Se desativado, usa sempre a aba padrão acima.</p>", unsafe_allow_html=True)
         
         st.markdown("<p style='font-size: 13px; color: #666; margin-top: 15px;'>Defina a ordem visual em que as abas vão aparecer da esquerda para a direita:</p>", unsafe_allow_html=True)
-        todas_abas_padrao = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+        todas_abas_padrao = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "📦 App Conferente", "⚖️ Auditoria de Estoque", "⚙️ Configurações", "👥 Controle de Acessos"]
         ordem_str = cfg.get('ordem_abas', None)
         
         if ordem_str:
@@ -228,7 +228,6 @@ def renderizar_config_abas():
     ao_vivo_crit = int(cfg.get('ao_vivo_critico', 15))
     vel_atual = int(cfg.get('ao_vivo_vel_barra', 8))
     
-    # NOVA VARIÁVEL: Altura do Ícone
     tamanho_icone_oco = int(mem_dict.get('tamanho_icone_oco', 50))
 
     st.markdown("### 📑 Configurações Específicas por Aba")
@@ -760,7 +759,7 @@ def renderizar_registro_acessos():
 
 def renderizar_cores():
     st.markdown("### 🎨 Identificação por Cores")
-    st.markdown("Defina as cores globais do sistema para cada Tipo de registro. Essas cores serão aplicadas automaticamente no Chão de Fábrica, Telas Ao Vivo, Gráficos e Relatórios.")
+    st.markdown("Defina as cores globais do sistema para cada Tipo de registro. Estas cores serão aplicadas automaticamente no Chão de Fábrica, Telas Ao Vivo, Gráficos e Relatórios.")
     st.markdown("<hr style='opacity: 0.2;'>", unsafe_allow_html=True)
     
     import banco 
@@ -789,6 +788,51 @@ def renderizar_cores():
             if nova_cor != cor_atual:
                 banco.atualizar_cor(tipo_nome, nova_cor)
                 st.rerun()
+
+    # ==========================================
+    # NOVO BLOCO: ACABAMENTOS DOS PRODUTOS
+    # ==========================================
+    st.markdown("<hr style='opacity: 0.2; margin-top: 40px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    st.markdown("### 🪑 Acabamentos e Cores dos Produtos")
+    st.markdown("Cadastre as cores dos móveis, suas siglas e códigos do ERP. Elas aparecerão no app do conferente na hora de registrar a contagem de estoque.")
+    
+    df_cores_prod = banco.obter_cores_produtos()
+    
+    c_add1, c_add2, c_add3, c_add4 = st.columns([3, 2, 2, 2])
+    with c_add1: n_nome = st.text_input("Nome da Cor (Ex: Freijó / Off White)")
+    with c_add2: n_sigla = st.text_input("Sigla (Ex: FR/OW)")
+    with c_add3: n_cod = st.text_input("Código no ERP (Ex: 05)")
+    with c_add4:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("➕ Cadastrar Cor", type="primary", use_container_width=True):
+            if n_nome and n_sigla:
+                banco.salvar_cor_produto(n_nome.strip(), n_sigla.strip().upper(), n_cod.strip())
+                st.success("✅ Cor cadastrada!")
+                st.rerun()
+            else:
+                st.warning("Preencha Nome e Sigla.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if not df_cores_prod.empty:
+        st.markdown("#### 📋 Cores Cadastradas")
+        for _, row in df_cores_prod.iterrows():
+            id_cor = row['id']
+            ativo = row['ativo']
+            
+            col_info, col_ativ, col_del = st.columns([6, 2, 2])
+            with col_info:
+                st.markdown(f"<div style='background-color: {'#fdfefe' if ativo else '#f4f6f6'}; padding: 12px; border-radius: 5px; border-left: 4px solid {'#2980b9' if ativo else '#95a5a6'}; margin-bottom: 8px;'><b>[{row['cod_cor']}]</b> {row['nome_cor']} <span style='color: #7f8c8d; font-size: 13px;'>({row['sigla']})</span></div>", unsafe_allow_html=True)
+            with col_ativ:
+                novo_status = st.toggle("Ativo", value=ativo, key=f"tgl_{id_cor}")
+                if novo_status != ativo:
+                    banco.atualizar_cor_produto(id_cor, {"ativo": novo_status})
+                    st.rerun()
+            with col_del:
+                if st.button("🗑️ Excluir", key=f"del_{id_cor}", use_container_width=True):
+                    banco.deletar_cor_produto(id_cor)
+                    st.rerun()
+    else:
+        st.info("Nenhuma cor de produto cadastrada ainda.")
 
 def renderizar_auditoria():
     if hasattr(auditoria_de_apontamentos, 'renderizar_auditoria'):

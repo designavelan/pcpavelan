@@ -15,7 +15,8 @@ def formatar_minutos(minutos):
     if h > 0: return f"{h}:{m:02d}h"
     return f"{m}m"
 
-def processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor_filtro, maq_filtro):
+# Motor de processamento aceitando as flags de unificação global
+def processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor_filtro, maq_filtro, unif_prod=False, unif_par=False):
     df = df_nuvem.copy()
     if df.empty or 'data_registro' not in df.columns: return pd.DataFrame()
     
@@ -73,8 +74,64 @@ def processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor_filtr
             df_paradas['classificacao'] = df_paradas['tipo'].astype(str).str.strip().str.upper()
             df_paradas['descricao_falha'] = 'Desconhecido'
             
-        df_paradas = df_paradas[~df_paradas['classificacao'].str.contains('NÃO CONTA|DESCONSIDERAR')]
+        # LÓGICA DE UNIFICAÇÃO GLOBAL (Visual)
+        if unif_prod:
+            df_paradas['classificacao'] = df_paradas['classificacao'].replace({'RETRABALHO': 'PRODUÇÃO'})
+        if unif_par:
+            df_paradas['classificacao'] = df_paradas['classificacao'].replace({'ROTINA': 'PARADA'})
             
+        df_paradas = df_paradas[~df_paradas['classificacao'].str.contains('NÃO CONTA|DESCONSIDERAR')]
+
+        # ==========================================
+        # LÓGICA DE INJEÇÃO DO "NÃO APONTADO"
+        # ==========================================
+        agora = datetime.utcnow() - timedelta(hours=3)
+        hoje_date = agora.date()
+        agora_min = agora.hour * 60 + agora.minute
+
+        min_dia_cheio = 0
+        for m in range(1440):
+            is_t = (m_das_min <= m < m_as_min) or (t_das_min <= m < t_as_min)
+            is_l = (lm_das_min <= m < lm_as_min) or (lt_das_min <= m < lt_as_min)
+            if is_t and not is_l: min_dia_cheio += 1
+
+        min_hoje_ate_agora = 0
+        for m in range(1440):
+            if m >= agora_min: break
+            is_t = (m_das_min <= m < m_as_min) or (t_das_min <= m < t_as_min)
+            is_l = (lm_das_min <= m < lm_as_min) or (lt_das_min <= m < lt_as_min)
+            if is_t and not is_l: min_hoje_ate_agora += 1
+
+        # Agrupa dia a dia por máquina para achar o buraco de apontamento
+        df_totais_dia_maq = df_paradas.groupby(['data_registro', 'data_registro_dt', 'setor', 'maquina'])['duracao'].sum().reset_index()
+        novas_linhas = []
+
+        for _, r in df_totais_dia_maq.iterrows():
+            data_reg = r['data_registro_dt'].date()
+            if data_reg < hoje_date:
+                teto_dia = min_dia_cheio
+            elif data_reg == hoje_date:
+                teto_dia = min_hoje_ate_agora
+            else:
+                teto_dia = 0
+
+            falta = teto_dia - r['duracao']
+            if falta > 0:
+                novas_linhas.append({
+                    'data_registro': r['data_registro'],
+                    'data_registro_dt': r['data_registro_dt'],
+                    'setor': r['setor'],
+                    'maquina': r['maquina'],
+                    'classificacao': 'NÃO APONTADO',
+                    'duracao': falta,
+                    'tipo': 'NÃO APONTADO',
+                    'descricao_falha': 'Tempo sem apontamento no sistema',
+                    'cod_ocorrencia': 'N'
+                })
+
+        if novas_linhas:
+            df_paradas = pd.concat([df_paradas, pd.DataFrame(novas_linhas)], ignore_index=True)
+
     return df_paradas
 
 def calcular_kpis(df_paradas):
@@ -129,6 +186,26 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         st.warning("Selecione um período válido no filtro superior.")
         return
 
+    # --- MAPEAMENTO DE CORES DO SISTEMA ---
+    mapa_cores = banco.obter_mapa_cores()
+    cor_prod = mapa_cores.get('PRODUÇÃO', '#27ae60')
+    cor_ret = mapa_cores.get('RETRABALHO', '#2ecc71')
+    cor_rot = mapa_cores.get('ROTINA', '#f39c12')
+    cor_par = mapa_cores.get('PARADA', '#c0392b')
+    cor_nao = mapa_cores.get('NÃO APONTADO', '#7f8c8d')
+    
+    domain_graficos = ['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA', 'NÃO APONTADO']
+    range_graficos = [cor_prod, cor_ret, cor_rot, cor_par, cor_nao]
+
+    # --- NOVOS FILTROS GLOBAIS DE UNIFICAÇÃO ---
+    st.markdown("##### 🔍 Nível de Detalhamento da Análise")
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        unif_prod_ret = st.checkbox("🟢 Unificar Produção + Retrabalho (Visão: Máquina Trabalhando)", value=False)
+    with col_opt2:
+        unif_par_rot = st.checkbox("🔴 Unificar Rotina + Parada (Visão: Máquina Parada)", value=False)
+    st.markdown("<br>", unsafe_allow_html=True)
+
     is_single_day = (data_de == data_ate)
     qtd_dias = (pd.to_datetime(data_ate) - pd.to_datetime(data_de)).days + 1
 
@@ -143,28 +220,20 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     t_das_min = calcular_minutos_str(t_das)
     t_as_min = calcular_minutos_str(t_as)
 
-    lm_das_min = calcular_minutos_str(cfg.get('lanche_m_das', '')) if cfg.get('lanche_m_das') else -1
-    lm_as_min = calcular_minutos_str(cfg.get('lanche_m_as', '')) if cfg.get('lanche_m_as') else -1
-    lt_das_min = calcular_minutos_str(cfg.get('lanche_t_das', '')) if cfg.get('lanche_t_das') else -1
-    lt_as_min = calcular_minutos_str(cfg.get('lanche_t_as', '')) if cfg.get('lanche_t_as') else -1
-
     altura_graficos = int(banco.obter_memoria_sistema('Análise', 'Geral', 'altura_graficos', 500))
     tamanho_valores = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_valores', 16))
     tamanho_labels = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_labels', 14))
     tamanho_titulos = int(banco.obter_memoria_sistema('Análise', 'Geral', 'tamanho_titulos', 15))
 
-    total_timeline_min = max(1, t_as_min - m_das_min)
-    total_disp_min = total_timeline_min * qtd_dias
-
     expr_horas = "floor(datum.value / 60) > 0 ? floor(datum.value / 60) + ':' + (datum.value % 60 < 10 ? '0' : '') + (datum.value % 60) + 'm' : (datum.value % 60) + 'm'"
 
-    aba_geral, aba_comp = st.tabs(["📊 Visão Geral do Período", "⚖️ Comparativo de Dias"])
+    aba_geral, aba_evo, aba_comp = st.tabs(["📊 Visão Geral do Período", "📈 Evolução do Período", "⚖️ Comparativo de Dias"])
 
     # ==========================================
     # 📊 SUB-ABA 1: VISÃO GERAL
     # ==========================================
     with aba_geral:
-        df_paradas = processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor, maquina)
+        df_paradas = processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor, maquina, unif_prod_ret, unif_par_rot)
         min_total, min_prob, min_rot, mttr, ofensor_prob, ofensor_rot, df_prob, df_rot = calcular_kpis(df_paradas)
         
         # 1. CARDS (KPIS)
@@ -246,11 +315,11 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             st.warning("⚠️ **Múltiplos Dias Selecionados:** A visualização em Linha do Tempo e Evolução foi ocultada. Consulte o consolidado abaixo.")
             st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
 
-        # 3. VISÃO MACRO DA FÁBRICA (OEE) - BARRA ÚNICA EMPILHADA
+        # 3. VISÃO MACRO DA FÁBRICA (OEE)
         st.markdown("### 📊 Visão Macro da Fábrica (Distribuição do Tempo Útil)")
         
         if not df_paradas.empty:
-            df_macro = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO'])].groupby('classificacao')['duracao'].sum().reset_index()
+            df_macro = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO', 'NÃO APONTADO'])].groupby('classificacao')['duracao'].sum().reset_index()
             df_macro = df_macro[df_macro['duracao'] > 0]
             total_macro = df_macro['duracao'].sum()
             
@@ -258,7 +327,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 df_macro['pct'] = (df_macro['duracao'] / total_macro * 100).fillna(0)
                 df_macro['tempo_str'] = df_macro['duracao'].apply(formatar_minutos)
                 
-                # Regra Lógica de Texto: % Arredondada
                 def get_label_macro(row):
                     if row['pct'] >= 8: return f"{row['tempo_str']} ({row['pct']:.1f}%)"
                     elif row['pct'] >= 4: return f"{int(round(row['pct']))}%"
@@ -267,7 +335,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 df_macro['label_exibicao'] = df_macro.apply(get_label_macro, axis=1)
                 
                 df_macro['dummy'] = 'Fábrica'
-                ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4}
+                ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4, 'NÃO APONTADO': 5}
                 df_macro['ordem'] = df_macro['classificacao'].map(ordem_dict)
                 df_macro = df_macro.sort_values('ordem')
                 df_macro['cum_duracao'] = df_macro['duracao'].cumsum()
@@ -277,8 +345,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     x=alt.X('duracao:Q', title='', axis=alt.Axis(labelExpr=expr_horas, grid=False), stack='zero'),
                     y=alt.Y('dummy:N', title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
                     color=alt.Color('classificacao:N', scale=alt.Scale(
-                        domain=['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA'],
-                        range=['#27ae60', '#2ecc71', '#f39c12', '#c0392b'] 
+                        domain=domain_graficos,
+                        range=range_graficos 
                     ), legend=alt.Legend(title="", orient="top", labelFontSize=14, symbolSize=200, padding=10)),
                     order=alt.Order('ordem:Q'),
                     tooltip=[alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
@@ -302,7 +370,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 
                 st.altair_chart(chart_macro, use_container_width=True)
                 
-                # LEGENDA DISCRETA PARA FATIAS PEQUENAS
                 df_macro_small = df_macro[df_macro['pct'] < 4]
                 if not df_macro_small.empty:
                     text_items = [f"<b>{row['classificacao']}</b>: {row['tempo_str']} ({row['pct']:.1f}%)" for _, row in df_macro_small.iterrows()]
@@ -312,7 +379,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         else:
             st.info("Nenhum dado registrado no período.")
 
-        # Criação do Filtro Exclusivo para Ocorrências (Retirando a Produção Limpa dos Paretos de Falhas)
         df_ocorrencias = df_paradas[df_paradas['classificacao'].isin(['PARADA', 'ROTINA', 'RETRABALHO'])]
 
         # 4. GRÁFICO DE PARETO GERAL
@@ -343,7 +409,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             bars_geral = base_geral.mark_bar().encode(
                 color=alt.Color('classificacao:N', scale=alt.Scale(
                     domain=['PARADA', 'RETRABALHO', 'ROTINA'],
-                    range=['#c0392b', '#27ae60', '#f39c12']
+                    range=[cor_par, cor_ret, cor_rot]
                 ), legend=None)
             )
             
@@ -365,19 +431,18 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         else:
             st.write("Nenhuma ocorrência registrada no período.")
 
-        # 5. DESEMPENHO POR MÁQUINA (ESCALA ABSOLUTA COM TEXTO FLUTUANTE)
+        # 5. DESEMPENHO POR MÁQUINA
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
         st.markdown("### 🏭 Desempenho por Máquina")
         
         if not df_paradas.empty:
-            df_desemp = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO'])].groupby(['maquina', 'classificacao'])['duracao'].sum().reset_index()
+            df_desemp = df_paradas[df_paradas['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO', 'NÃO APONTADO'])].groupby(['maquina', 'classificacao'])['duracao'].sum().reset_index()
             df_desemp = df_desemp[df_desemp['duracao'] > 0]
             
             df_desemp['total_maq'] = df_desemp.groupby('maquina')['duracao'].transform('sum')
             df_desemp['pct'] = (df_desemp['duracao'] / df_desemp['total_maq'] * 100).fillna(0)
             df_desemp['tempo_str'] = df_desemp['duracao'].apply(formatar_minutos)
             
-            # Regra Lógica de Texto: % Arredondada no meio
             def get_label_maq(row):
                 if row['pct'] >= 8: return f"{row['tempo_str']} ({row['pct']:.1f}%)"
                 elif row['pct'] >= 4: return f"{int(round(row['pct']))}%" 
@@ -385,33 +450,29 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             
             df_desemp['label_exibicao'] = df_desemp.apply(get_label_maq, axis=1)
             
-            ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4}
+            ordem_dict = {'PRODUÇÃO': 1, 'RETRABALHO': 2, 'ROTINA': 3, 'PARADA': 4, 'NÃO APONTADO': 5}
             df_desemp['ordem'] = df_desemp['classificacao'].map(ordem_dict)
             
-            # Ordenar pela máquina com maior tempo total
             df_desemp = df_desemp.sort_values(by=['total_maq', 'maquina', 'ordem'], ascending=[False, True, True])
             ordem_maquinas_chart = df_desemp[['maquina', 'total_maq']].drop_duplicates().sort_values('total_maq', ascending=False)['maquina'].tolist()
             
             df_desemp['cum_duracao'] = df_desemp.groupby('maquina')['duracao'].cumsum()
             df_desemp['midpos'] = df_desemp['cum_duracao'] - (df_desemp['duracao'] / 2)
             
-            # Altura Dinâmica para manter o respiro perfeito (Cresce conforme novas máquinas são adicionadas)
             qtd_maquinas_grafico = len(ordem_maquinas_chart)
             altura_dinamica = max(150, qtd_maquinas_grafico * 90) 
             
-            # Barras finas com eixo X absoluto (Minutos)
             bars_desemp = alt.Chart(df_desemp).mark_bar(size=35).encode(
                 x=alt.X('duracao:Q', stack='zero', title='Tempo Total Utilizado', axis=alt.Axis(grid=True, labelExpr=expr_horas)),
                 y=alt.Y('maquina:N', sort=ordem_maquinas_chart, title=None, axis=alt.Axis(labels=False, ticks=False, domain=False)),
                 color=alt.Color('classificacao:N', scale=alt.Scale(
-                    domain=['PRODUÇÃO', 'RETRABALHO', 'ROTINA', 'PARADA'],
-                    range=['#27ae60', '#2ecc71', '#f39c12', '#c0392b']
+                    domain=domain_graficos,
+                    range=range_graficos
                 ), legend=alt.Legend(title="", orient="top", labelFontSize=14, padding=10)),
                 order=alt.Order('ordem:Q'),
                 tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
             )
             
-            # Texto da Porcentagem dentro da Barra
             text_desemp = alt.Chart(df_desemp).mark_text(
                 align='center', baseline='middle', size=tamanho_valores
             ).encode(
@@ -422,12 +483,11 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                 tooltip=[alt.Tooltip('maquina:N', title='Máquina'), alt.Tooltip('classificacao:N', title='Categoria'), alt.Tooltip('tempo_str:N', title='Tempo'), alt.Tooltip('pct:Q', title='%', format='.1f')]
             )
             
-            # Nova Camada: O Nome da Máquina Flutuando Acima da Barra
             df_nomes = df_desemp[['maquina', 'total_maq']].drop_duplicates()
             names_desemp = alt.Chart(df_nomes).mark_text(
                 align='left', baseline='bottom', dy=-22, size=tamanho_titulos, fontWeight='bold', color='#34495e'
             ).encode(
-                x=alt.value(0), # Trava o nome sempre no canto esquerdo da tela
+                x=alt.value(0), 
                 y=alt.Y('maquina:N', sort=ordem_maquinas_chart, axis=None),
                 text='maquina:N'
             )
@@ -447,255 +507,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         else:
             st.write("Sem dados de desempenho para o período.")
 
-        # 6. HISTÓRICO INDIVIDUAL (LINHA DO TEMPO) COM CORTES E DETALHES
-        if is_single_day:
-            st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
-            mapa_cores = banco.obter_mapa_cores()
-            def get_color(tipo):
-                t = str(tipo).strip().upper()
-                if t in mapa_cores: return mapa_cores[t]
-                if t == 'PRODUÇÃO': return '#27ae60'
-                if t == 'PARADA': return '#e74c3c'
-                if t == 'ROTINA': return '#e67e22'
-                if t == 'NÃO CONTA': return '#f39c12'
-                if t == 'LIVRE': return '#3498db'
-                if t == 'A REALIZAR': return '#ecf0f1'
-                if t == 'INTERVALO PREVISTO': return '#bdc3c7'
-                if t == 'RETRABALHO': return '#27ae60'
-                return '#95a5a6'
-
-            def get_friendly_name(tipo):
-                t = str(tipo).strip().upper()
-                if t == 'NÃO CONTA': return 'Pausa Registrada'
-                if t == 'PRODUÇÃO': return 'Produzindo'
-                if t == 'PARADA': return 'Indisponível (Parada)'
-                if t == 'ROTINA': return 'Rotina'
-                if t == 'LIVRE': return 'Disponível (Livre)'
-                if t == 'A REALIZAR': return 'A Realizar (Futuro)'
-                if t == 'INTERVALO PREVISTO': return 'Intervalo Previsto'
-                return t.title()
-
-            df_dia_completo = df_nuvem[(df_nuvem['data_registro'] == data_de)].copy()
-            
-            # Carregando códigos para buscar as descrições em tempo real
-            if not df_codigos.empty:
-                df_codigos_temp = df_codigos.copy()
-                df_codigos_temp['codigo'] = df_codigos_temp['codigo'].astype(str).str.strip()
-            else:
-                df_codigos_temp = pd.DataFrame()
-            
-            df_est_total = banco.obter_estrutura()
-            if setor != "[ Todos ]": df_est_total = df_est_total[df_est_total['setor'] == setor]
-            if maquina != "[ Todas ]": df_est_total = df_est_total[df_est_total['maquina'] == maquina]
-            pares_maquinas = df_est_total[['setor', 'maquina']].dropna().drop_duplicates().values.tolist()
-            
-            status_dict = {}
-            if is_hoje:
-                resp_status = supa.table("status_maquinas").select("*").execute()
-                if resp_status.data:
-                    status_dict = {(str(d.get('setor', '')).strip(), str(d.get('maquina', '')).strip()): d for d in resp_status.data}
-
-            setores_dict_timeline = {}
-            for s, m in pares_maquinas:
-                if s not in setores_dict_timeline: setores_dict_timeline[s] = []
-                setores_dict_timeline[s].append(m)
-
-            ordem_setores = {}
-            if 'ordem_fluxo' in df_est_total.columns:
-                for _, row in df_est_total[['setor', 'ordem_fluxo']].dropna().drop_duplicates().iterrows():
-                    try: ordem_setores[str(row['setor']).strip()] = float(row['ordem_fluxo'])
-                    except: pass
-
-            if not df_dia_completo.empty or is_hoje:
-                html_timelines = "<div style='max-width: 1200px; margin: 0 auto;'>"
-                st.markdown(f"<h3 style='text-align: center; color: #2c3e50; text-transform: uppercase; font-weight: 900; margin-bottom: 30px;'>📊 Histórico Individual das Máquinas</h3>", unsafe_allow_html=True)
-
-                pct_as_m = ((m_as_min - m_das_min) / total_timeline_min) * 100
-                pct_das_t = ((t_das_min - m_das_min) / total_timeline_min) * 100
-
-                for s in sorted(setores_dict_timeline.keys(), key=lambda x: (ordem_setores.get(x, 999), x)):
-                    html_timelines += "<div style='margin-bottom: 30px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #eaeaea;'>"
-                    html_timelines += f"<h4 style='color: #7f8c8d; text-transform: uppercase; font-weight: 900; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; font-size: {tamanho_titulos + 2}px;'>🏭 {s}</h4>"
-                    
-                    html_timelines += "<div style='position: relative; height: 25px; color: #7f8c8d; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee;'>"
-                    html_timelines += f"<div style='position: absolute; left: 0%; transform: translateX(0%); top: 0px; font-size: {tamanho_labels}px;'>{m_das}</div>"
-                    
-                    for m in range(total_timeline_min):
-                        curr = m_das_min + m
-                        pct = (m / total_timeline_min) * 100
-                        dist_inicio_m = abs(curr - m_das_min)
-                        dist_fim_m = abs(curr - m_as_min)
-                        dist_inicio_t = abs(curr - t_das_min)
-                        dist_fim_t = abs(curr - t_as_min)
-                        if dist_inicio_m < 15 or dist_fim_m < 15 or dist_inicio_t < 15 or dist_fim_t < 15: continue
-                        if curr % 60 == 0:
-                            h = curr // 60
-                            html_timelines += f"<div style='position: absolute; left: {pct}%; transform: translateX(-50%); font-weight: 500; color: #95a5a6; top: 2px; font-size: {tamanho_labels - 2}px;'>{h}h</div>"
-                        elif curr % 60 == 30:
-                            html_timelines += f"<div style='position: absolute; left: {pct}%; top: 6px; width: 1px; height: 6px; background-color: #bdc3c7;'></div>"
-                    
-                    html_timelines += f"<div style='position: absolute; left: {pct_as_m}%; transform: translateX(-50%); top: 0px; font-size: {tamanho_labels}px;'>{m_as}</div>"
-                    html_timelines += f"<div style='position: absolute; left: {pct_das_t}%; transform: translateX(-50%); top: 0px; font-size: {tamanho_labels}px;'>{t_das}</div>"
-                    html_timelines += f"<div style='position: absolute; left: 100%; transform: translateX(-100%); top: 0px; font-size: {tamanho_labels}px;'>{t_as}</div>"
-                    html_timelines += "</div>"
-
-                    for maq in sorted(setores_dict_timeline[s]):
-                        # A nova timeline salva DUAS informações: Macro Categoria e Descrição Específica
-                        timeline = [('LIVRE', 'Disponível (Livre)')] * total_timeline_min
-                        
-                        for i in range(total_timeline_min):
-                            curr = m_das_min + i
-                            if curr >= m_as_min and curr < t_das_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
-                            elif lm_das_min != -1 and curr >= lm_das_min and curr < lm_as_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
-                            elif lt_das_min != -1 and curr >= lt_das_min and curr < lt_as_min: timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
-                            elif is_hoje and curr > agora_min: timeline[i] = ('A REALIZAR', 'A Realizar (Futuro)')
-                            elif not ((curr >= m_das_min and curr < m_as_min) or (curr >= t_das_min and curr < t_as_min)):
-                                timeline[i] = ('INTERVALO PREVISTO', 'Intervalo Previsto')
-                            
-                        if not df_dia_completo.empty:
-                            maq_records = df_dia_completo[(df_dia_completo['maquina'] == maq) & (df_dia_completo['setor'] == s)]
-                            for _, row in maq_records.iterrows():
-                                if pd.notna(row.get('das')) and pd.notna(row.get('as_hora')):
-                                    inicio = calcular_minutos_str(row['das'])
-                                    fim = calcular_minutos_str(row['as_hora'])
-                                    tipo_reg = str(row.get('tipo', 'PARADA')).strip().upper()
-                                    desc_reg = "Sem Descrição"
-                                    
-                                    if tipo_reg == 'PARADA':
-                                        cod = str(row.get('cod_ocorrencia')).strip()
-                                        if cod and not df_codigos_temp.empty:
-                                            f_cod = df_codigos_temp[df_codigos_temp['codigo'] == cod]
-                                            if not f_cod.empty:
-                                                if 'tipo' in f_cod.columns: tipo_reg = str(f_cod.iloc[0]['tipo']).strip().upper()
-                                                if 'descricao' in f_cod.columns: desc_reg = str(f_cod.iloc[0]['descricao']).strip()
-                                                
-                                    if 'DESCONSIDERAR' in tipo_reg: tipo_reg = 'NÃO CONTA'
-                                    
-                                    if tipo_reg == 'PRODUÇÃO': desc_reg = 'Produzindo'
-                                    elif tipo_reg == 'LIVRE': desc_reg = 'Disponível (Livre)'
-                                    elif tipo_reg == 'NÃO CONTA': desc_reg = 'Pausa Registrada'
-                                    elif desc_reg == "Sem Descrição": desc_reg = tipo_reg.title()
-                                    
-                                    for m in range(inicio, fim):
-                                        idx = m - m_das_min
-                                        if 0 <= idx < total_timeline_min: timeline[idx] = (tipo_reg, desc_reg)
-
-                        if is_hoje:
-                            info_maq = status_dict.get((s, maq), {})
-                            status_atual = info_maq.get('status', 'Livre')
-                            
-                            if status_atual in ['Produzindo', 'Parado']:
-                                try:
-                                    h_ini_obj = datetime.strptime(info_maq['hora_inicio'], "%Y-%m-%d %H:%M:%S")
-                                    if h_ini_obj.date() == agora.date():
-                                        inicio = h_ini_obj.hour * 60 + h_ini_obj.minute
-                                        fim = agora_min + 1 
-                                        
-                                        if status_atual == 'Produzindo': 
-                                            tipo_linha = 'PRODUÇÃO'
-                                            desc_linha = 'Produzindo'
-                                        else:
-                                            c_oco = str(info_maq.get('cod_ocorrencia')).strip()
-                                            tipo_linha = 'PARADA'
-                                            desc_linha = 'Sem Descrição'
-                                            if c_oco and not df_codigos_temp.empty:
-                                                f_cod = df_codigos_temp[df_codigos_temp['codigo'] == c_oco]
-                                                if not f_cod.empty:
-                                                    if 'tipo' in f_cod.columns: tipo_linha = str(f_cod.iloc[0]['tipo']).strip().upper()
-                                                    if 'descricao' in f_cod.columns: desc_linha = str(f_cod.iloc[0]['descricao']).strip()
-                                            if 'DESCONSIDERAR' in tipo_linha: tipo_linha = 'NÃO CONTA'
-                                            if desc_linha == 'Sem Descrição': desc_linha = tipo_linha.title()
-                                            
-                                        for m in range(inicio, fim):
-                                            idx = m - m_das_min
-                                            if 0 <= idx < total_timeline_min: timeline[idx] = (tipo_linha, desc_linha)
-                                except: pass
-
-                        segments = []
-                        if total_timeline_min > 0:
-                            curr_type, curr_desc = timeline[0]
-                            curr_len = 1
-                            for i in range(1, total_timeline_min):
-                                if timeline[i] == (curr_type, curr_desc): curr_len += 1
-                                else:
-                                    segments.append((curr_type, curr_desc, curr_len))
-                                    curr_type, curr_desc = timeline[i]
-                                    curr_len = 1
-                            segments.append((curr_type, curr_desc, curr_len))
-                            
-                        html_timelines += "<div style='margin-bottom: 25px; display: flex; flex-direction: column;'>"
-                        html_timelines += f"<div style='font-size: {tamanho_titulos}px; font-weight: bold; color: #34495e; margin-bottom: 4px; text-transform: uppercase;'>{maq}</div>"
-                        html_timelines += "<div style='display: flex; width: 100%; height: 18px; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.15); margin-bottom: 6px;'>"
-                        
-                        counts_minutos = {}
-                        minutos_nao_conta = 0
-                        for stype, sdesc, slen in segments:
-                            counts_minutos[stype] = counts_minutos.get(stype, 0) + slen
-                            if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype:
-                                minutos_nao_conta += slen
-                                
-                        base_100_util = total_timeline_min - minutos_nao_conta
-                        if base_100_util <= 0: base_100_util = 1 
-                        
-                        for i, (stype, sdesc, slen) in enumerate(segments):
-                            pct = (slen / total_timeline_min) * 100
-                            color = get_color(stype)
-                            
-                            # Formatação exata do Tooltip solicitada com cálculos inteligentes
-                            if stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'A REALIZAR' in stype:
-                                tooltip_text = f"{sdesc} / {formatar_minutos(slen)}"
-                            else:
-                                pct_util = (slen / base_100_util) * 100
-                                tooltip_text = f"{sdesc} / {formatar_minutos(slen)} ({pct_util:.1f}%)"
-                            
-                            # Corte visível e elegante usando borda branca de alta transparência
-                            border_css = "border-right: 1px solid rgba(255,255,255,0.6); box-sizing: border-box;" if i < len(segments)-1 else ""
-                            html_timelines += f"<div style='width: {pct}%; background-color: {color}; {border_css}' title='{tooltip_text}'></div>"
-                            
-                        html_timelines += "</div>"
-                        
-                        itens_conta = []
-                        itens_nao_conta = []
-                        
-                        for stype, slen in counts_minutos.items():
-                            if slen > 0:
-                                tempo_str = formatar_minutos(slen)
-                                color = get_color(stype)
-                                fname = get_friendly_name(stype)
-                                border = "border: 1px solid #ccc;" if color.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
-                                is_nao_conta = (stype == 'INTERVALO PREVISTO' or 'NÃO CONTA' in stype or 'DESCONSIDERAR' in stype)
-                                
-                                if is_nao_conta:
-                                    itens_nao_conta.append(f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> <b style='color: #7f8c8d; font-size: {tamanho_labels}px;'>{fname}:</b> <span style='color: #7f8c8d; font-size: {tamanho_valores}px;'>{tempo_str}</span></div>")
-                                else:
-                                    pct_val = (slen / base_100_util) * 100
-                                    itens_conta.append((slen, f"<div style='display: flex; align-items: center; gap: 4px;'><div style='width:10px; height:10px; background:{color}; border-radius:2px; {border}'></div> <b style='font-size: {tamanho_labels}px;'>{fname}:</b> <span style='font-size: {tamanho_valores}px;'>{tempo_str} ({pct_val:.1f}%)</span></div>"))
-                                    
-                        itens_conta.sort(key=lambda x: x[0], reverse=True)
-                        html_timelines += f"<div style='display: flex; flex-wrap: wrap; gap: 15px; color: #2c3e50;'>"
-                        
-                        for _, html_item in itens_conta: html_timelines += html_item
-                        if itens_nao_conta:
-                            html_timelines += "<div style='border-left: 2px solid #bdc3c7; margin: 0 5px;'></div>"
-                            for html_item in itens_nao_conta: html_timelines += html_item
-                                
-                        html_timelines += "</div></div>" 
-                    html_timelines += "</div>" 
-                
-                tipos_exibicao_legenda = set(['LIVRE', 'PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO', 'NÃO CONTA', 'INTERVALO PREVISTO', 'A REALIZAR'])
-                for k in mapa_cores.keys(): tipos_exibicao_legenda.add(k)
-                
-                html_timelines += f"<div style='display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; font-weight: bold; color: #555; padding-top: 10px; margin-bottom: 20px; font-size: {tamanho_labels}px;'>"
-                for stype in sorted(tipos_exibicao_legenda):
-                    c_hex = get_color(stype)
-                    f_name = get_friendly_name(stype)
-                    border = "border: 1px solid #ccc;" if c_hex.upper() in ["#ECF0F1", "#FFFFFF", "#BDC3C7"] else ""
-                    html_timelines += f"<div style='display: flex; align-items: center; gap: 6px;'><div style='width:14px; height:14px; background:{c_hex}; border-radius:3px; {border}'></div> {f_name}</div>"
-                html_timelines += "</div></div>"
-
-                st.markdown(html_timelines, unsafe_allow_html=True)
-
-        # 7. ANÁLISE DE IMPACTO POR OCORRÊNCIA
+        # 6. HISTÓRICO INDIVIDUAL (LINHA DO TEMPO) E DRILL DOWN DE PARETO
         st.markdown("<hr style='opacity:0.2;'>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center; color: #2c3e50; margin-bottom: 25px;'>🔎 Análise de Impacto por Ocorrência</h3>", unsafe_allow_html=True)
 
@@ -766,12 +578,17 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     
                 with cg2:
                     st.markdown(f"<div style='text-align: center; color: #2c3e50; font-weight: bold; margin-bottom: 10px;'>Evolução Diária</div>", unsafe_allow_html=True)
-                    df_sel['data_curta'] = df_sel['data_registro_dt'].dt.strftime('%d/%m')
-                    agrup_linha = df_sel.groupby(['data_curta', 'maquina'])['duracao'].sum().reset_index()
+                    
+                    dias_pt = {0: 'SEG', 1: 'TER', 2: 'QUA', 3: 'QUI', 4: 'SEX', 5: 'SÁB', 6: 'DOM'}
+                    df_sel['dia_semana'] = df_sel['data_registro_dt'].dt.dayofweek.map(dias_pt)
+                    df_sel['data_curta'] = df_sel['dia_semana'] + " • " + df_sel['data_registro_dt'].dt.strftime('%d/%m')
+                    df_sel['data_pura'] = df_sel['data_registro_dt'].dt.strftime('%Y-%m-%d')
+                    
+                    agrup_linha = df_sel.groupby(['data_pura', 'data_curta', 'maquina'])['duracao'].sum().reset_index()
                     agrup_linha['label'] = agrup_linha['duracao'].apply(formatar_minutos)
                     
                     base_linha = alt.Chart(agrup_linha).encode(
-                        x=alt.X('data_curta:N', title='Data'),
+                        x=alt.X('data_curta:O', title='Data', sort=alt.EncodingSortField(field='data_pura'), axis=alt.Axis(labelAngle=0, labelFontWeight='bold', labelPadding=10)),
                         y=alt.Y('duracao:Q', title='Tempo Gasto', axis=alt.Axis(labelExpr=expr_horas)),
                         color=alt.Color('maquina:N', title='Máquina'),
                         tooltip=['data_curta', 'maquina', 'duracao']
@@ -787,7 +604,72 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             st.info("Nenhuma ocorrência com tempo contabilizado neste período.")
 
     # ==========================================
-    # ⚖️ SUB-ABA 2: COMPARATIVO DE DIAS
+    # 📈 SUB-ABA 2: EVOLUÇÃO DO PERÍODO
+    # ==========================================
+    with aba_evo:
+        c_tit, c_fil = st.columns([6, 4])
+        with c_tit:
+            st.markdown("### 📈 Evolução do Desempenho por Tipo")
+            st.markdown("Acompanhe a tendência do tempo gasto em Produção, Retrabalho, Rotina e Parada ao longo dos dias.")
+        with c_fil:
+            setor_str = "TODOS" if setor == "[ Todos ]" else str(setor).upper()
+            maq_str = "TODAS" if maquina == "[ Todas ]" else str(maquina).upper()
+            st.markdown(f"<div style='text-align: right; color: #2980b9; font-size: 26px; font-weight: 900; margin-top: 10px; letter-spacing: 1px;'>{setor_str} / {maq_str}</div>", unsafe_allow_html=True)
+        
+        df_paradas_evo = processar_dados_periodo(df_nuvem, df_codigos, data_de, data_ate, setor, maquina, unif_prod_ret, unif_par_rot)
+        
+        if not df_paradas_evo.empty:
+            df_evo = df_paradas_evo[df_paradas_evo['classificacao'].isin(['PRODUÇÃO', 'PARADA', 'ROTINA', 'RETRABALHO', 'NÃO APONTADO'])].copy()
+            
+            if not df_evo.empty:
+                dias_pt = {0: 'SEG', 1: 'TER', 2: 'QUA', 3: 'QUI', 4: 'SEX', 5: 'SÁB', 6: 'DOM'}
+                df_evo['dia_semana'] = df_evo['data_registro_dt'].dt.dayofweek.map(dias_pt)
+                df_evo['data_exibicao'] = df_evo['dia_semana'] + " • " + df_evo['data_registro_dt'].dt.strftime('%d/%m')
+                
+                agrup_evo = df_evo.groupby(['data_registro', 'data_exibicao', 'classificacao'])['duracao'].sum().reset_index()
+                agrup_evo = agrup_evo[agrup_evo['duracao'] > 0] 
+                agrup_evo['tempo_str'] = agrup_evo['duracao'].apply(formatar_minutos)
+                
+                base_evo = alt.Chart(agrup_evo).encode(
+                    x=alt.X('data_exibicao:O', title='Dias Selecionados', sort=alt.EncodingSortField(field='data_registro'), axis=alt.Axis(labelAngle=0, labelFontWeight='bold', labelPadding=10)),
+                    y=alt.Y('duracao:Q', title='Tempo Absoluto Consumido', axis=alt.Axis(labelExpr=expr_horas, grid=True)),
+                    color=alt.Color('classificacao:N', scale=alt.Scale(
+                        domain=domain_graficos,
+                        range=range_graficos
+                    ), legend=alt.Legend(title="", orient="top", labelFontSize=14, padding=10)),
+                    tooltip=[
+                        alt.Tooltip('data_exibicao:N', title='Data'),
+                        alt.Tooltip('classificacao:N', title='Categoria'),
+                        alt.Tooltip('tempo_str:N', title='Tempo Total')
+                    ]
+                )
+                
+                lines_evo = base_evo.mark_line(point=True, size=4)
+                
+                text_evo = base_evo.mark_text(
+                    align='center', baseline='bottom', dy=-10, size=tamanho_valores, fontWeight='bold'
+                ).encode(
+                    text='tempo_str:N',
+                    color=alt.condition(alt.datum.classificacao == 'ROTINA', alt.value('#2c3e50'), alt.value('#34495e'))
+                )
+                
+                chart_evo = (lines_evo + text_evo).properties(height=max(450, altura_graficos)).configure_axis(
+                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+                ).configure_legend(
+                    labelFontSize=tamanho_labels, titleFontSize=tamanho_titulos
+                ).configure_view(strokeWidth=0)
+                
+                st.altair_chart(chart_evo, use_container_width=True)
+                
+                if maquina == "[ Todas ]":
+                    st.info("💡 **Atenção:** Como o filtro superior está em '[ Todas ]', os tempos exibidos neste gráfico representam a **SOMA TOTAL** das horas de todas as máquinas do setor. Para avaliar a evolução de um equipamento individual, selecione-o no filtro de Máquina.")
+            else:
+                st.info("Sem dados das categorias principais para gerar a evolução neste período.")
+        else:
+            st.info("Nenhum dado registrado no período.")
+
+    # ==========================================
+    # ⚖️ SUB-ABA 3: COMPARATIVO DE DIAS
     # ==========================================
     with aba_comp:
         st.markdown("### ⚖️ Batalha de Dias")
@@ -800,8 +682,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         str_a = dia_a.strftime('%Y-%m-%d')
         str_b = dia_b.strftime('%Y-%m-%d')
         
-        df_a = processar_dados_periodo(df_nuvem, df_codigos, str_a, str_a, setor, maquina)
-        df_b = processar_dados_periodo(df_nuvem, df_codigos, str_b, str_b, setor, maquina)
+        df_a = processar_dados_periodo(df_nuvem, df_codigos, str_a, str_a, setor, maquina, unif_prod_ret, unif_par_rot)
+        df_b = processar_dados_periodo(df_nuvem, df_codigos, str_b, str_b, setor, maquina, unif_prod_ret, unif_par_rot)
         
         min_tot_a, min_prob_a, _, mttr_a, _, _, _, _ = calcular_kpis(df_a)
         min_tot_b, min_prob_b, _, mttr_b, _, _, _, _ = calcular_kpis(df_b)

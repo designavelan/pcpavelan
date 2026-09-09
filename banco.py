@@ -333,3 +333,91 @@ def obter_memoria_sistema(aba, local_aplicacao, chave, valor_padrao=None):
     except Exception as e:
         print(f"Erro ao obter memoria_sistema: {e}")
         return valor_padrao
+
+# ==========================================
+# MÓDULO: CORES DE PRODUTOS (ACABAMENTOS)
+# ==========================================
+def obter_cores_produtos():
+    """Busca as cores de produtos cadastradas."""
+    supa = conectar()
+    try:
+        resp = supa.table("cores_produtos").select("*").order("nome_cor").execute()
+        return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao buscar cores de produtos: {e}")
+        return pd.DataFrame()
+
+def salvar_cor_produto(nome, sigla, cod):
+    supa = conectar()
+    supa.table("cores_produtos").insert({"nome_cor": nome, "sigla": sigla, "cod_cor": cod, "ativo": True}).execute()
+
+def atualizar_cor_produto(id_cor, dados):
+    supa = conectar()
+    supa.table("cores_produtos").update(dados).eq("id", id_cor).execute()
+
+def deletar_cor_produto(id_cor):
+    supa = conectar()
+    supa.table("cores_produtos").delete().eq("id", id_cor).execute()
+
+# ==========================================
+# MÓDULO: CONFERÊNCIA DE ESTOQUE (WMS)
+# ==========================================
+def salvar_contagem_estoque(operador, produto_formula, nome_cor, sigla_cor, cod_cor, cod_caixa, caixa_nome, quantidade_fisica, observacao):
+    """Salva a contagem cega feita pelo conferente no aplicativo."""
+    supa = conectar()
+    dados = {
+        "operador": operador,
+        "produto_formula": produto_formula,
+        "nome_cor": nome_cor,
+        "sigla_cor": sigla_cor,
+        "cod_cor": cod_cor,
+        "cod_caixa": cod_caixa,
+        "caixa_nome": caixa_nome,
+        "quantidade_fisica": quantidade_fisica,
+        "observacao": observacao,
+        "status": "Pendente"
+    }
+    try:
+        supa.table("conferencia_estoque").insert(dados).execute()
+        return True, "✅ Contagem registrada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao registrar contagem: {e}"
+
+def obter_contagens_pendentes():
+    """Busca todas as contagens que estão aguardando o gestor auditar."""
+    supa = conectar()
+    try:
+        resp = supa.table("conferencia_estoque").select("*").eq("status", "Pendente").order("data_contagem", desc=False).execute()
+        return resp.data if resp.data else []
+    except Exception as e:
+        print(f"Erro ao buscar contagens pendentes: {e}")
+        return []
+
+def auditar_contagem_estoque(id_contagem, auditor, quantidade_sistema, diferenca, motivo_divergencia):
+    """Salva a auditoria feita pelo gestor (cruzando com o ERP)."""
+    supa = conectar()
+    dados = {
+        "status": "Auditado",
+        "data_auditoria": (datetime.utcnow() - timedelta(hours=3)).isoformat(),
+        "auditor": auditor,
+        "quantidade_sistema": quantidade_sistema,
+        "diferenca": diferenca,
+        "motivo_divergencia": motivo_divergencia
+    }
+    try:
+        supa.table("conferencia_estoque").update(dados).eq("id", id_contagem).execute()
+        return True, "✅ Auditoria concluída e salva com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao auditar contagem: {e}"
+
+def obter_historico_conferencia():
+    """Busca o histórico de auditorias concluídas para gerar os gráficos."""
+    supa = conectar()
+    try:
+        resp = supa.table("conferencia_estoque").select("*").eq("status", "Auditado").order("data_auditoria", desc=True).execute()
+        import pandas as pd
+        return pd.DataFrame(resp.data) if resp.data else pd.DataFrame()
+    except Exception as e:
+        print(f"Erro ao buscar histórico de conferência: {e}")
+        import pandas as pd
+        return pd.DataFrame()

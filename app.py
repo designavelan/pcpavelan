@@ -4,6 +4,7 @@ st.set_page_config(page_title="PCP Avelan", page_icon="🏭", layout="wide")
 
 import streamlit.components.v1 as components
 from datetime import datetime, timedelta
+import os
 import banco
 import configuracoes
 import filtros
@@ -14,6 +15,7 @@ import apontamentos
 import backups 
 import plano_acao 
 import chao_de_fabrica
+import modulo_operador
 import ao_vivo 
 import dashboard
 import desempenho
@@ -26,6 +28,7 @@ import central_correcoes
 import assistente_ia
 import analise  
 import capacidade_produtiva
+import conferencia_estoque  
 from streamlit_option_menu import option_menu
 import base64
 
@@ -37,10 +40,7 @@ host = ""
 try: 
     host = st.context.headers.get("Host", "")
 except:
-    try:
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        host = _get_websocket_headers().get("Host", "")
-    except: pass
+    pass
     
 if host and ("localhost" in host.lower() or "127.0.0.1" in host):
     is_local_dev = True
@@ -119,10 +119,12 @@ if 'usuario_logado' not in st.session_state:
 if 'logout_explicito' not in st.session_state:
     st.session_state['logout_explicito'] = False
 
-# 🚀 MÁGICA DO AUTO-LOGIN PARA O DESENVOLVEDOR 
+# 🚀 MÁGICA DO AUTO-LOGIN PARA O DESENVOLVEDOR LENDO O .BAT
 if st.session_state['usuario_logado'] is None and not st.session_state['logout_explicito']:
     if is_local_dev:
-        user_admin = banco.obter_usuario_por_login("admin")
+        # Lê qual usuário o arquivo .bat mandou. Se não mandar nenhum, usa o "admin" padrão.
+        usuario_teste = os.environ.get("DEV_USER", "admin") 
+        user_admin = banco.obter_usuario_por_login(usuario_teste)
         if user_admin:
             st.session_state['usuario_logado'] = user_admin
             st.rerun()
@@ -155,8 +157,9 @@ if st.session_state['usuario_logado'] is None:
     logo_b64 = cfg.get('logo_base64', None)
     if logo_b64:
         st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo_b64}" style="max-height: 80px; margin-bottom: 20px;"></div>', unsafe_allow_html=True)
-    
-    st.markdown(f"<h2 style='text-align: center; color: #2c3e50;'>🏭 {titulo_app}</h2>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<h2 style='text-align: center; color: #2c3e50;'>🏭 {titulo_app}</h2>", unsafe_allow_html=True)
+        
     st.markdown("<p style='text-align: center; color: #7f8c8d; margin-bottom: 30px;'>Acesso Restrito</p>", unsafe_allow_html=True)
     
     with st.form("form_login"):
@@ -253,12 +256,12 @@ df_nuvem = banco.obter_dados_nuvem()
 df_codigos = banco.obter_codigos()
 meta, jornada, m_das, m_as, t_das, t_as = configuracoes.obter_parametros()
 
-todas_abas_padrao = ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "⚙️ Configurações", "👥 Controle de Acessos"]
+todas_abas_padrao = ["👷 Módulo Operador", "📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "💡 Plano de Ação", "📈 Disponibilidade", "📋 Apontamentos", "🔎 Ocorrências", "📊 Análise", "⚡ Capacidade Produtiva", "🤖 Pergunte para a IA", "📦 Produtos", "📦 Caixas", "📦 App Conferente", "⚖️ Auditoria de Estoque", "⚙️ Configurações", "👥 Controle de Acessos"]
 
 if is_admin or abas_permitidas_str.upper() == 'TODAS': abas_usuario = todas_abas_padrao.copy()
 else:
     abas_usuario = [aba for aba in todas_abas_padrao if aba in abas_permitidas_str]
-    if not abas_usuario: abas_usuario = ["📱 Chão de Fábrica"]
+    if not abas_usuario: abas_usuario = ["👷 Módulo Operador"]
 
 ordem_str = cfg.get('ordem_abas', None)
 if ordem_str:
@@ -284,21 +287,24 @@ if st.session_state.aba_atual not in todas_abas: st.session_state.aba_atual = to
 # ==========================================
 # 3. CABEÇALHO GLOBAL CONDICIONAL
 # ==========================================
-if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.aba_atual != "📺 Dashboard":
+# OCULTA O CABEÇALHO PADRÃO NO MÓDULO OPERADOR E DASHBOARD
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "👷 Módulo Operador", "📺 Dashboard"]:
     c1, c2 = st.columns([8, 2.5]) 
     with c1:
         logo_b64 = cfg.get('logo_base64', None)
         if logo_b64:
-            st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{logo_b64}" class="logo-responsiva"><h1 class="titulo-responsivo">{titulo_app}</h1></div>', unsafe_allow_html=True)
+            # Mostra apenas a logo, sem o titulo PCP escrito na frente
+            st.markdown(f'<div class="logo-container"><img src="data:image/png;base64,{logo_b64}" class="logo-responsiva"></div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="logo-container"><h1 class="titulo-responsivo">🏭 {titulo_app}</h1></div>', unsafe_allow_html=True)
+            
     with c2:
         st.markdown(f"<div style='text-align: right; color: #7f8c8d; font-size: 14px; margin-top: 5px; margin-bottom: 8px;'>👤 Olá, <b>{usuario_atual['nome']}</b></div>", unsafe_allow_html=True)
         
         if is_local_dev:
-            col_sino, col_trocar, col_sair = st.columns([2.5, 4.5, 3])
+            col_sino, col_trocar = st.columns([3, 7])
         else:
-            col_sino, col_sair = st.columns([3, 7])
+            col_sino, col_vazia = st.columns([3, 7])
 
         with col_sino:
             tem_acesso_correcoes = is_admin or "🔔 Central de Correções" in abas_permitidas_str
@@ -340,15 +346,6 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.a
                         if str(u_data.get('username')).strip().lower() != str(usuario_atual.get('username')).strip().lower():
                             st.button(f"{u_data['nome']}", key=f"dev_swap_{u_data['username']}", on_click=efetuar_troca, args=(u_data,), use_container_width=True)
 
-        with col_sair:
-            if st.button("🚪 Sair", use_container_width=True):
-                st.session_state.clear() 
-                st.session_state['usuario_logado'] = None
-                st.session_state['logout_explicito'] = True 
-                try: st.query_params.clear()
-                except: st.experimental_set_query_params()
-                st.rerun()
-
     if modo_manutencao:
         st.markdown("""<div style='background-color:#e74c3c; color:white; padding:8px 15px; border-radius:5px; text-align:center; font-weight:bold; margin-top:10px; margin-bottom:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>⚠️ ATENÇÃO: O MODO MANUTENÇÃO ESTÁ ATIVADO. OPERADORES ESTÃO BLOQUEADOS.</div>""", unsafe_allow_html=True)
 
@@ -357,7 +354,7 @@ if st.session_state.aba_atual != "📱 Chão de Fábrica" and st.session_state.a
 # ==========================================
 # 4. APLICAÇÃO E ROTEAMENTO
 # ==========================================
-if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas", "🤖 Pergunte para a IA", "⚡ Capacidade Produtiva"]:
+if st.session_state.aba_atual not in ["📱 Chão de Fábrica", "👷 Módulo Operador", "🔴 Ao Vivo", "📺 Dashboard", "🎯 Painel de OPs", "🏆 Desempenho", "⚙️ Configurações", "👥 Controle de Acessos", "📦 Produtos", "📦 Caixas", "🤖 Pergunte para a IA", "⚡ Capacidade Produtiva", "📦 App Conferente", "⚖️ Auditoria de Estoque"]:
     filtros.renderizar_barra_superior(df_nuvem)
     filtros_selecionados = filtros.obter_filtros_atuais()
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px; opacity: 0.2;'>", unsafe_allow_html=True)
@@ -396,6 +393,7 @@ registrar_heartbeat()
 
 # ROTEADOR DE ABAS
 if st.session_state.aba_atual == "📱 Chão de Fábrica": chao_de_fabrica.renderizar(df_nuvem, df_codigos)
+elif st.session_state.aba_atual == "👷 Módulo Operador": modulo_operador.renderizar(df_nuvem, df_codigos)
 elif st.session_state.aba_atual == "🔴 Ao Vivo": ao_vivo.renderizar(df_nuvem, df_codigos, filtros_selecionados)
 elif st.session_state.aba_atual == "📺 Dashboard": dashboard.renderizar(df_nuvem, df_codigos, filtros_selecionados)
 elif st.session_state.aba_atual == "🎯 Painel de OPs": painel_ops.renderizar()
@@ -424,6 +422,10 @@ elif st.session_state.aba_atual == "📦 Produtos":
     produtos.renderizar()
 elif st.session_state.aba_atual == "📦 Caixas": 
     caixas.renderizar()
+elif st.session_state.aba_atual == "📦 App Conferente":
+    conferencia_estoque.renderizar_app_conferente()
+elif st.session_state.aba_atual == "⚖️ Auditoria de Estoque":
+    conferencia_estoque.renderizar_auditoria_gestor()
 elif st.session_state.aba_atual == "🤖 Pergunte para a IA":
     assistente_ia.renderizar()
 elif st.session_state.aba_atual == "⚙️ Configurações":
@@ -455,3 +457,16 @@ if st.session_state.aba_atual == "📺 Dashboard":
         if st.button("⬅️ Sair do Modo TV", use_container_width=True):
             st.session_state.aba_atual = todas_abas[0] if todas_abas else "🔴 Ao Vivo"
             st.rerun()
+
+# ==========================================
+# BOTÃO DE SAIR GLOBAL NO RODAPÉ DO APLICATIVO
+# ==========================================
+if st.session_state.aba_atual not in ["📺 Dashboard", "👷 Módulo Operador"]:
+    st.markdown("<br><hr style='opacity: 0.2; margin-top: 30px;'><br>", unsafe_allow_html=True)
+    if st.button("🚪 Sair do Sistema", use_container_width=True):
+        st.session_state.clear() 
+        st.session_state['usuario_logado'] = None
+        st.session_state['logout_explicito'] = True 
+        try: st.query_params.clear()
+        except: st.experimental_set_query_params()
+        st.rerun()

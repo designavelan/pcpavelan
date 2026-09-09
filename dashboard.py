@@ -134,6 +134,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
     
     largura_col1 = int(mem_dict.get('dash_largura_col1', 33))
     max_cards_row = int(mem_dict.get('dash_max_cards_row', 7))
+    
+    # --- NOVA VARIÁVEL: Largura dinâmica do gráfico ---
+    largura_grafico = int(mem_dict.get('dash_largura_grafico', 1000))
 
     refresh_segundos = int(cfg.get('ao_vivo_refresh', 60))
     tempo_critico = int(cfg.get('ao_vivo_critico', 15))
@@ -645,7 +648,8 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             perc_op = min(100, (prod_global / meta_global * 100)) if meta_global > 0 else 0
             prefixo_op = ops_numeracao.get(nome_op, "")
             nome_abrev = aplicar_abreviacoes(nome_op, df_abrev, todas_vazias)
-            nome_final = f"{prefixo_op}{nome_abrev}"
+            
+            nome_final = f"{prefixo_op}{nome_abrev} - OP: {qtd_plan}"
             
             html_ops += f"<div style='margin-bottom: 12px;'>"
             html_ops += f"<div style='display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: var(--text-main); margin-bottom: 3px;'><span>📦 {nome_final}</span><span>{perc_op:.1f}% ({int(prod_global)}/{int(meta_global)})</span></div>"
@@ -655,8 +659,10 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
 
     df_desemp = pd.DataFrame()
     ordem_maquinas_chart = []
+    ordem_setores_chart = []
     altura_dinamica_desemp = 150
     df_chart = df_hoje.copy()
+    
     if not df_chart.empty:
         df_chart['das_min'] = df_chart['das'].astype(str).apply(calcular_minutos_str)
         df_chart['as_min'] = df_chart['as_hora'].astype(str).apply(calcular_minutos_str)
@@ -684,35 +690,78 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             
         df_chart['classificacao'] = df_chart.apply(map_class, axis=1)
         
-        tipos_permitidos = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA']
+        minutos_uteis_ate_agora = 0
+        for m in range(0, 1440):
+            if m >= agora_min: break
+            is_t = (m_das_min <= m < m_as_min) or (t_das_min <= m < t_as_min)
+            is_l = (lm_das_min <= m < lm_as_min) or (lt_das_min <= m < lt_as_min)
+            if is_t and not is_l:
+                minutos_uteis_ate_agora += 1
+
+        tipos_permitidos = ['PRODUÇÃO', 'PASSAGEM ADICIONAL', 'RETRABALHO', 'ROTINA', 'PARADA', 'NÃO APONTADO']
         df_desemp = df_chart[df_chart['classificacao'].isin(tipos_permitidos)].groupby(['setor', 'maquina', 'classificacao'])['duracao'].sum().reset_index()
         df_desemp = df_desemp[df_desemp['duracao'] > 0]
         
         if not df_desemp.empty:
+            df_totais = df_desemp.groupby(['setor', 'maquina'])['duracao'].sum().reset_index()
+            novas_linhas = []
+            for _, r in df_totais.iterrows():
+                falta = minutos_uteis_ate_agora - r['duracao']
+                if falta > 0:
+                    novas_linhas.append({
+                        'setor': r['setor'],
+                        'maquina': r['maquina'],
+                        'classificacao': 'NÃO APONTADO',
+                        'duracao': falta
+                    })
+            if novas_linhas:
+                df_desemp = pd.concat([df_desemp, pd.DataFrame(novas_linhas)], ignore_index=True)
+                df_desemp = df_desemp.groupby(['setor', 'maquina', 'classificacao'])['duracao'].sum().reset_index()
+            
             df_desemp['setor_fmt'] = df_desemp['setor'].astype(str).str.title()
-            def maq_formatada_gr(maq_nome, setor_nome):
+            df_desemp['ordem_setor'] = df_desemp['setor'].apply(lambda s: ordem_setores.get(str(s).strip(), 999))
+            
+            def get_ordem_maq(maq_nome, setor_nome):
                 maq_r = df_est_clean[(df_est_clean['setor'].str.upper() == str(setor_nome).upper()) & (df_est_clean['maquina'] == maq_nome)]
-                ordem = int(maq_r.iloc[0].get('ordem_maquina', 99)) if not maq_r.empty else 99
+                return int(maq_r.iloc[0].get('ordem_maquina', 99)) if not maq_r.empty else 99
+            
+            df_desemp['ordem_maquina'] = df_desemp.apply(lambda x: get_ordem_maq(x['maquina'], x['setor']), axis=1)
+            
+            def maq_formatada_gr(maq_nome, ordem):
                 return f"{ordem}: {maq_nome}" if ordem < 99 else maq_nome
-            df_desemp['maquina_fmt'] = df_desemp.apply(lambda x: maq_formatada_gr(x['maquina'], x['setor']), axis=1)
-            df_desemp['maquina_exibicao'] = "[" + df_desemp['setor_fmt'] + "] " + df_desemp['maquina_fmt']
-            df_desemp['total_maq'] = df_desemp.groupby('maquina_exibicao')['duracao'].transform('sum')
+            
+            df_desemp['maquina_exibicao'] = df_desemp.apply(lambda x: maq_formatada_gr(x['maquina'], x['ordem_maquina']), axis=1)
+            
+            def label_y_func(maq_nome, ordem, setor_nome):
+                maq_str = f"{ordem}: {maq_nome}" if ordem < 99 else maq_nome
+                ops = [u['nome'] for u in usuarios_cadastrados if str(u.get('maquina', '')).strip() == str(maq_nome).strip() and str(u.get('setor', '')).strip().upper() == str(setor_nome).strip().upper() and u.get('ativo') == True]
+                op_str = " / ".join(ops) if ops else "Sem Operador"
+                return f"{maq_str}&&👤 {op_str}"
+                
+            df_desemp['label_eixo_y'] = df_desemp.apply(lambda x: label_y_func(x['maquina'], x['ordem_maquina'], x['setor']), axis=1)
+            
+            df_desemp['total_maq'] = df_desemp.groupby(['setor_fmt', 'label_eixo_y'])['duracao'].transform('sum')
             df_desemp['pct'] = (df_desemp['duracao'] / df_desemp['total_maq'] * 100).fillna(0)
             df_desemp['tempo_str'] = df_desemp['duracao'].apply(formatar_minutos)
+            
             def get_label_maq(row):
                 if row['pct'] >= 10: return f"{row['tempo_str']} ({row['pct']:.1f}%)"
                 elif row['pct'] >= 5: return f"{int(round(row['pct']))}%" 
                 return ""
             df_desemp['label_exibicao'] = df_desemp.apply(get_label_maq, axis=1)
             
-            mapa_ordem_barras = {'PRODUÇÃO': 1, 'PASSAGEM ADICIONAL': 2, 'RETRABALHO': 3, 'ROTINA': 4, 'PARADA': 5}
+            mapa_ordem_barras = {'PRODUÇÃO': 1, 'PASSAGEM ADICIONAL': 2, 'RETRABALHO': 3, 'ROTINA': 4, 'PARADA': 5, 'NÃO APONTADO': 6}
             df_desemp['ordem'] = df_desemp['classificacao'].map(mapa_ordem_barras)
             
-            df_desemp = df_desemp.sort_values(by=['total_maq', 'maquina_exibicao', 'ordem'], ascending=[False, True, True])
-            ordem_maquinas_chart = df_desemp[['maquina_exibicao', 'total_maq']].drop_duplicates().sort_values('total_maq', ascending=False)['maquina_exibicao'].tolist()
-            df_desemp['cum_duracao'] = df_desemp.groupby('maquina_exibicao')['duracao'].cumsum()
+            df_desemp = df_desemp.sort_values(by=['ordem_setor', 'setor_fmt', 'ordem_maquina', 'label_eixo_y', 'ordem'], ascending=[True, True, True, True, True])
+            
+            ordem_maquinas_chart = df_desemp['label_eixo_y'].drop_duplicates().tolist()
+            ordem_setores_chart = df_desemp['setor_fmt'].drop_duplicates().tolist()
+            
+            df_desemp['cum_duracao'] = df_desemp.groupby(['setor_fmt', 'label_eixo_y'])['duracao'].cumsum()
             df_desemp['midpos'] = df_desemp['cum_duracao'] - (df_desemp['duracao'] / 2)
-            altura_dinamica_desemp = max(150, len(ordem_maquinas_chart) * 60)
+            
+            altura_dinamica_desemp = max(150, len(ordem_maquinas_chart) * 75)
 
     ctx = {
         'perc_rodando': perc_rodando, 'qtd_rodando': qtd_rodando, 'total_maq_atual': total_maq_atual,
@@ -723,8 +772,9 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
         'produtos_para_exibir': produtos_para_exibir, 'html_ops': html_ops,
         'setores_ordenados': setores_ordenados, 'mapa_visual_dict': mapa_visual_dict,
         'html_ultimas_pecas_setor': html_ultimas_pecas_setor, 'cards_exibicao': cards_exibicao,
-        'df_desemp': df_desemp, 'ordem_maquinas_chart': ordem_maquinas_chart, 'altura_dinamica_desemp': altura_dinamica_desemp,
+        'df_desemp': df_desemp, 'ordem_maquinas_chart': ordem_maquinas_chart, 'ordem_setores_chart': ordem_setores_chart, 'altura_dinamica_desemp': altura_dinamica_desemp,
         'lista_js_timers': lista_js_timers, 'max_cards_row': max_cards_row,
+        'largura_grafico': largura_grafico, # --- PASSANDO O VALOR DO SLIDER ---
         'get_color': get_color, 'is_dark': is_dark
     }
 
@@ -750,9 +800,11 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
             nova_largura_col1 = st.slider("Largura da Coluna 1 (%)", min_value=20, max_value=50, value=largura_col1, step=1)
             st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:var(--text-muted);'>A Coluna 2 preencherá os <b>{100 - nova_largura_col1}%</b> restantes.</div>", unsafe_allow_html=True)
         with c_layout2:
-            st.markdown("#### ⏱️ Cronômetros de Parada")
+            st.markdown("#### ⏱️ Cards & Gráfico")
             nova_max_cards = st.slider("Limite Máximo de Cards por Linha", min_value=4, max_value=10, value=max_cards_row, step=1)
-            st.markdown(f"<div style='margin-top:-10px; font-size:12px; color:var(--text-muted);'>O sistema usará matemática para distribuir o excedente.</div>", unsafe_allow_html=True)
+            # --- NOVO SLIDER PARA O GRÁFICO (PARA CORRIGIR A TELA DE TV) ---
+            nova_largura_grafico = st.slider("Largura do Gráfico de Desempenho (px)", min_value=500, max_value=3000, value=largura_grafico, step=50)
+            
         with c_layout3:
             st.markdown("#### 🌗 Tema Visual")
             st.markdown(f"<div style='font-size:12px; color:var(--text-muted); margin-top:-10px; margin-bottom: 5px;'>Salvo para: <b>{usuario_logado.get('nome', 'Usuário')}</b></div>", unsafe_allow_html=True)
@@ -778,6 +830,7 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                     upsert_memoria("ordem_dash_col2", ",".join(n_ordem_c2))
                     upsert_memoria("dash_largura_col1", str(nova_largura_col1))
                     upsert_memoria("dash_max_cards_row", str(nova_max_cards))
+                    upsert_memoria("dash_largura_grafico", str(nova_largura_grafico)) # Salva a largura
                     
                     username_atual = usuario_logado.get('username')
                     if username_atual:
@@ -819,7 +872,6 @@ def renderizar(df_nuvem, df_codigos, filtros_selecionados):
                         const s = Math.floor((distance % 60000) / 1000);
                         const tel = window.parent.document.getElementById("timer_" + p.id);
                         
-                        // NOVA LÓGICA DO CRONÔMETRO: Oculta as horas se for zero e retira zero à esquerda dos minutos
                         if (tel) {{
                             if (h > 0) {{
                                 tel.innerHTML = h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
